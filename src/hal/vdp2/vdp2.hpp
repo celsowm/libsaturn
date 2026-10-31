@@ -36,6 +36,7 @@ uint16_t read_tvstat();
 /* After init: 320, 352, 640 or 704. 640/704 are the hi-res modes whose
  * VDP1 framebuffer is 8 bits/pixel (sprite type C). */
 void set_horizontal_resolution(uint16_t width);
+void set_double_interlace(bool enabled);
 bool hires();
 /* The VDP1 framebuffer holds 8 bit palette codes (rotation mode): sprite type C, like hi-res. */
 void set_sprite_fb8(bool on);

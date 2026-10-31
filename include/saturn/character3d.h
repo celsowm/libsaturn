@@ -40,6 +40,14 @@ sat_result_t sat_character_asset_load(const char* logical_path,
 sat_result_t sat_character_clip_load(const char* logical_path, uint16_t clip_index,
     sat_skeleton_pose_joint_t* poses, uint32_t pose_capacity,
     sat_clip_event_t* events, uint16_t event_capacity, sat_skeleton_clip_t* out);
+/* Move a decoded asset to `storage` without its texture pixels and table, which
+ * nothing reads once they are uploaded (about 70% of a textured archive). Every
+ * view is rebased and model.textures becomes NULL, so upload first; the archive
+ * header inside no longer describes the tables, so the result cannot be decoded
+ * again. The old storage is free afterwards; the two must not overlap.
+ * out_bytes is optional. */
+sat_result_t sat_character_asset_compact(sat_character_asset_t* asset,
+    void* storage, uint32_t capacity, uint32_t* out_bytes);
 /* Releases the borrowed view; stop workers and destroy texture handles first.
  * Does not free caller memory, reset the global asset cache or other views. */
 void sat_character_asset_release(sat_character_asset_t* asset);

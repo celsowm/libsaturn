@@ -166,6 +166,16 @@ typedef struct sat_vdp2_rotation_config {
  * caller sets the banks and addresses. */
 void sat_vdp2_rotation_config_default(sat_vdp2_rotation_config_t* out_config);
 
+/* Managed RBG0 bitmap, alongside NBG layers. The bitmap is 512x256 or
+ * 512x512; its address is 0x20000 aligned. palette selects the upper
+ * three palette-number bits, as in the cell configuration. */
+typedef struct sat_vdp2_rotation_bitmap_config {
+    uint8_t color_mode, height_512, priority, transparent;
+    uint8_t palette, over, coefficients, coefficient_mode;
+    uint32_t bitmap_address, table_address;
+} sat_vdp2_rotation_bitmap_config_t;
+sat_result_t sat_vdp2_rotation_bitmap_configure(const sat_vdp2_rotation_bitmap_config_t* config);
+
 sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_config_t* config);
 /* Hides RBG0 and gives its banks back to the NBGs. */
 sat_result_t sat_vdp2_rotation_release(void);

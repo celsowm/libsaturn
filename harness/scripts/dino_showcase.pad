@@ -1,0 +1,27 @@
+# Dino showcase capture (~60 s at 60 fields/s). Frames are emulated frames.
+# Controls: L/R orbit, UP/DOWN pitch, X/Y zoom, C auto orbit, RIGHT roar,
+# LEFT walk, B replay entrance. Any camera input ends the entrance early,
+# so the first move waits for it to finish.
+0    NONE    # entrance: walks in from the dark under the red light
+600  X       # push in close
+612  NONE
+780  R       # orbit to the side
+1020 NONE
+1080 UP      # look down from above
+1110 NONE
+1200 L       # orbit back around the other way
+1560 NONE
+1620 DOWN    # low, heroic angle
+1644 NONE
+1740 RIGHT   # roar
+1748 NONE
+2040 Y       # pull back out
+2076 NONE
+2160 C       # slow automatic orbit
+2168 NONE
+2880 LEFT    # back to the walk
+2888 NONE
+2760 C       # stop orbit
+2768 NONE
+3060 B       # reset camera and replay the entrance
+3068 NONE

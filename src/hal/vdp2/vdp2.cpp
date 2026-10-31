@@ -490,6 +490,8 @@ void init_ntsc_320x224() {
     g_last_prisa_written = 0x0606u;
     PRINA = static_cast<uint16_t>((PRINA & 0xFFF8u) | 0x0001u);
     g_last_nbg0_prina_written = PRINA;
+    /* sat_exec clears VDP2, so the BIOS's value cannot be assumed here. */
+    SPCTL = sprite_type_bits();
 
     reset_color_ops();
 
@@ -512,6 +514,11 @@ void set_horizontal_resolution(uint16_t width) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_cram_banks.craofb;
     }
+}
+
+void set_double_interlace(bool enabled) {
+    /* VDP2 manual 2.4: LSMD=11 doubles the 224-line field to 448 lines. */
+    TVMD = static_cast<uint16_t>((TVMD & ~0x00C0u) | (enabled ? 0x00C0u : 0u));
 }
 
 bool hires() {
@@ -1132,6 +1139,7 @@ void rot_write_all(bool may_write_table) {
     const rot::Registers r = rot::compose(g_rot);
     merge_reg(0x00Eu, 0x00FFu, r.ramctl_rdbs);
     merge_reg(kOffChctlb, 0x7F00u, r.chctlb);
+    merge_reg(0x02Eu, 0x0007u, r.bmpnb);
     set_reg(0x038u, r.pncr);
     merge_reg(kOffPlsz, 0x0F00u, r.plsz);
     merge_reg(0x03Eu, 0x0007u, r.mpofr);

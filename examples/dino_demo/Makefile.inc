@@ -1,3 +1,6 @@
+# Playback tuning for the recovered PS1 walk; Roar keeps its source timing.
+DINO_WALK_SPEED_PERCENT ?= 140
+CFLAGS += -DDINO_WALK_SPEED_PERCENT=$(DINO_WALK_SPEED_PERCENT)
 DINO_PIPELINE_METRICS ?= 0
 CFLAGS += -DDINO_PIPELINE_METRICS=$(DINO_PIPELINE_METRICS)
 DINO_PROFILE_HUD ?= 0
@@ -6,6 +9,9 @@ DINO_PROJECTED_FACE_QUEUE ?= 1
 CFLAGS += -DDINO_PROJECTED_FACE_QUEUE=$(DINO_PROJECTED_FACE_QUEUE)
 DINO_BENCH_PAUSED ?= 0
 CFLAGS += -DDINO_BENCH_PAUSED=$(DINO_BENCH_PAUSED)
+# 1 = credit line only, no counters or help (for video capture).
+DINO_SHOWCASE_HUD ?= 0
+CFLAGS += -DDINO_SHOWCASE_HUD=$(DINO_SHOWCASE_HUD)
 # Qualified native-memory placement; zero retains each independent Low control.
 DINO_HIGH_MATERIAL_PROGRAMS ?= 1
 DINO_HIGH_TEXTURE_DESCRIPTORS ?= 1
@@ -16,9 +22,11 @@ CFLAGS += -DDINO_HIGH_MATERIAL_PROGRAMS=$(DINO_HIGH_MATERIAL_PROGRAMS) \
 DINO_LOADING_SCREEN ?= 1
 CFLAGS += -DDINO_LOADING_SCREEN=$(DINO_LOADING_SCREEN)
 #
-# T-Rex source: examples/dino_demo/assets/trex_walking_seamless.glb.
+# Original OBJ surface and recovered Walk: tools/bake_ps1_dino_walk.py
+# --original-topology. The Blender reconstruction supplies approximate Roar.
+# The former reduced mesh remains archived.
 # The GLB and its compiled model are attributed in assets/LICENSE.txt.
-MODEL_GLB                := examples/$(EXAMPLE)/assets/trex_walking_seamless.glb
+MODEL_GLB                := examples/$(EXAMPLE)/assets/ps1_trex_saturn_original_walk.glb
 MODEL_OUT_PREFIX         := $(GENERATED_DIR)/$(EXAMPLE)/trex_model
 MODEL_SYMBOL             := trex
 MODEL_SCALE              := 1.0
@@ -26,14 +34,16 @@ MODEL_TEXTURE_SCALE      := 1.0
 MODEL_PALETTE_INDEX      := 1
 MODEL_MAX_TEXTURE_WIDTH  := 504
 MODEL_MAX_TEXTURE_HEIGHT := 255
-MODEL_SIMPLIFY           := 2140
-MODEL_QUALITY            := balanced
-MODEL_ANIMATION          := all
-MODEL_ANIMATION_FPS      := 15
+MODEL_SIMPLIFY           := off
+MODEL_QUALITY            := aggressive
+MODEL_ANIMATION          := Walk,Roar
+# Keep the original 32 Walk samples and the reconstructed 20-sample Roar.
+MODEL_ANIMATION_FPS      := source
 MODEL_FACE_COLORS        := off
-MODEL_LIGHT_DIR          := -0.5,0.6,0.8
+MODEL_TEXTURE_LIGHTING   := baked-smooth
+MODEL_LIGHT_DIR          := 0.48,0.70,0.52
 MODEL_AMBIENT            := 0.30
-MODEL_DIFFUSE            := 0.85
+MODEL_DIFFUSE            := 1.35
 MODEL_MAX_POSE_STREAM_BYTES := 786432
 MODEL_HUD_RESERVE        := 64
 # Adjacent triangle pairs draw as one VDP1 quad: fewer commands, and no
@@ -41,9 +51,6 @@ MODEL_HUD_RESERVE        := 64
 # texture scale above.
 MODEL_MERGE_QUADS        := on
 MODEL_QUAD_MAX_FOLD_DEG  := 40
-# The 46 solid-colour teeth and claws hold a third of the source triangles
-# but cover a few pixels each; spend the budget on the textured body.
-MODEL_MATERIAL_WEIGHTS   := 01_-_Default=0.02
 # 4-bit texels with a 15-color lookup table per face: half the VRAM of one
 # shared 256-color bank, and each face's colors fit its own patch.
 MODEL_TEXTURE_FORMAT     := lut4
@@ -55,22 +62,28 @@ MODEL_WELD_VERTICES      := on
 MODEL_LOCALITY_ORDER     := on
 # The VDP1 samples texels nearest-neighbour with no mipmapping, so a face
 # baked with more texels than it covers on screen turns the skin into speckle
-# noise. Cap each face at its size when the T-Rex spans ~400 pixels (default
-# view ~260, max zoom ~570) and box-filter the source down to that.
+# noise. Cap each face at its size when the T-Rex spans ~540 pixels (side
+# view; the default frontal entrance has a narrower silhouette) and box-filter the source down to that.
 MODEL_SAMPLING           := area
-# The demo always runs 640x224 hi-res. The VDP1 framebuffer is then 8
+# The demo runs 640x448 double-density interlaced hi-res. The VDP1 framebuffer is then 8
 # bits/pixel, so lookup tables hold codes of one shared palette (0
 # transparent, 1 the HUD's white, 254 the sprite shadow code), and faces bake
 # more texels for the doubled horizontal resolution.
 MODEL_LUT_CODES          := 2-253
-MODEL_TEXEL_EXTENT       := 480
+MODEL_TEXEL_EXTENT       := 540
 EXAMPLE_ASSETS           := $(MODEL_OUT_PREFIX).c
 EXAMPLE_HEADERS           := $(MODEL_OUT_PREFIX).h
 
-# Declare a CD-backed music stream. The shared build converts its source to
-# blocked IMA ADPCM and generates the matching metadata header automatically.
+# The user-selected Demo 1 reference plays as CD-DA; legacy arrangements stay
+# available explicitly. The reference source is already YouTube-encoded.
+DINO_MUSIC_CDDA ?= 1
 DINO_MUSIC_68K ?= 1
-ifeq ($(DINO_MUSIC_68K),1)
+CFLAGS += -DDINO_MUSIC_CDDA=$(DINO_MUSIC_CDDA)
+ifeq ($(DINO_MUSIC_CDDA),1)
+# Decode the entire reference without an additional lossy encode, on track 2.
+EXAMPLE_CDDA_INPUT := examples/$(EXAMPLE)/audio-src/ps1_demo1_reference.m4a
+CFLAGS += -DDINO_MUSIC_68K=0
+else ifeq ($(DINO_MUSIC_68K),1)
 CFLAGS += -DDINO_MUSIC_68K=1
 EXAMPLE_AUDIO_STREAMS := dino_drone dino_figure dino_impact dino_signal
 else

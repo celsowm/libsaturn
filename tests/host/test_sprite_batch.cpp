@@ -280,6 +280,20 @@ int main() {
             }
         }
         OK(copy_commands(src.data(), dst.data(), 0u) == 0u);
+        /* All eight jump modes, both VRAM banks, and a shared root: only
+         * ASSIGN/CALL link addresses change, including SKIP variants. */
+        for (uint32_t base : {32u, 65568u}) {
+            for (uint32_t jp = 0u; jp < 8u; ++jp) {
+                uint32_t command[8] = {(jp << 28u) | 0x00040014u, 0x00C00002u,
+                    0x12345678u, 0x23456789u, 0x3456789Au, 0x456789ABu, 0x56789ABCu, 0u};
+                uint32_t bank[8] = {};
+                saturn::hal::vdp1::submit_copy::copy_commands_relocated(command, bank, 1u, base);
+                const bool linked = (jp & 3u) == 1u || (jp & 3u) == 2u;
+                OK(bank[0] == (command[0] + (linked ? base / 8u : 0u)));
+                for (uint32_t w = 1u; w < 8u; ++w) OK(bank[w] == command[w]);
+                OK(command[0] == ((jp << 28u) | 0x00040014u));
+            }
+        }
     }
 
     std::puts("sprite batch: OK");

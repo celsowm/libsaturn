@@ -1,0 +1,69 @@
+{
+  "purpose": "Controlled renderer comparison, not untouched gameplay or hardware benchmarking",
+  "controlled_app_sha256": "410335409ed29da760f7fc41a039c68300a68aa6ad17454a4f4719aca215c9c8",
+  "production_app_sha256": "702f795634f76f3ef1a059b58ae36758a6ff5dbed6fbaad48babb284a33bc5c3",
+  "pose_control": "Same recovered Walk coordinates; independent jaw/roar channels excluded on both sides",
+  "ps1_buffer_pixel_differences": {
+    "ps1_270_00.vram": 0,
+    "ps1_270_08.vram": 0,
+    "ps1_270_16.vram": 0,
+    "ps1_270_24.vram": 0,
+    "ps1_0_00.vram": 0,
+    "ps1_0_08.vram": 0,
+    "ps1_0_16.vram": 0,
+    "ps1_0_24.vram": 0
+  },
+  "camera_checks": {
+    "90": {
+      "max_display_pixel_deviation": 0.02027220172556099,
+      "mean_display_pixel_deviation": 0.009735611757350956,
+      "source_vertices": 1376,
+      "walk_poses": 32
+    },
+    "0": {
+      "max_display_pixel_deviation": 0.0002787792375045228,
+      "mean_display_pixel_deviation": 8.856655212821318e-05,
+      "source_vertices": 1376,
+      "walk_poses": 32
+    }
+  },
+  "camera_check_scope": "Ideal vertex projection before GTE reciprocal/raster rounding and Saturn pose quantization; edge coordinates, not image error",
+  "image_transforms": "PS1 horizontal reflection; full viewports mapped to 640x480 with nearest sampling; no color edits, smoothing or silhouette rescaling",
+  "cadence": {
+    "ps1_cycle_seconds": 0.9551217884551219,
+    "saturn_nominal_cycle_seconds": 0.9523773193359376,
+    "saturn_estimated_cycle_seconds_from_field_samples": 0.9506134561722117,
+    "saturn_clock_rate_per_display_second": 1.399820256026938,
+    "nominal_cycle_difference_percent": -0.2873423214041937,
+    "saturn_scene_updates_per_second_in_sample": 25.142857142857142,
+    "ps1_guest_updates_per_second_from_cycle": 33.5035807860262,
+    "scope": "Emulator observations; animation period and program update rate are different metrics. Saturn sample is the unmodified front view, fields 600..810."
+  },
+  "input_sha256": {
+    "ps1_270_00.vram": "f38436fff58fcb72fecec415dc7e3a05fd2fb52f212fbdf74afb9d28dd3b9fa9",
+    "saturn_90_00.png": "28c4ea5c9f6a5654f09675ab76ff554adbe53d2658525851390c4f0d95c70792",
+    "ps1_270_08.vram": "ddc2308a72dc66165bf3903b3daa273a55fc70538f813fd9df523c7dc37c2e14",
+    "saturn_90_08.png": "47601d86ad8ecab98f991d41e6feeffad2cda3cb4033a4979f30b3c186325290",
+    "ps1_270_16.vram": "60705a4f5b74549ad0b1202380470d728acaf122da215a5e5afcfd400f7484dc",
+    "saturn_90_16.png": "4547eff3f3b6ecd823c3c4ab9974f8920f161c2ddff32a50955ea5c6e39bd942",
+    "ps1_270_24.vram": "ee1be81522802d745c8ac6591f94c2e2ee3c52494c5c18cf6d70a5ad6aa07440",
+    "saturn_90_24.png": "962a090d8118235d296091c0dc96398078bb3892b097983cc3846e3bae955308",
+    "ps1_0_00.vram": "b186768b1554760a0490baa1c87066051cc96c5d84c931975400a0fb10f9fbfd",
+    "saturn_0_00.png": "78e3209bf82adea402d57010eedd5b9a4c92a366b92a5318d6ba2dc97c67049b",
+    "ps1_0_08.vram": "f6e68c3740ab7b1c64987ed1d26a3c0a2b549ddb0f419b4b7f9774fed27e6284",
+    "saturn_0_08.png": "42f4aa72b8b38bceab1a6e06048d3abf18c3041fe2035a0385801f9a04cf44ef",
+    "ps1_0_16.vram": "509151a29f66aa2b392021b575b2030dd7b06be22a6625d0258f677a3d8a6b79",
+    "saturn_0_16.png": "317f16842df832d02b0110dd54a5e06d954c0e49bd2c39f31561de66c3e73699",
+    "ps1_0_24.vram": "c01224b2c7b82272bbe08a1b6f23477e59fed4bce302c4bbb8c4ca5225b9c34d",
+    "saturn_0_24.png": "527ccd6d95d93753707f71f6b19f4d0649c854a68016a061f033e483e5cecee8"
+  },
+  "outputs": {
+    "profile": "harness/build/dino_fair_comparison/profile-four-poses.png",
+    "front": "harness/build/dino_fair_comparison/front-four-poses.png"
+  },
+  "limitations": [
+    "Different scene backgrounds and lighting are preserved.",
+    "Frozen poses do not assess motion combing or displayed frame pacing.",
+    "No physical hardware measurements."
+  ]
+}

@@ -9,9 +9,9 @@
  *     generated C/H -> upload once -> per-frame pose decode (Slave SH-2)
  *     -> sat_scene_t textured path -> VDP1 distorted sprites.
  *
- * The viewer itself is generic: the orbit target comes from the baked pose
- * range in the animation encoding (no per-asset magic coordinates), textures are
- * uploaded once at startup, and every frame only advances animation time,
+ * Bounds from the baked poses supply orbit/clip limits; the initial camera
+ * is calibrated to the original PS1 Dino's framing. Textures are uploaded
+ * once at startup, and every frame only advances animation time,
  * decodes one pose into caller-owned vertices, orbits the camera, and
  * submits the mesh with backface culling + painter sorting.
  *
@@ -23,7 +23,7 @@
  * single colour (teeth and claws) draw as plain polygons: same look, no
  * texture fetch.
  *
- * It runs 640x224 hi-res: VDP1 writes 8-bit palette codes, the model's
+ * It runs 640x448 hi-res: VDP1 writes 8-bit palette codes, the model's
  * lookup tables hold codes of one shared palette, and a solid face's
  * "colour" is its palette code.
  *
@@ -31,6 +31,7 @@
  *   L / R      orbit yaw around the model
  *   UP/DOWN    orbit pitch (clamped)
  *   X / Y      zoom in / zoom out
+ *   LEFT/RIGHT select reconstructed walk/roar
  *   A          pause/resume animation
  *   B          reset yaw, pitch, zoom and animation
  *   C          toggle automatic slow orbit
@@ -75,7 +76,7 @@
 #include "example_util.h"
 
 #ifndef DINO_FRAME_ON_SUBMIT
-#define DINO_FRAME_ON_SUBMIT 1
+#define DINO_FRAME_ON_SUBMIT 0
 #endif
 
 #ifndef DINO_LOADING_SCREEN
@@ -84,6 +85,9 @@
 
 #ifndef DINO_MUSIC_68K
 #define DINO_MUSIC_68K 0
+#endif
+#ifndef DINO_MUSIC_CDDA
+#define DINO_MUSIC_CDDA 0
 #endif
 #ifndef DINO_HIGH_MATERIAL_PROGRAMS
 #define DINO_HIGH_MATERIAL_PROGRAMS 1
@@ -95,30 +99,55 @@
 #error "DINO_PROFILE_HUD requires DINO_PIPELINE_METRICS=1"
 #endif
 
-#if !DINO_MUSIC_68K
+#if DINO_MUSIC_CDDA
+#include "music_cdda.h"
+#elif !DINO_MUSIC_68K
 #include "dino_demo/audio_bone_and_plastic.h"
 #else
 #include "music_68k.h"
 #endif
 #include "dino_demo/trex_model.h"
 
-/* The demo runs the 640x224 hi-res mode: twice the horizontal pixels, 8-bit
- * VDP1 output indexing the model's one shared palette. The display is still
- * 4:3, so projection keeps the 320-wide aspect and only the viewport
- * doubles. */
+/* 640x448 double-density interlace, with an indexed 8-bit VDP1 framebuffer.
+ * HUD axes double; the model projection is calibrated to the PS1 display. */
 #define SCREEN_W 640
 #define DISPLAY_ASPECT_W 320
 #define HUD_X(x) ((x) * SCREEN_W / DISPLAY_ASPECT_W)
-#define SCREEN_H 224
-#define MODEL_START_YAW_DEG 90
+#define SCREEN_H 448
+#define MODEL_START_YAW_DEG 0
+
+/* Original Dino's default view, observed with view_position=(0,0,-40000).
+ * GTE H=1000, X/Z scale=4098/4096, Y scale=1/2, translation Z=42019.
+ * These Q16 FOV/aspect values calibrate the shared fixed-point perspective
+ * to Pxx=3.125 and Pyy~=4.164633 at the same 4:3 display aspect. The target
+ * is the original TMD origin expressed in the unchanged source GLB basis. */
+#define PS1_CAMERA_FOV_Y ((sat_fx16_t)1757444)
+#define PS1_CAMERA_ASPECT ((sat_fx16_t)87340)
+#define PS1_CAMERA_DISTANCE ((sat_fx16_t)688103)
+#define PS1_CAMERA_TARGET_Y ((sat_fx16_t)120521)
+#define PS1_CAMERA_TARGET_Z ((sat_fx16_t)103396)
+
+/* Default/B-reset distance as a percentage of the calibrated PS1 distance.
+ * Closer than the measured endpoint so the model fills more of the screen. */
+#ifndef DINO_DEFAULT_ZOOM_PERCENT
+#define DINO_DEFAULT_ZOOM_PERCENT 75
+#endif
+_Static_assert(DINO_DEFAULT_ZOOM_PERCENT >= 40 && DINO_DEFAULT_ZOOM_PERCENT <= 200,
+    "Default zoom must be within 40..200 percent of the PS1 distance");
+
+#ifndef DINO_WALK_SPEED_PERCENT
+#define DINO_WALK_SPEED_PERCENT 140
+#endif
+_Static_assert(DINO_WALK_SPEED_PERCENT > 0 && DINO_WALK_SPEED_PERCENT <= 400,
+    "Walk playback speed must be within 1..400 percent");
 
 #define FONT_PALETTE 0u
 
 #define MODEL_VERTEX_CAP TREX_VERTEX_COUNT
 #define MODEL_FACE_CAP TREX_FACE_COUNT
 #define MODEL_TEXTURE_CAP TREX_TEXTURE_COUNT
-_Static_assert(MODEL_FACE_CAP == 1499u,
-    "Recheck the dino jaw face mask after changing the imported mesh");
+enum { DINO_CLIP_WALK = 0, DINO_CLIP_ROAR = 1 };
+_Static_assert(TREX_ANIMATION_COUNT == 2u, "Expected Walk,Roar clips");
 
 /* Frame scratch and upload handles are writable, zero-initialized data.
  * The large face records live in WRAM-L so the baked model tables and
@@ -142,11 +171,14 @@ _Static_assert(MODEL_FACE_CAP == 1499u,
 
 static sat_ascii_font_t g_font DINO_WRAM_L;
 static sat_scene3d_instance_t g_instance DINO_WRAM_L;
+static sat_mat4_t g_dino_world DINO_WRAM_L;
+static uint32_t g_intro_start DINO_WRAM_L;
+static uint32_t g_intro_active DINO_WRAM_L;
+static uint32_t g_intro_gain DINO_WRAM_L;
 
 /* Two pose buffers: the Master draws one while the Slave decodes the next. */
 static sat_vec3_t g_pose[2][MODEL_VERTEX_CAP];
 static uint16_t g_mesh_indices[MODEL_FACE_CAP * 4u] DINO_WRAM_L;
-static uint8_t g_double_sided_faces[MODEL_FACE_CAP] DINO_WRAM_L;
 static sat_mesh_t g_mesh DINO_WRAM_L;
 static sat_vdp1_texture_t g_model_textures[MODEL_TEXTURE_CAP] DINO_TEXTURE_RAM;
 static sat_projected_vertex_t g_mesh_screen[MODEL_VERTEX_CAP];
@@ -167,6 +199,8 @@ static uint16_t g_half_first[2] DINO_WRAM_L;
 /* Slave half: its own projection scratch and prepared-face storage, merged
  * into g_scene after the task completes. */
 static sat_projected_vertex_t g_slave_screen[MODEL_VERTEX_CAP];
+static sat_vec3_t g_master_world[MODEL_VERTEX_CAP] DINO_WRAM_L;
+static sat_vec3_t g_slave_world[MODEL_VERTEX_CAP] DINO_WRAM_L;
 static sat_scene3d_face_t g_slave_faces[SLAVE_FACES] DINO_WRAM_L;
 static uint32_t g_slave_keys[SLAVE_FACES];
 static sat_scene3d_prepare_item_t g_slave_item DINO_WRAM_L;
@@ -193,14 +227,16 @@ static int g_job_pending DINO_WRAM_L;
 static uint8_t g_pose_read DINO_WRAM_L;
 static uint16_t g_render_faces DINO_WRAM_L;
 static uint16_t g_vdp1_commands DINO_WRAM_L;
+#if !DINO_MUSIC_CDDA
 static uint32_t g_music_underruns DINO_WRAM_L;
 static uint32_t g_music_events DINO_WRAM_L;
 static uint32_t g_music_loops DINO_WRAM_L;
+#endif
 
 static sat_cd_block_t g_cd_block;
 static sat_cd_device_t g_cd_device;
 static sat_cdfs_volume_t g_cd_volume;
-#if !DINO_MUSIC_68K
+#if !DINO_MUSIC_68K && !DINO_MUSIC_CDDA
 static sat_cdfs_file_source_t g_music_source;
 static sat_cdfs_source_desc_t g_music_source_desc;
 static sat_asset_desc_t g_music_asset_desc;
@@ -301,7 +337,7 @@ static void loading_step(uint32_t done) {
 #endif
 }
 
-#if DINO_MUSIC_68K
+#if DINO_MUSIC_68K && !DINO_MUSIC_CDDA
 /* The sample files take most of the load (CD reads): 40..95 of the bar. */
 static void music_progress(void* context, uint32_t done, uint32_t total) {
     (void)context;
@@ -317,7 +353,12 @@ static sat_result_t init_music(void) {
         &g_cd_block, service_audio_during_cd, 0, &g_cd_device, 0u, &g_cd_volume);
     if (st != SAT_OK) return st;
 
-#if DINO_MUSIC_68K
+#if DINO_MUSIC_CDDA
+    st = dino_music_cdda_start(&g_cd_block);
+    if (st != SAT_OK) return st;
+    g_music_ready = 1;
+    return SAT_OK;
+#elif DINO_MUSIC_68K
     st = dino_music_68k_start(&g_cd_volume, music_progress, 0);
     if (st != SAT_OK) return st;
     g_music_ready = 1;
@@ -355,8 +396,13 @@ static sat_result_t init_music(void) {
 }
 
 static void update_music(void) {
+#if !DINO_MUSIC_CDDA
     sat_result_t st;
-#if DINO_MUSIC_68K
+#endif
+#if DINO_MUSIC_CDDA
+    if (!g_music_ready || g_music_error != SAT_OK) return;
+    g_music_error = dino_music_cdda_status();
+#elif DINO_MUSIC_68K
     sat_sound_driver_info_t info;
     if (!g_music_ready || g_music_error != SAT_OK) return;
     st = sat_sound_driver_info(&info);
@@ -450,8 +496,9 @@ static void update_camera_from_inputs(const sat_pad_state_t* pad) {
         g_show_hud=!g_show_hud;
     if((pad->pressed&SAT_PAD_B)!=0u) {
         g_orbit.yaw_deg = MODEL_START_YAW_DEG;
+        g_orbit.pitch_deg = 0;
         note(sat_orbit_camera3d_update(&g_orbit));
-        note(sat_anim_reset(&g_anim));
+        note(sat_anim_set_clip(&g_anim, &trex_anim_asset, DINO_CLIP_WALK));
         sat_anim_set_paused(&g_anim,0);
     }
 }
@@ -459,7 +506,24 @@ static void update_animation_from_inputs(const sat_pad_state_t *pad) {
     if ((pad->pressed & SAT_PAD_A) != 0u) {
         sat_anim_set_paused(&g_anim, !sat_anim_is_paused(&g_anim));
     }
-    note(sat_anim_advance(&g_anim, &trex_anim_asset, vblank_dt()));
+    if ((pad->pressed & SAT_PAD_RIGHT) != 0u) {
+        note(sat_anim_set_clip(&g_anim, &trex_anim_asset, DINO_CLIP_ROAR));
+    }
+    if ((pad->pressed & SAT_PAD_LEFT) != 0u) {
+        note(sat_anim_set_clip(&g_anim, &trex_anim_asset, DINO_CLIP_WALK));
+    }
+    sat_fx16_t dt = vblank_dt();
+    if (g_anim.clip == DINO_CLIP_WALK) {
+        dt = (sat_fx16_t)(((int64_t)dt * DINO_WALK_SPEED_PERCENT) / 100);
+    } else {
+        /* The reconstructed roar returns to its starting pose, so the
+         * importer may classify it as a loop. Play it once and hold. */
+        const sat_fx16_t end = sat_anim_clip_duration(
+            &trex_anim_asset, DINO_CLIP_ROAR) - 1;
+        const sat_fx16_t remaining = end > g_anim.time ? end - g_anim.time : 0;
+        if (dt > remaining) dt = remaining;
+    }
+    note(sat_anim_advance(&g_anim, &trex_anim_asset, dt));
 }
 
 /* Waits for a Slave task and reports whether it completed. A task still
@@ -543,7 +607,7 @@ static void submit_model(void) {
     if (slave_pending) ++g_dino_diagnostics.geometry_submitted;
 
     note(sat_scene_submit_instance(&g_scene, &g_half[0],
-        SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, NULL));
+        SAT_SCENE3D_SLOT_INHERIT, g_mesh_screen, g_master_world));
     PIPELINE_END(master_geometry, master_start);
     if (slave_pending) {
 #if DINO_PIPELINE_METRICS
@@ -574,7 +638,7 @@ static void submit_model(void) {
     }
     if (!slave_done) {
         note(sat_scene_submit_instance(&g_scene, &g_half[1],
-            SAT_SCENE3D_SLOT_INHERIT, g_slave_screen, NULL));
+            SAT_SCENE3D_SLOT_INHERIT, g_slave_screen, g_slave_world));
     }
 }
 
@@ -602,8 +666,7 @@ static uint16_t solid_texture_color(const sat_model_texture_asset_t *t) {
     return first != 0u ? trex_asset.palettes_rgb555[first] : 0u;
 }
 
-/* Hi-res pixels are half as wide, so the HUD font doubles each glyph
- * horizontally (16x8) to keep the text the same size on screen. */
+/* Double both glyph axes (16x16) for the 640x448 interlaced picture. */
 static void init_font(void) {
     uint16_t palette[256] = {0};
     uint16_t glyph;
@@ -612,28 +675,24 @@ static void init_font(void) {
     palette[1] = SAT_COLOR_WHITE;
     for (glyph = 0u; glyph < SAT_ASCII_FONT_GLYPH_COUNT; ++glyph) {
         uint8_t tall[16u * 16u] = {0};
-        uint8_t wide[16u * 8u];
-        uint16_t i;
 
         sat_example_must(sat_font_pack_8x8_glyph_indexed8(tall, 16u, 16u, 0u, 0u,
             sat_font_ascii_8x8_rows((char)(glyph + 32u)), 2u));
-        for (i = 0u; i < 16u * 8u; ++i) {
-            wide[i] = tall[(i / 16u) * 32u + (i % 16u)];
-        }
-        sat_example_must(sat_tex_upload_indexed8(&g_font.glyphs[glyph], wide,
-            16u, 8u, palette, FONT_PALETTE));
+        sat_example_must(sat_tex_upload_indexed8(&g_font.glyphs[glyph], tall,
+            16u, 16u, palette, FONT_PALETTE));
     }
 }
 
 static void draw_text(const char *text, int x, int y) {
     sat_result_t st = sat_ascii_font_draw_text_screen_indexed8(
-        &g_font, text, HUD_X(x), y, HUD_X(8), 0, 0);
+        &g_font, text, HUD_X(x), y * 2, HUD_X(8), 0, 0);
     (void)st;
 }
 
 /* Bottom-of-screen credit, on the loading screen and in the demo itself. */
 static void draw_credit(void *context) {
     (void)context;
+    draw_text("DINO ASSET (C) SONY / SCE", 64, 198);
     draw_text("made using celsowm/libsaturn", 48, 210);
 }
 
@@ -655,9 +714,12 @@ static void draw_hud(void) {
 #endif
 
     draw_credit(0);
+#if DINO_SHOWCASE_HUD
+    return;
+#endif
     if (g_show_hud) {
-        draw_text("T-REX WALK  L/R ROT  X/Y ZOOM", 4, 4);
-        draw_text("A PAUSE B RESET C AUTO Z LIGHT", 4, 14);
+        draw_text("LEFT WALK RIGHT ROAR L/R ROT", 4, 4);
+        draw_text("A PAUSE B INTRO C AUTO Z LIGHT", 4, 14);
     } else {
         draw_text("START HELP", 236, 4);
     }
@@ -669,7 +731,9 @@ static void draw_hud(void) {
                           line, sizeof(line), 0) == SAT_OK) {
         draw_text(line, 4, 14 + offset);
     }
-#if DINO_MUSIC_68K
+#if DINO_MUSIC_CDDA
+    draw_text("CD-DA DEMO 1", 4, 24 + offset);
+#elif DINO_MUSIC_68K
     if (sat_fmt_label_u32("68K EVENTS ", g_music_events,
                           line, sizeof(line), 0) == SAT_OK) {
         draw_text(line, 4, 24 + offset);
@@ -724,6 +788,60 @@ static uint16_t g_light_lines[SCREEN_H] DINO_WRAM_L;
 static uint16_t g_light_bell[LIGHT_HALF_HEIGHT] DINO_WRAM_L;
 static int g_light_on DINO_WRAM_L;
 
+/* Walk toward the fixed light/camera from behind the viewing target.
+ * The model faces +Z. Palette gain supplies distance darkness in hi-res,
+ * where VDP1 RGB/Gouraud shading is unavailable. Keep the HUD code white. */
+static void intro_palette(uint32_t gain) {
+    uint16_t palette[256];
+    for (uint32_t i = 0u; i < 256u; ++i) {
+        const uint16_t color = trex_asset.palettes_rgb555[i];
+        const uint32_t r = (color & 31u) * gain / 256u;
+        const uint32_t g = ((color >> 5) & 31u) * gain / 256u;
+        const uint32_t b = ((color >> 10) & 31u) * gain / 256u;
+        palette[i] = (uint16_t)((color & 0x8000u) | SAT_RGB555(r, g, b));
+    }
+    palette[1] = SAT_COLOR_WHITE;
+    sat_example_must(sat_vdp2_palette_upload(palette, 256u,
+        (uint16_t)(trex_asset.palette_base * 256u)));
+}
+
+static void intro_begin(void) {
+    g_intro_start = sat_frame_count();
+    g_intro_active = 1u;
+    g_intro_gain = 0u;
+    g_half[0].world = g_half[1].world = &g_dino_world;
+    intro_palette(0u);
+}
+
+static void intro_update(const sat_pad_state_t* pad) {
+    if ((pad->pressed & SAT_PAD_B) != 0u) intro_begin();
+    if (!g_intro_active) return;
+    const uint32_t rate = sat_video_refresh_hz();
+    const uint32_t elapsed = sat_frame_count() - g_intro_start;
+    const uint32_t duration = 6u * rate;
+    /* Viewer controls immediately take over; B replays the entrance. */
+    const uint16_t interrupt = SAT_PAD_A | SAT_PAD_C | SAT_PAD_L | SAT_PAD_R |
+        SAT_PAD_UP | SAT_PAD_DOWN | SAT_PAD_X | SAT_PAD_Y | SAT_PAD_LEFT | SAT_PAD_RIGHT;
+    uint32_t t = elapsed >= duration || (pad->held & interrupt) ? 256u :
+        elapsed * 256u / duration;
+    const uint32_t eased = t * t * (768u - 2u * t) / 65536u;
+    const sat_fx16_t distance = sat_fx16_mul(g_orbit.default_distance,
+        (sat_fx16_t)((256u - eased) * 512u));
+    sat_example_must(sat_mat4_translate(&g_dino_world, 0, 0, -distance));
+    /* First second stays dark; the following four reveal the skin. */
+    uint32_t reveal = elapsed <= rate ? 0u : (elapsed - rate) * 256u / (4u * rate);
+    if (reveal > 256u || t == 256u) reveal = 256u;
+    const uint32_t gain = reveal * reveal * (768u - 2u * reveal) / 65536u;
+    if (gain != g_intro_gain) {
+        g_intro_gain = gain;
+        intro_palette(gain);
+    }
+    if (t == 256u) {
+        g_intro_active = 0u;
+        g_half[0].world = g_half[1].world = NULL;
+    }
+}
+
 /* The line colour screen under the sprites, added to every sprite dot (the
  * black background has no sprite, so it never lights up). */
 static void light_switch(void) {
@@ -755,6 +873,7 @@ static void light_init(void) {
     SAT_PANIC_IF_ERROR(sat_vdp2_line_color_screen_set(
         LIGHT_LINE_TABLE, g_light_lines, SCREEN_H));
     SAT_PANIC_IF_ERROR(sat_vdp2_color_calc_set_add(1u));
+    /* The baked neutral key light supplies volume; the red sweep starts on and Z toggles it. */
     g_light_on = 1;
     light_switch();
 }
@@ -776,11 +895,12 @@ static void light_update(void) {
         return;
     }
     for (i = 0u; i < SCREEN_H; ++i) {
-        int32_t d = (int32_t)i - cy;
+        int32_t d = (int32_t)(i / 2u) - cy;
         int32_t level = 0;
         if (d < 0) d = -d;
         if (d < LIGHT_HALF_HEIGHT) {
             level = (peak * (int32_t)g_light_bell[d] + 128) >> 8;
+            level = level * (int32_t)g_intro_gain / 256;
         }
         g_light_lines[i] = (uint16_t)(LIGHT_RED_BANK * 256u + (uint32_t)level);
     }
@@ -825,7 +945,7 @@ int main(void) {
             &white, 1u, (uint16_t)(trex_asset.palette_base * 256u + 1u)));
     }
     loading_step(25u);
-    sat_example_must(sat_anim_state_init(&g_anim, &trex_anim_asset, 0));
+    sat_example_must(sat_anim_state_init(&g_anim, &trex_anim_asset, DINO_CLIP_WALK));
 #if DINO_BENCH_PAUSED
     sat_anim_set_paused(&g_anim,1);
 #endif
@@ -839,15 +959,10 @@ int main(void) {
     g_instance.materials = g_scene_materials;
     g_instance.material_count = MODEL_TEXTURE_CAP;
     g_instance.face_materials = trex_asset.face_texture_indices;
-    g_instance.world = NULL;
+    sat_example_must(sat_mat4_identity(&g_dino_world));
+    g_instance.world = &g_dino_world;
     g_instance.pass = 0u;
     g_instance.cull_backfaces = 1u;
-    /* Three adjacent throat/mandible faces are visible from their back side
-     * in the default side view. The IDs belong to this imported mesh. */
-    g_double_sided_faces[329u] = 1u;
-    g_double_sided_faces[429u] = 1u;
-    g_double_sided_faces[494u] = 1u;
-    g_instance.double_sided_faces = g_double_sided_faces;
     g_half_mesh[0] = g_mesh;
     g_half_mesh[0].face_count = MASTER_FACES;
     g_half_mesh[1] = g_mesh;
@@ -861,9 +976,9 @@ int main(void) {
     g_half[1] = g_instance;
     g_half[1].mesh = &g_half_mesh[1];
     g_half[1].face_materials = &trex_asset.face_texture_indices[MASTER_FACES];
-    g_half[1].double_sided_faces = &g_double_sided_faces[MASTER_FACES];
     g_slave_item.instance = &g_half[1];
     g_slave_item.screen_scratch = g_slave_screen;
+    g_slave_item.world_scratch = g_slave_world;
     g_slave_item.color_calc_slot = SAT_SCENE3D_SLOT_INHERIT;
     sat_example_must(sat_scene3d_prepare_batch_init(&g_slave_batch, &g_slave_item, 1u,
         g_slave_faces, g_slave_keys, SLAVE_FACES));
@@ -907,13 +1022,20 @@ int main(void) {
         fit.max_distance_factor=sat_fx16_from_int(16);
         fit.near_plane_factor=SAT_FX16_ONE/8;
         fit.near_plane_floor=1;
-        fit.fov_y=sat_fx16_from_int(60);
-        fit.aspect=sat_fx16_div(sat_fx16_from_int(DISPLAY_ASPECT_W),sat_fx16_from_int(SCREEN_H));
+        fit.fov_y=PS1_CAMERA_FOV_Y;
+        fit.aspect=PS1_CAMERA_ASPECT;
         fit.far_z=sat_fx16_from_int(2000);
         fit.pitch_min_deg=-60;
         fit.pitch_max_deg=60;
         sat_example_must(sat_orbit_camera3d_fit_bounds(&g_orbit,&mn,&mx,&fit));
+        /* Bounds still supply safe zoom/clipping limits. The authored PS1
+         * view supplies the initial framing and the end of the entrance. */
+        g_orbit.target = (sat_vec3_t){0, PS1_CAMERA_TARGET_Y, PS1_CAMERA_TARGET_Z};
+        g_orbit.default_distance =
+            (sat_fx16_t)((int64_t)PS1_CAMERA_DISTANCE * DINO_DEFAULT_ZOOM_PERCENT / 100);
+        g_orbit.distance = g_orbit.default_distance;
         g_orbit.yaw_deg = MODEL_START_YAW_DEG;
+        g_orbit.pitch_deg = 0;
         sat_example_must(sat_orbit_camera3d_update(&g_orbit));
     }
     loading_step(40u);
@@ -921,7 +1043,9 @@ int main(void) {
     g_draw_overflow = 0;
     g_render_faces = 0u;
     g_vdp1_commands = 0u;
+#if !DINO_MUSIC_CDDA
     g_music_underruns = 0u;
+#endif
     g_music_error = SAT_OK;
     g_music_ready = 0;
     sat_example_must(init_music());
@@ -936,9 +1060,15 @@ int main(void) {
     SAT_PANIC_IF_ERROR(sat_vdp2_sprite_palette_bank_set(
         (uint8_t)trex_asset.palette_base));
     light_init();
+    intro_begin();
 #if DINO_BENCH_PAUSED
     g_light_on=0;
     light_switch();
+    g_intro_active=0u;
+    g_intro_gain=256u;
+    intro_palette(256u);
+    sat_example_must(sat_mat4_identity(&g_dino_world));
+    g_half[0].world=g_half[1].world=NULL;
 #endif
     g_pose_read = 0u;
     g_job_pending = 0;
@@ -965,7 +1095,6 @@ int main(void) {
          * type and palette bank inside VBlank. */
         SAT_PANIC_IF_ERROR(sat_vdp2_layers_commit());
         SAT_PANIC_IF_ERROR(sat_vdp2_back_color_set(SAT_COLOR_BLACK));
-        light_update();
         SAT_PANIC_IF_ERROR(sat_set_clear_color(SAT_COLOR_BLACK));
         SAT_PANIC_IF_ERROR(sat_begin_frame());
         SAT_PANIC_IF_ERROR(sat_pad_poll(&pad));
@@ -973,6 +1102,8 @@ int main(void) {
 
         update_camera_from_inputs(&pad);
         update_animation_from_inputs(&pad);
+        intro_update(&pad);
+        light_update();
         if ((pad.pressed & SAT_PAD_Z) != 0u) {
             g_light_on = !g_light_on;
             light_switch();
@@ -1004,9 +1135,11 @@ int main(void) {
         }
         /* A busy render can cross a VBlank after the first audio service.
          * Observe the SCSP again before waiting for the next display frame. */
-        if (!DINO_MUSIC_68K && g_music_ready && g_music_error == SAT_OK) {
+#if !DINO_MUSIC_68K && !DINO_MUSIC_CDDA
+        if (g_music_ready && g_music_error == SAT_OK) {
             g_music_error = sat_audio_update();
         }
+#endif
         draw_hud();
 
         PIPELINE_BEGIN(present_start);

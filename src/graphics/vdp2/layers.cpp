@@ -267,6 +267,34 @@ extern "C" sat_result_t sat_vdp2_rotation_configure(const sat_vdp2_rotation_conf
     return to_result(hal::rot_configure(l));
 }
 
+extern "C" sat_result_t sat_vdp2_rotation_bitmap_configure(const sat_vdp2_rotation_bitmap_config_t* config) {
+    SAT_TRY(saturn::core::require_initialized());
+    if (config == nullptr || config->color_mode > SAT_VDP2_COLOR_MODE_32768 || config->height_512 > 1u ||
+        config->transparent > 1u || config->palette > 7u || config->coefficients > 1u) return SAT_ERR_INVALID_ARG;
+    rot::Layer l{};
+    l.enabled = true;
+    l.bitmap = true;
+    l.bitmap_512_high = config->height_512 != 0u;
+    l.bitmap_address = config->bitmap_address;
+    l.colors = static_cast<nbg::Colors>(config->color_mode);
+    l.priority = config->priority;
+    l.transparent = config->transparent != 0u;
+    l.palette_supp = config->palette;
+    l.over = config->over;
+    l.coefficients = config->coefficients != 0u;
+    l.coefficient_mode = config->coefficient_mode;
+    l.table_address = config->table_address;
+    const uint32_t pixels = 512u * (l.bitmap_512_high ? 512u : 256u);
+    const uint32_t bytes = l.colors == nbg::Colors::C16 ? pixels / 2u :
+        l.colors == nbg::Colors::C256 ? pixels : pixels * 2u;
+    if (l.bitmap_address >= nbg::kVramBytes || bytes > nbg::kVramBytes - l.bitmap_address)
+        return SAT_ERR_INVALID_ARG;
+    l.char_banks = nbg::bank_mask_of(l.bitmap_address, bytes, true, true);
+    rot::Layer previous{};
+    if (hal::rot_layer(&previous) && previous.table_address == l.table_address) l.ktaof = previous.ktaof;
+    return to_result(hal::rot_configure(l));
+}
+
 extern "C" sat_result_t sat_vdp2_rotation_release(void) {
     SAT_TRY(saturn::core::require_initialized());
     rot::Layer current{};

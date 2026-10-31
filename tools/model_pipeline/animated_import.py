@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 from dataclasses import dataclass
+from fractions import Fraction
 import math
 from pathlib import Path
 from . import animation as anim_eval
@@ -71,7 +72,12 @@ def animated_frame_times(model, clip, fps: str) -> tuple[list[float], bool]:
         raise ImportError(f"--animation-fps must be positive (got {fps!r})")
     n = int(clip.duration * rate)
     times = [min(i / rate, clip.duration) for i in range(n + 1)]
-    if times[-1] < clip.duration:
+    # Float32 GLB keys can put an integral endpoint just above the sample
+    # grid (e.g. 40/30 s at 15 Hz). Treat it as the same terminal sample;
+    # otherwise removing the loop endpoint leaves an extra held frame.
+    if math.isclose(times[-1], clip.duration, rel_tol=1e-7, abs_tol=1e-7):
+        times[-1] = clip.duration
+    elif times[-1] < clip.duration:
         times.append(clip.duration)
     seen: dict[float, None] = {}
     for t in times:
@@ -90,10 +96,16 @@ def rate_fraction(frame_count: int, duration: float) -> tuple[int, int]:
     """Reduced (num, den) frames-per-second fraction for the runtime."""
     if duration <= 0.0 or frame_count <= 0:
         raise ImportError("cannot derive a sample rate from an empty clip")
-    num = int(round(frame_count / duration * 1000000))
-    den = 1000000
-    g = math.gcd(num, den)
-    return num // g, den // g
+    rate = frame_count / duration
+    if not math.isfinite(rate) or not 0 < rate <= 65535:
+        raise ImportError('animation sample rate does not fit uint16 fields')
+    # GLB float32 endpoints make 32/(40/30) slightly smaller than 24.
+    # A millionth-rate fraction can overflow both uint16 fields at runtime.
+    max_denominator = max(1, min(65535, int(65535 / rate)))
+    fraction = Fraction(rate).limit_denominator(max_denominator)
+    if not 0 < fraction.numerator <= 65535:
+        raise ImportError('animation sample rate does not fit uint16 fields')
+    return fraction.numerator, fraction.denominator
 
 
 def _face_command_cap(args, profile) -> int | None:
@@ -273,7 +285,10 @@ def import_animated_model(
     texel_extent: float | None = None,
     lut_codes: tuple[int, int] | None = None,
     pose_workers: int | None = None,
+    texture_lighting: str = "off",
 ) -> AnimatedImportResult:
+    if texture_lighting not in ("off", "baked-smooth"):
+        raise ImportError("--texture-lighting must be off|baked-smooth")
     if palette_index < 0 or palette_index > 7:
         raise ImportError(f"--palette-index must be in 0..7 (got {palette_index})")
     if face_colors not in ("off", "auto", "on"):
@@ -530,8 +545,17 @@ def import_animated_model(
             if "texture" in mat:
                 tex = model.textures[mat["texture"]]
                 texel_scales[mt] = (tex.width * texture_scale, tex.height * texture_scale)
+        # Normal-split copies can still share a geometric/UV edge. Match
+        # their full motion and UVs before looking for adjacent triangles;
+        # per-face texture baking does not consume imported vertex normals.
+        corner_of = {}
+        quad_vertex = []
+        for vi, uv in enumerate(simp.uvs):
+            key = (runtime_of[vi], tuple(round(c, 7) for c in uv))
+            quad_vertex.append(corner_of.setdefault(key, vi))
+        quad_triangles = [tuple(quad_vertex[i] for i in tri) for tri in simp.triangles]
         polys, poly_materials, quad_report = quad_merge_mod.merge_quads(
-            simp.triangles, simp.tri_materials, simp.uvs,
+            quad_triangles, simp.tri_materials, simp.uvs,
             [_flip(p) for p in simp.positions], all_frames, texel_scales,
             quad_merge_mod.QuadMergeOptions(
                 max_texel_error=quad_max_texel_error, max_fold_deg=quad_max_fold_deg))
@@ -564,6 +588,13 @@ def import_animated_model(
         # on screen when the model spans that many pixels.
         span = max(max(p[i] for p in bind) - min(p[i] for p in bind) for i in range(3))
         texel_density = texel_extent / max(span, 1e-9)
+    texture_normals = None
+    if texture_lighting != "off":
+        if face_levels:
+            raise ImportError("--texture-lighting requires textured faces")
+        from .texture_lighting import smooth_normals
+        texture_normals = [_flip(n) for n in smooth_normals(
+            simp.positions, simp.triangles, runtime_of)]
     for qi, ((a, b, c, d), (ua, ub, uc, ud)) in enumerate(zip(quads, quad_uvs)):
         if face_levels:
             break
@@ -592,6 +623,10 @@ def import_animated_model(
                                     mat.get("name"), qi)
         baked_rgba.append(bake_face_rgba((ua, ub, uc, ud), tex.width, tex.height,
                                          tex.pixels_rgba, out_w, out_h, sampling))
+        if texture_normals is not None:
+            from .texture_lighting import shade_texture
+            baked_rgba[-1] = shade_texture(baked_rgba[-1], out_w, out_h,
+                [texture_normals[i] for i in (a, b, c, d)], light, ambient, diffuse)
         face_sizes.append((out_w, out_h))
         face_mtls.append(mat.get("name", str(mt)))
 
@@ -757,6 +792,9 @@ def import_animated_model(
             "estimated_vram_bytes": vram_est,
         },
         "face_colors": color_report,
+        "texture_lighting": {"mode": texture_lighting, "light_dir": list(light),
+                             "ambient": ambient, "diffuse": diffuse,
+                             "space": "fixed asset bind pose; no runtime Gouraud"},
         "vdp1": resource_report,
         "lods": lod_reports,
         "result": {"pass": bool(quality_report["passed"] and resource_report["passed"])},

@@ -230,10 +230,22 @@ loops and writes performed. This path has no steady-state CD traffic or PCM
 decoding. The SCSP still renders the short resident PCM waveforms; the 68000
 controls their timing, pitch and level.
 
-The dino demo defaults to this path and keeps its complete ADPCM recording as
-an alternate build (`DINO_MUSIC_68K=0`). Its resident timbres are short clips
+The dino demo can select this path with
+`DINO_MUSIC_CDDA=0 DINO_MUSIC_68K=1` and keeps its complete ADPCM recording as
+another alternate build (`DINO_MUSIC_CDDA=0 DINO_MUSIC_68K=0`). Its resident timbres are short clips
 from that recording, converted and loop-crossfaded by the generic audio build
 step. The small bank is read from CD only during startup.
+
+The Dino's current default is a separate CD-DA path for the user's clean Demo 1
+music reference. It launches the mixed-mode CUE, obtains the audio range from
+the TOC once, and repeats that explicit FAD range. Its stereo CD samples enter
+SCSP EXTS0/1; the low-byte EFSDL/EFPAN controls at slot 16/17 register 0x16 route
+left/right at unity (`0xFF` and `0xEF`) while preserving the unrelated upper
+byte. This follows the mixer manual linked above. No PCM slot, refill ring or
+68000 score participates. Do all filesystem reads before starting this path:
+a later data read would move the same drive away from the music. Verify this
+path by comparing captured PCM with the staged CD-DA bytes and checking the
+external-input mixer registers, rather than applying the streaming-slot table.
 
 The Killer Clown fight uses resident PCM8 effects with `SAT_SOUND_PLAY_AT_TICK`.
 Each request is queued one timer tick ahead; the 68000 performs key-on while

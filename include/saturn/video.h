@@ -16,7 +16,7 @@ sat_result_t sat_begin_frame(void);
 sat_result_t sat_end_frame(void);
 sat_result_t sat_wait_vblank(void);
 
-/* The picture size sat_init set up: 320/640/704 by 224. Before sat_init both
+/* The picture size sat_init set up: 320/640/704 by 224, or 640/704 by 448. Before sat_init both
  * read 0. Use these instead of a private SCREEN_W/SCREEN_H, so an example
  * follows the video mode it asked for. */
 uint16_t sat_video_width(void);
@@ -106,7 +106,7 @@ typedef enum sat_vdp1_frame_mode {
 } sat_vdp1_frame_mode_t;
 
 /* Takes effect from the next sat_begin_frame. SAT_ERR_INVALID_ARG for an
- * unknown mode. */
+ * unknown mode; SAT_ERR_UNSUPPORTED for ON_SUBMIT in 448-line interlace. */
 sat_result_t sat_vdp1_set_frame_mode(sat_vdp1_frame_mode_t mode);
 
 #ifdef __cplusplus

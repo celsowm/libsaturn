@@ -1,0 +1,57 @@
+{
+  "app_sha256": "b9c14cbab6659d1c641b1f96f9c7ba79dbd125e984faf533e573c4961d137e0e",
+  "source_glb_sha256": "caed7494112094165676ef3964e0b16a0d99ecc7f71602850d274a25a5e2bc32",
+  "texture_lighting": {
+    "ambient": 0.3,
+    "diffuse": 1.35,
+    "light_dir": [
+      0.4822233529513174,
+      0.7032423897206712,
+      0.5224086323639272
+    ],
+    "mode": "baked-smooth",
+    "space": "fixed asset bind pose; no runtime Gouraud"
+  },
+  "textures": {
+    "baked_faces": 1899,
+    "estimated_vram_bytes": 250696,
+    "format": "lut4",
+    "indexed_pixel_bytes": 248128,
+    "luts": 1724,
+    "palette_bytes": 512,
+    "unique_textures": 1822
+  },
+  "runtime": {
+    "metrics": {
+      "magic": 1145654833,
+      "frames": 493,
+      "pose_submitted": 493,
+      "pose_completed": 493,
+      "pose_fallbacks": 1,
+      "geometry_submitted": 494,
+      "geometry_merged": 493,
+      "draw_overflow": 0,
+      "music_error": 0,
+      "slave_tasks": 986,
+      "master_tasks": 0,
+      "failed_tasks": 0
+    },
+    "panic": [
+      0,
+      0,
+      0
+    ]
+  },
+  "audio_verification": {
+    "reference": "https://www.youtube.com/watch?v=N1LF8YjifOc",
+    "capture_start_stereo_frame": 17762,
+    "compared_stereo_frames": 866031,
+    "different_channel_samples": 0
+  },
+  "comparison": "harness/build/dino_lighting/before-after.png",
+  "limitations": [
+    "Lighting is fixed in asset bind space, not live Gouraud.",
+    "Audio is the user-provided YouTube recording, not a pristine original master.",
+    "No physical Saturn verification."
+  ]
+}

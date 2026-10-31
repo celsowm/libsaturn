@@ -1,0 +1,85 @@
+{
+  "mode": "640x448 double-density interlace, indexed VDP1",
+  "appSha256": "702f795634f76f3ef1a059b58ae36758a6ff5dbed6fbaad48babb284a33bc5c3",
+  "registerEvidence": {
+    "tvmdHex": "81c2",
+    "vdp1TVMR": 1,
+    "fbcrDIE": true,
+    "erasePhysicalRows": 224
+  },
+  "implementation": "automatic field swaps; two immutable command banks; even/odd scene pair publication",
+  "mednafen": {
+    "version": "1.32.1",
+    "capture": "internal QuickTime recording, SDL software backend with dummy video driver; no-throttle capture",
+    "sample": "30..34 seconds, 240 consecutive fields",
+    "displayFilter": false,
+    "regions": {
+      "hud": {
+        "fields": 240,
+        "minBrightPixels": 613,
+        "maxBrightPixels": 711,
+        "blankFields": 0
+      },
+      "credits": {
+        "fields": 240,
+        "minBrightPixels": 4054,
+        "maxBrightPixels": 4666,
+        "blankFields": 0
+      },
+      "model": {
+        "fields": 240,
+        "minBrightPixels": 1783,
+        "maxBrightPixels": 11456,
+        "blankFields": 0
+      }
+    },
+    "preview": "harness/build/dino_interlace/mednafen-448i.mp4"
+  },
+  "ymir": {
+    "fields": 1200,
+    "runtimeAnalysis": "harness/build/dino_interlace/runtime_analysis.json",
+    "counters": {
+      "__ZN6saturn3hal4vdp112_GLOBAL__N_112g_draw_waitsE": 47,
+      "__ZN6saturn3hal4vdp112_GLOBAL__N_115g_draw_timeoutsE": 0
+    },
+    "analysis": {
+      "metrics": {
+        "magic": 1145654833,
+        "frames": 410,
+        "pose_submitted": 410,
+        "pose_completed": 409,
+        "pose_fallbacks": 1,
+        "geometry_submitted": 410,
+        "geometry_merged": 410,
+        "draw_overflow": 0,
+        "music_error": 0,
+        "slave_tasks": 820,
+        "master_tasks": 0,
+        "failed_tasks": 0
+      },
+      "panic": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "limitations": [
+    "No physical Saturn validation.",
+    "252-color shared palette; PS1 Gouraud lighting is not reproduced.",
+    "Interlaced displays and deinterlacers can still show motion artifacts."
+  ],
+  "profileComparison": {
+    "image": "harness/build/dino_interlace/ps1-saturn-profile.png",
+    "saturnCamera": [
+      90,
+      0
+    ],
+    "ps1Camera": [
+      0,
+      1024,
+      0
+    ],
+    "notes": "Saturn reference capture used a temporary initial yaw of 90 degrees, restored to zero for the final build. Animation phases and projection are independent; this is not a pixel-error metric."
+  }
+}

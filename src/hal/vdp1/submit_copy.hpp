@@ -37,6 +37,20 @@ inline uint32_t copy_commands(const uint32_t* src, volatile uint32_t* dst, uint3
     return stores;
 }
 
+/* Immutable command banks use absolute VRAM links. Relocate ASSIGN/CALL
+ * (including their SKIP variants), preserving NEXT/RETURN and all draw words. */
+inline void copy_commands_relocated(const uint32_t* src, volatile uint32_t* dst,
+                                    uint32_t count, uint32_t byte_base) {
+    (void)copy_commands(src, dst, count);
+    for (uint32_t i = 0u; i < count; ++i) {
+        const uint32_t first = src[i * 8u];
+        const uint32_t jp = (first >> 28u) & 3u;
+        if (jp == 1u || jp == 2u)
+            dst[i * 8u] = (first & 0xFFFF0000u) |
+                static_cast<uint16_t>((first & 0xFFFFu) + byte_base / 8u);
+    }
+}
+
 }  // namespace saturn::hal::vdp1::submit_copy
 
 #endif

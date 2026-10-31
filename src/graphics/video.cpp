@@ -116,6 +116,10 @@ extern "C" sat_result_t sat_vdp1_set_frame_mode(sat_vdp1_frame_mode_t mode) {
     if (mode != SAT_VDP1_FRAME_AUTO && mode != SAT_VDP1_FRAME_ON_SUBMIT) {
         return SAT_ERR_INVALID_ARG;
     }
+    /* Double-density interlace needs a swap every field (VDP1 manual 4.2). */
+    if (g_state.config.height == 448u && mode == SAT_VDP1_FRAME_ON_SUBMIT) {
+        return SAT_ERR_UNSUPPORTED;
+    }
     saturn::hal::vdp1::set_frame_mode(mode == SAT_VDP1_FRAME_ON_SUBMIT);
     return SAT_OK;
 }

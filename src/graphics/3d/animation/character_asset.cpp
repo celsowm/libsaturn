@@ -178,6 +178,81 @@ extern "C" void sat_character_asset_release(sat_character_asset_t* asset) {
     if (asset) *asset={};
 }
 
+extern "C" sat_result_t sat_character_asset_compact(sat_character_asset_t* asset,
+    void* storage,uint32_t capacity,uint32_t* out_bytes) {
+    if (!asset || !asset->storage || !storage || (reinterpret_cast<uintptr_t>(storage)&3u) ||
+        !asset->model.texture_count || !asset->model.textures) return SAT_ERR_INVALID_ARG;
+    const uint8_t* source=asset->storage;
+    uint8_t* target=static_cast<uint8_t*>(storage);
+    const uint32_t bytes=asset->storage_bytes;
+    if (target<source+bytes && source<target+capacity) return SAT_ERR_INVALID_ARG;
+    uint32_t first=UINT32_MAX,last=0;
+    for (uint16_t i=0;i<asset->model.texture_count;++i) {
+        const sat_model_texture_asset_t& t=asset->model.textures[i];
+        const uint32_t size=t.flags&SAT_MODEL_TEXTURE_LUT4?t.pixel_count/2u:t.pixel_count;
+        const uint32_t at=(uint32_t)(t.pixels-source);
+        if (at<first) first=at;
+        if (at+size>last) last=at+size;
+    }
+    if (last>bytes) return SAT_ERR_INVALID_ARG;
+    /* The tables sit before the pixels; the clips and their names after them.
+     * The texture table goes with the pixels it describes. */
+    const uint32_t hole_at=be32(source+SAT_CHAR_TEXTURE_OFFSET*4u);
+    const uint32_t hole_bytes=(uint32_t)asset->model.texture_count*SAT_CHARACTER_TEXTURE_BYTES;
+    if (hole_at&3u || hole_at>first || hole_bytes>first-hole_at) return SAT_ERR_INVALID_ARG;
+    const uint32_t hole_end=hole_at+hole_bytes;
+    const uint32_t kept=((first+3u)&~3u)-hole_bytes;
+    if (kept+hole_bytes>last) return SAT_ERR_INVALID_ARG;
+    const uint32_t tail_at=(last+3u)&~3u;
+    const uint32_t tail_bytes=tail_at<bytes?bytes-tail_at:0u;
+    if (kept+tail_bytes>capacity) return SAT_ERR_CAPACITY;
+    const auto inside_pixels=[&](const void* p) {
+        if (!p) return false;
+        const uint32_t at=(uint32_t)(static_cast<const uint8_t*>(p)-source);
+        return at>=first && at<tail_at;
+    };
+    for (uint16_t i=0;i<asset->clip_count;++i)
+        if (inside_pixels(asset->clips[i].frames) || inside_pixels(asset->clips[i].events)) return SAT_ERR_INVALID_ARG;
+    __builtin_memcpy(target,source,hole_at);
+    __builtin_memcpy(target+hole_at,source+hole_end,first-hole_end);
+    if (tail_bytes) __builtin_memcpy(target+kept,source+tail_at,tail_bytes);
+    const auto new_offset=[&](uint32_t at) {
+        return at<hole_at?at:at<first?at-hole_bytes:at-tail_at+kept;
+    };
+    const auto moved=[&](const void* p)->const uint8_t* {
+        if (!p) return nullptr;
+        return target+new_offset((uint32_t)(static_cast<const uint8_t*>(p)-source));
+    };
+    const auto rebase_wire=[&](uint8_t* field) {
+        const uint32_t now=new_offset(be32(field));
+        field[0]=(uint8_t)(now>>24);field[1]=(uint8_t)(now>>16);field[2]=(uint8_t)(now>>8);field[3]=(uint8_t)now;
+    };
+    uint8_t* directory=const_cast<uint8_t*>(moved(asset->clip_directory));
+    for (uint16_t i=0;i<asset->clip_count;++i) {
+        sat_skeleton_clip_t& c=asset->clips[i];
+        c.frames=reinterpret_cast<const sat_skeleton_pose_joint_t*>(moved(c.frames));
+        c.events=reinterpret_cast<const sat_clip_event_t*>(moved(c.events));
+        uint8_t* row=directory+i*SAT_CHARACTER_CLIP_BYTES;
+        rebase_wire(row);rebase_wire(row+SAT_CHAR_CLIP_EVENTS);rebase_wire(row+SAT_CHAR_CLIP_NAME);
+    }
+    asset->skeleton.joints=reinterpret_cast<const sat_skeleton_joint_t*>(moved(asset->skeleton.joints));
+    asset->skin.rigid=reinterpret_cast<const sat_skin_rigid_t*>(moved(asset->skin.rigid));
+    asset->skin.blend=reinterpret_cast<const sat_skin_blend_t*>(moved(asset->skin.blend));
+    asset->model.vertices=reinterpret_cast<const sat_vec3_t*>(moved(asset->model.vertices));
+    asset->model.indices=reinterpret_cast<const uint16_t*>(moved(asset->model.indices));
+    asset->model.face_texture_indices=reinterpret_cast<const uint16_t*>(moved(asset->model.face_texture_indices));
+    asset->model.palettes_rgb555=reinterpret_cast<const uint16_t*>(moved(asset->model.palettes_rgb555));
+    asset->model.textures=nullptr;
+    asset->joint_names=reinterpret_cast<const uint32_t*>(moved(asset->joint_names));
+    for (uint16_t i=0;i<asset->skeleton.joint_count;++i) /* native since the decode */
+        const_cast<uint32_t*>(asset->joint_names)[i]=new_offset(asset->joint_names[i]);
+    asset->clip_directory=directory;
+    asset->storage=target;
+    asset->storage_bytes=kept+tail_bytes;
+    if (out_bytes) *out_bytes=asset->storage_bytes;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_character_clip_load(const char* path,uint16_t index,
     sat_skeleton_pose_joint_t* poses,uint32_t pose_capacity,
     sat_clip_event_t* events,uint16_t event_capacity,sat_skeleton_clip_t* out) {

@@ -59,12 +59,12 @@ typedef enum sat_result {
 /* ------------------------------------------------------------------ */
 /* Video config (needed early by core init)                            */
 /* ------------------------------------------------------------------ */
-/* width 320, or 640/704 for hi-res; height 224.
+/* width 320, or 640/704 for hi-res; height 224, or 448 with width 640/704.
  *
  * `ntsc` picks the frame-rate the library's time base assumes: SAT_VIDEO_NTSC
  * (60 frames per second), SAT_VIDEO_PAL (50) or SAT_VIDEO_AUTO, which reads the
  * console's own standard from VDP2 TVSTAT (sat_video_is_pal()). The picture
- * is always the 224-line mode, which a PAL console shows at 50 Hz with borders;
+ * uses 224 active lines per field, which PAL shows at 50 Hz with borders;
  * the 240 and 256-line PAL modes are not offered. sat_time_ms(), the audio
  * clock and every frame-based duration follow the chosen rate, so a program
  * that hard-codes SAT_VIDEO_NTSC runs slow on a PAL console.
@@ -76,7 +76,13 @@ typedef enum sat_result {
  * polygon colours, Gouraud shading and VDP1 colour calculation are not
  * available (VDP1 manual 1.3, 6.4). Polygon colours and LUT4 table entries
  * write their low byte as the code; indexed textures write their texel.
- * sat_set_clear_color() leaves the erase transparent: set the backdrop. */
+ * sat_set_clear_color() leaves the erase transparent: set the backdrop.
+ *
+ * Height 448 selects double-density interlace: full-resolution coordinates
+ * are split into alternating even/odd 224-line fields. It requires the SCU
+ * VBlank interrupt, SAT_VDP1_FRAME_AUTO and two immutable VRAM command banks
+ * (131104 bytes total before textures). Gouraud remains unavailable in hi-res.
+ * The time base counts fields, still 60/50 Hz, rather than interlaced pairs. */
 #define SAT_VIDEO_PAL 0u
 #define SAT_VIDEO_NTSC 1u
 #define SAT_VIDEO_AUTO 2u

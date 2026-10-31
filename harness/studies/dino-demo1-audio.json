@@ -1,0 +1,69 @@
+{
+  "reference": {
+    "id": "N1LF8YjifOc",
+    "title": "Demo 1 - T-Rex Demo Music (OST)",
+    "uploader": "ZalutoMusic",
+    "upload_date": "20090802",
+    "webpage_url": "https://www.youtube.com/watch?v=N1LF8YjifOc",
+    "duration": 141,
+    "source_sha256": "bc6ec0cb1212e12aa2ab5c0dd12191140a83626d5fe577eaa7cdf5fe7fb329ec",
+    "source_encoding": "YouTube AAC, stereo, 44100 Hz",
+    "selection": "User-selected clean music reference, without the incidental roars in the previous video.",
+    "usage": "Preserved in full; CD conversion does not add lossy encoding.",
+    "fidelity_scope": "Matches the supplied video recording; not a bit-exact original PS1 disc or physical SPU capture."
+  },
+  "conversion": {
+    "source_sha256": "bc6ec0cb1212e12aa2ab5c0dd12191140a83626d5fe577eaa7cdf5fe7fb329ec",
+    "pcm_sha256": "84d98180db547b092f28934bcfc0919b05d2e9fa3836b0f0cb99e4a558f5e915",
+    "source_pcm_frames": 6237184,
+    "padding_frames": 320,
+    "sample_rate": 44100,
+    "channels": 2,
+    "bits": 16,
+    "byte_order": "little",
+    "duration_seconds": 141.44,
+    "processing": "Decode and CD sample-rate conversion only; preserve full reference duration"
+  },
+  "app_sha256": "723d1786feea20f6e67b6ad855c18978344f33460eb96a4cdad8ec46043360ef",
+  "disc_bin_sha256": "1c24ee5273ff834db5ce3d87f1709514a169d63f3d16c6a9a031bcf0746cc94e",
+  "emulator": "Ymir harness, NTSC, 9300 fields, stock RAM",
+  "pcm_verification": [
+    {
+      "capture_start_frame": 17762,
+      "compared_stereo_frames": 6237504,
+      "different_channel_samples": 0
+    },
+    {
+      "capture_start_frame": 6255266,
+      "compared_stereo_frames": 594093,
+      "different_channel_samples": 0
+    }
+  ],
+  "repeat_start_interval_seconds": 141.44,
+  "scope": "PCM is verified against the decoded user video, not a pristine Sony master or physical hardware.",
+  "runtime": {
+    "metrics": {
+      "magic": 1145654833,
+      "frames": 3525,
+      "pose_submitted": 3525,
+      "pose_completed": 3524,
+      "pose_fallbacks": 1,
+      "geometry_submitted": 3525,
+      "geometry_merged": 3525,
+      "draw_overflow": 0,
+      "music_error": 0,
+      "slave_tasks": 7050,
+      "master_tasks": 0,
+      "failed_tasks": 0
+    },
+    "panic": [
+      0,
+      0,
+      0
+    ]
+  },
+  "exts_left": "0x00ff",
+  "exts_right": "0x00ef",
+  "lossless_capture": "harness/build/dino_music/verified-reference-capture.flac",
+  "lossless_capture_sha256": "0f7f3820f0fc0a116dc4405683d88dcc08bb78580af10f61a493e55726ec504c"
+}

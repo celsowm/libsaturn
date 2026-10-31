@@ -1,3 +1,68 @@
+ACTIVE MODEL: ps1_trex_saturn_original_walk.glb
+PREPARED TRANSFER INPUT: ps1_trex_saturn.glb
+PRESERVED RECONSTRUCTION: ps1_trex_reconstructed.glb
+
+The dinosaur geometry, UV layout and six texture pages originate from the
+PlayStation Developer's Demo CD, Models / Dino.
+Copyright Sony Computer Entertainment Inc. / Sony Interactive Entertainment.
+All rights reserved by the respective owners.
+
+Source used for this conversion:
+  trex_blender_rig/output/trex_blender_rig.glb
+  SHA-256: f7e56dcbd8080c8b10c0369c51a6f063e2ee814038d5d7fd08749aab74a63c7f
+The preserved reconstruction GLB is unchanged. The transfer input GLB is
+prepared by tools/prepare_ps1_trex.py in Blender: the textured body is
+decimated to fit 1800 total triangles, with untextured details preserved.
+Both clips retain their 40-frame / 30 Hz duration.
+Transfer input SHA-256: ec66302989157a9beed4dc5e2d7b946bca964170b6fb01e667e2fe5ad543ac4e.
+The source reconstruction adds an editable rig,
+modified mouth topology, tongue and lower teeth, and reconstructed Walk and
+Roar clips. Those archived animations are reconstructed.
+Rigging and animation tooling: celsowm (https://github.com/celsowm).
+
+The active GLB preserves the original source OBJ's 2724 triangles, corner UVs
+and 1376 logical points. The reduced transfer input above is archived and no
+longer supplies its geometry. No decimation or reconstructed mouth/teeth
+additions are used in the active surface.
+Source OBJ: trex_blender_rig/source/dino/dino.obj
+SHA-256: 6bcc50f93b97bd46f8b079d532c1ca2e4f8633dc39cdb1c068bfd292e558c797.
+
+Sony's original periodic walking deformation is recovered through
+tools/bake_ps1_dino_walk.py --original-topology. The local emulator capture is
+replayed and verified before export. Walk contains 32 poses. Roar retains
+reconstructed displacements transferred to the original surface, with 20-pose
+runtime sampling, and remains approximate. Synthetic translation joints in
+the GLB are only an offline interchange representation.
+Active GLB SHA-256: caed7494112094165676ef3964e0b16a0d99ecc7f71602850d274a25a5e2bc32.
+
+LibSaturn converts this GLB into original geometry, paired VDP1 quads,
+indexed face textures and quantized baked animation poses. Sony's artwork
+and derivatives containing it are not covered by this repository's code
+license or by the older Sketchfab model's Creative Commons license.
+
+This is an independent preservation, research and educational homebrew.
+It is not affiliated with, sponsored by or endorsed by Sony. This notice
+provides attribution; it does not grant permission to reuse Sony's assets.
+Rights holders may request removal through an issue on this repository.
+The example source code remains covered by the repository's root LICENSE.
+
+ACTIVE MUSIC REFERENCE: ../audio-src/ps1_demo1_reference.m4a
+
+"Demo 1 - T-Rex Demo Music (OST)", uploaded by ZalutoMusic, 2009-08-02.
+User-selected source: https://www.youtube.com/watch?v=N1LF8YjifOc
+SHA-256: bc6ec0cb1212e12aa2ab5c0dd12191140a83626d5fe577eaa7cdf5fe7fb329ec.
+Original PlayStation music rights remain with Sony and the respective owners;
+the classic T-Rex composition is credited to Harry Holmwood. The uploader is
+identified as the recording source, not as the music's composer or licensor.
+This YouTube AAC recording is decoded in full for a 44.1 kHz stereo 16-bit
+CD-DA track. No remix, gain processing, trimming or additional lossy encoding
+is applied. It is not claimed to be a pristine original-disc audio master.
+Music and this derivative recording are not covered by the code license or
+the legacy model's Creative Commons license. Provenance and the exact source
+hash are retained beside the recording.
+
+LEGACY MODEL: trex_walking_seamless.glb (retained, no longer built)
+
 "Tyrannosaurus Rex Lowpoly" by pikabobalex
 Source: https://sketchfab.com/3d-models/tyrannosaurus-rex-lowpoly-516dbe9717554e74b0bfcbb77a431b17
 Short source link: https://skfb.ly/6swQF

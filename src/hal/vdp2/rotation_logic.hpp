@@ -21,6 +21,9 @@ enum Role : uint16_t { kRoleNone = 0u, kRoleCoefficient = 1u, kRoleNames = 2u, k
 struct Layer {
     bool enabled;
     nbg::Colors colors;        /* 16, 256, 2048 or 32768 */
+    bool bitmap;               /* bitmap replaces names and character cells */
+    bool bitmap_512_high;      /* 512x512, otherwise 512x256 */
+    uint32_t bitmap_address;   /* byte address, 0x20000 aligned */
     bool char_2x2;
     bool pn_one_word;
     uint8_t pages_x, pages_y;  /* plane size: 1x1, 2x1 or 2x2 pages */
@@ -46,6 +49,19 @@ enum class Status : uint8_t { Ok, BadFormat, BadPlane, BadBanks };
 inline Status validate(const Layer& l) {
     if (l.priority > 7u || l.over > 3u || l.coefficient_mode > 3u || l.ktaof > 7u) return Status::BadFormat;
     if (l.colors == nbg::Colors::C16M) return Status::BadFormat;
+    if (l.bitmap) {
+        if (l.name_banks || !l.char_banks || (l.char_banks & ~nbg::kAllBanks) ||
+            (l.bitmap_address & 0x1FFFFu)) return Status::BadBanks;
+        const uint32_t pixels = 512u * (l.bitmap_512_high ? 512u : 256u);
+        const uint32_t bytes = l.colors == nbg::Colors::C16 ? pixels / 2u :
+            l.colors == nbg::Colors::C256 ? pixels : pixels * 2u;
+        if (l.bitmap_address >= nbg::kVramBytes || bytes > nbg::kVramBytes - l.bitmap_address)
+            return Status::BadPlane;
+        if (nbg::bank_mask_of(l.bitmap_address, bytes, true, true) != l.char_banks) return Status::BadBanks;
+        if ((l.table_address & 3u) || l.table_address + kParamBytes > nbg::kVramBytes ||
+            (nbg::bank_mask_of(l.table_address, kParamBytes, true, true) & l.char_banks)) return Status::BadBanks;
+        return Status::Ok;
+    }
     if (l.pages_x < 1u || l.pages_x > 2u || l.pages_y < 1u || l.pages_y > 2u) return Status::BadPlane;
     if (l.pages_x == 1u && l.pages_y == 2u) return Status::BadPlane;   /* PLSZ 10b is prohibited */
     if (l.name_banks == 0u || l.char_banks == 0u || ((l.name_banks | l.char_banks) & ~nbg::kAllBanks) != 0u ||
@@ -87,6 +103,7 @@ struct Registers {
     uint16_t bgon;      /* R0ON (bit 4), R0TPON (bit 12) */
     uint16_t ramctl_rdbs;
     uint16_t chctlb;    /* bits 14-8 */
+    uint16_t bmpnb;     /* bitmap palette bits 6-4 */
     uint16_t pncr;
     uint16_t plsz;      /* bits 11-8 */
     uint16_t mpofr;     /* bits 2-0 */
@@ -103,18 +120,21 @@ inline Registers compose(const Layer& l) {
     if (!l.enabled) return r;
     r.bgon = static_cast<uint16_t>(0x0010u | (l.transparent ? 0u : 0x1000u));
     r.ramctl_rdbs = rdbs(l);
-    r.chctlb = static_cast<uint16_t>(((static_cast<uint16_t>(l.colors) & 7u) << 12u) | (l.char_2x2 ? 0x0100u : 0u));
+    r.chctlb = static_cast<uint16_t>(((static_cast<uint16_t>(l.colors) & 7u) << 12u) |
+        (l.bitmap ? (0x0200u | (l.bitmap_512_high ? 0x0400u : 0u)) : (l.char_2x2 ? 0x0100u : 0u)));
+    r.bmpnb = l.bitmap ? (l.palette_supp & 7u) : 0u;
     r.pncr = static_cast<uint16_t>(((l.pn_one_word ? 1u : 0u) << 15u) | ((l.palette_supp & 7u) << 5u) |
                                    (l.char_number_supp & 0x1Fu));
     const uint16_t plsz = static_cast<uint16_t>(l.pages_y == 2u ? 3u : (l.pages_x == 2u ? 1u : 0u));
     r.plsz = static_cast<uint16_t>((plsz << 8u) | ((l.over & 3u) << 10u));
     const uint32_t size = nbg::plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
-    for (uint8_t p = 0u; p < kPlanes; p += 2u) {
+    for (uint8_t p = 0u; !l.bitmap && p < kPlanes; p += 2u) {
         const uint32_t v0 = nbg::map_value(l.plane_address[p], size);
         const uint32_t v1 = nbg::map_value(l.plane_address[p + 1u], size);
         r.mp[p / 2u] = static_cast<uint16_t>((v0 & 0x3Fu) | ((v1 & 0x3Fu) << 8u));
     }
-    r.mpofr = static_cast<uint16_t>((nbg::map_value(l.plane_address[0], size) >> 6u) & 7u);
+    r.mpofr = l.bitmap ? static_cast<uint16_t>((l.bitmap_address >> 17u) & 7u) :
+        static_cast<uint16_t>((nbg::map_value(l.plane_address[0], size) >> 6u) & 7u);
     r.ovpnra = l.over_pattern_name;
     if (l.coefficients) {
         r.ktctl = static_cast<uint16_t>(0x0001u | ((l.coefficient_mode & 3u) << 2u));

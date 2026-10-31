@@ -1,0 +1,163 @@
+{
+  "app_sha256": "4b2037f72b965d3d9ca26da85d871cfbf8d5c2c5a63d5dd3074c9ebac7bc59b9",
+  "original_camera": {
+    "field": 601,
+    "view_position": [
+      0,
+      0,
+      -40000
+    ],
+    "control": [
+      61438,
+      0,
+      2048,
+      0,
+      4294963198,
+      0,
+      0,
+      42019,
+      4106026432,
+      4247522116,
+      237566188,
+      52101915,
+      4294963320,
+      1024,
+      1024,
+      1024,
+      134745357,
+      218957832,
+      134744072,
+      134745357,
+      2056,
+      0,
+      0,
+      0,
+      20971520,
+      23592960,
+      1000,
+      4294963102,
+      20971520,
+      341,
+      256,
+      0
+    ]
+  },
+  "sdk_calibration": {
+    "fov_fixed": 1757444,
+    "fov_degrees": 26.816467285,
+    "aspect_fixed": 87340,
+    "px_fixed": 204800,
+    "py_fixed": 272938,
+    "sum_error_fixed": 5
+  },
+  "saturn_target": [
+    0.0,
+    1.8390045166015625,
+    1.57769775390625
+  ],
+  "saturn_default_distance": 10.499618530273438,
+  "endpoint_replay_reference_equal": true,
+  "natural_intro_end": {
+    "active": 0,
+    "gain": 256
+  },
+  "projection_check": {
+    "walk_poses": 32,
+    "source_vertices": 1376,
+    "max_ideal_display_pixel_deviation": 0.002838348700890947,
+    "mean_ideal_display_pixel_deviation": 0.0003783178849822226,
+    "scope": "Before GPU raster rounding and pose quantization; not a rendered pixel error score"
+  },
+  "runtime_checks": {
+    "arrival": {
+      "metrics": {
+        "magic": 1145654833,
+        "frames": 351,
+        "pose_submitted": 351,
+        "pose_completed": 351,
+        "pose_fallbacks": 1,
+        "geometry_submitted": 352,
+        "geometry_merged": 351,
+        "draw_overflow": 0,
+        "music_error": 0,
+        "slave_tasks": 702,
+        "master_tasks": 0,
+        "failed_tasks": 0
+      },
+      "panic": [
+        0,
+        0,
+        0
+      ]
+    },
+    "reset": {
+      "metrics": {
+        "magic": 1145654833,
+        "frames": 462,
+        "pose_submitted": 462,
+        "pose_completed": 461,
+        "pose_fallbacks": 1,
+        "geometry_submitted": 462,
+        "geometry_merged": 462,
+        "draw_overflow": 0,
+        "music_error": 0,
+        "slave_tasks": 924,
+        "master_tasks": 0,
+        "failed_tasks": 0
+      },
+      "panic": [
+        0,
+        0,
+        0
+      ]
+    },
+    "reference": {
+      "metrics": {
+        "magic": 1145654833,
+        "frames": 325,
+        "pose_submitted": 325,
+        "pose_completed": 324,
+        "pose_fallbacks": 1,
+        "geometry_submitted": 325,
+        "geometry_merged": 325,
+        "draw_overflow": 0,
+        "music_error": 0,
+        "slave_tasks": 650,
+        "master_tasks": 0,
+        "failed_tasks": 0
+      },
+      "panic": [
+        0,
+        0,
+        0
+      ]
+    },
+    "runtime": {
+      "metrics": {
+        "magic": 1145654833,
+        "frames": 493,
+        "pose_submitted": 493,
+        "pose_completed": 493,
+        "pose_fallbacks": 1,
+        "geometry_submitted": 494,
+        "geometry_merged": 493,
+        "draw_overflow": 0,
+        "music_error": 0,
+        "slave_tasks": 986,
+        "master_tasks": 0,
+        "failed_tasks": 0
+      },
+      "panic": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "comparison": "harness/build/dino_camera/endpoint-comparison.png",
+  "limitations": [
+    "Reference is the downloaded Developer\u2019s Demo CD DINO.EXE default view.",
+    "The six-second entrance path remains authored, not recovered from the PS1 script.",
+    "Lighting and rasterization remain different; no physical hardware measurement."
+  ]
+}

@@ -123,6 +123,35 @@ static void nbgs_keep_off_the_rotation_banks() {
     assert(plan.status == nbg::Status::Ok);
 }
 
+static void bitmap_floor_coexists_with_panorama_and_emission() {
+    rot::Layer floor{};
+    floor.enabled=true; floor.bitmap=true; floor.colors=nbg::Colors::C16;
+    floor.bitmap_address=0x40000u; floor.char_banks=1u<<nbg::kBankB0;
+    floor.table_address=0x3c000u; floor.priority=2u; floor.palette_supp=6u;
+    floor.coefficients=true;
+    assert(rot::validate(floor)==rot::Status::Ok);
+    const auto r=rot::compose(floor);
+    assert(r.ramctl_rdbs==0x30u && r.chctlb==0x0200u && r.mpofr==2u && r.bmpnb==6u);
+    assert(rot::reserved(floor).mask[nbg::kBankB0]==0xffu);
+    assert(rot::reserved(floor).mask[nbg::kBankB1]==0u);
+    auto invalid=floor; invalid.table_address=0x40000u;
+    assert(rot::validate(invalid)==rot::Status::BadBanks);
+    invalid=floor; invalid.bitmap_address=0x50000u;
+    assert(rot::validate(invalid)==rot::Status::BadBanks);
+    invalid=floor; invalid.char_banks|=1u<<nbg::kBankB1;
+    assert(rot::validate(invalid)==rot::Status::BadBanks);
+    nbg::Layer layers[nbg::kLayerCount]{};
+    layers[0].enabled=true;layers[0].bitmap=true;layers[0].colors=nbg::Colors::C256;
+    layers[0].bitmap_size=2u;layers[0].priority=1u;
+    layers[1].enabled=true;layers[1].colors=nbg::Colors::C32768;
+    layers[1].pn_one_word=false;layers[1].pages_x=layers[1].pages_y=1u;
+    layers[1].priority=7u;layers[1].char_banks=1u<<nbg::kBankB1;
+    for (unsigned i=0;i<4;++i)layers[1].plane_address[i]=0x60000u;
+    const auto reserved=rot::reserved(floor);
+    const auto plan=nbg::plan_cycles(layers,true,true,&reserved);
+    assert(plan.status==nbg::Status::Ok);
+}
+
 static void params_encode_figure_6_2() {
     rot::Params p{};
     p.xst = -(40 << 16);
@@ -171,6 +200,7 @@ int main() {
     validation_follows_the_manual();
     registers_compose();
     nbgs_keep_off_the_rotation_banks();
+    bitmap_floor_coexists_with_panorama_and_emission();
     params_encode_figure_6_2();
     coefficients_encode_figure_6_7();
     std::puts("test_vdp2_rotation_logic: ok");

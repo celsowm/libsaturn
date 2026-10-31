@@ -1,0 +1,38 @@
+--- a/examples/dino_demo/main.c
++++ b/examples/dino_demo/main.c
+@@ -1052,6 +1052,35 @@
+ 
+         update_camera_from_inputs(&pad);
+         update_animation_from_inputs(&pad);
++        /* Temporary controlled visual capture; removed after this study. */
++        {
++            const uint32_t slot = g_dino_diagnostics.frames / 40u;
++            sat_anim_set_paused(&g_anim, 1);
++            g_anim.frame = (uint16_t)((slot % 4u) * 8u);
++            g_anim.time = (sat_fx16_t)(((uint32_t)g_anim.frame * 65536u) / 24u);
++            /* GTE-observed projection, converted to the OBJ world basis.
++             * PS1 output is mirrored in the comparison, without filtering. */
++            sat_mat4_t view, projection;
++            const sat_fx16_t offset_y = 120521;
++            const sat_fx16_t offset_z = 103396;
++            const sat_fx16_t depth = 851945;
++            const sat_fx16_t shift = -98305;
++            g_orbit.target = (sat_vec3_t){0, offset_y, offset_z};
++            g_orbit.eye = (sat_vec3_t){0, offset_y, offset_z + depth};
++            if (slot < 4u) {
++                g_orbit.target.z = offset_z + shift;
++                g_orbit.eye = (sat_vec3_t){depth, offset_y, offset_z + shift};
++            }
++            sat_example_must(sat_mat4_look_at(&view, &g_orbit.eye,
++                &g_orbit.target, &(sat_vec3_t){0,SAT_FX16_ONE,0}));
++            sat_example_must(sat_mat4_perspective(&projection,
++                sat_fx16_from_int(60), SAT_FX16_ONE, g_orbit.near_z,
++                g_orbit.far_z));
++            projection.m[0] = 204800; /* 1000 / 320 */
++            projection.m[5] = 272933; /* 1000 / (240 * 4098/4096) */
++            sat_example_must(sat_mat4_multiply(&g_orbit.view_proj,
++                &projection, &view));
++        }
+         intro_update(&pad);
+         light_update();
+         if ((pad.pressed & SAT_PAD_Z) != 0u) {

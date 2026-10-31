@@ -1,0 +1,89 @@
+{
+  "presentation": "Six-second approach from darkness along model +Z; directly frontal yaw/pitch 0",
+  "timing": "Video-field driven; authored presentation, not recovered PS1 script",
+  "reveal": "One second dark; four-second smooth palette reveal; red light gain matched; HUD white preserved",
+  "validation": {
+    "observations": [
+      {
+        "field": 100,
+        "model_nonblack_pixels": 0
+      },
+      {
+        "field": 160,
+        "model_nonblack_pixels": 0
+      },
+      {
+        "field": 220,
+        "model_nonblack_pixels": 1801
+      },
+      {
+        "field": 280,
+        "model_nonblack_pixels": 3226
+      },
+      {
+        "field": 340,
+        "model_nonblack_pixels": 6675
+      },
+      {
+        "field": 400,
+        "model_nonblack_pixels": 14416
+      },
+      {
+        "field": 460,
+        "model_nonblack_pixels": 17605
+      },
+      {
+        "field": 600,
+        "model_nonblack_pixels": 16942
+      }
+    ],
+    "neutral_and_skip_final_gain": 256,
+    "neutral_and_skip_final_active": 0
+  },
+  "runtime": {
+    "metrics": {
+      "magic": 1145654833,
+      "frames": 520,
+      "pose_submitted": 520,
+      "pose_completed": 519,
+      "pose_fallbacks": 1,
+      "geometry_submitted": 520,
+      "geometry_merged": 520,
+      "draw_overflow": 0,
+      "music_error": 0,
+      "slave_tasks": 1040,
+      "master_tasks": 0,
+      "failed_tasks": 0
+    },
+    "panic": [
+      0,
+      0,
+      0
+    ]
+  },
+  "current_original_surface_runtime": {
+    "metrics": {
+      "magic": 1145654833,
+      "frames": 467,
+      "pose_submitted": 467,
+      "pose_completed": 467,
+      "pose_fallbacks": 1,
+      "geometry_submitted": 468,
+      "geometry_merged": 467,
+      "draw_overflow": 0,
+      "music_error": 0,
+      "slave_tasks": 934,
+      "master_tasks": 0,
+      "failed_tasks": 0
+    },
+    "panic": [
+      0,
+      0,
+      0
+    ]
+  },
+  "current_camera_yaw_pitch": [
+    0,
+    0
+  ]
+}

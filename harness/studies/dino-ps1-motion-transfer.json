@@ -1,0 +1,128 @@
+{
+  "vertices": 1376,
+  "verified_frames": 64,
+  "emulator_replay_max_error_units": 0,
+  "walk_channels": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "excluded_channels": [
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "ram_sha256": "fb8785f3d4aef6b7ef33deedff3cf627d4f59d1c60de2a069161a2e9b727ac40",
+  "obj_correspondence_max_error": 4.123105626409395e-06,
+  "obj_offset": [
+    0.0,
+    18.390055,
+    15.776986
+  ],
+  "transfer_points": 1376,
+  "walk_poses": 32,
+  "surface_distance_max": 0.0,
+  "surface_distance_p95": 0.0,
+  "glb_pose_roundtrip_max_error": 6.093619044911236e-07,
+  "source_obj_sha256": "6bcc50f93b97bd46f8b079d532c1ca2e4f8633dc39cdb1c068bfd292e558c797",
+  "source_mesh_sha256": "f7e56dcbd8080c8b10c0369c51a6f063e2ee814038d5d7fd08749aab74a63c7f",
+  "output_sha256": "caed7494112094165676ef3964e0b16a0d99ecc7f71602850d274a25a5e2bc32",
+  "source": "Original Developer's Demo CD deformation observed in PCSX-Redux; not a hardware timing measurement",
+  "executable_sha256": "8bb65e609a3605656a78930776dd324028e19dca952b16d6d94bce8649d7b824",
+  "independent_capture_reproduction": "Two captures produced the same output GLB SHA-256",
+  "compiled_animation": [
+    {
+      "baked_frames": 32,
+      "clip": "Walk",
+      "duplicate_loop_frame_removed": true,
+      "loop": true,
+      "pose_stream_bytes": 264192,
+      "position_encoding": "int16 scale/bias per axis",
+      "quantization_max_error": 4.8509171117760985e-05,
+      "quantization_mean_error": 1.4545492565826006e-05,
+      "sample_rate_den": 1,
+      "sample_rate_num": 24
+    },
+    {
+      "baked_frames": 20,
+      "clip": "Roar",
+      "duplicate_loop_frame_removed": true,
+      "loop": true,
+      "pose_stream_bytes": 165120,
+      "position_encoding": "int16 scale/bias per axis",
+      "quantization_max_error": 4.85329005586177e-05,
+      "quantization_mean_error": 1.300356375908181e-05,
+      "sample_rate_den": 1,
+      "sample_rate_num": 15
+    }
+  ],
+  "compiled_textures": {
+    "baked_faces": 1899,
+    "estimated_vram_bytes": 241088,
+    "format": "lut4",
+    "indexed_pixel_bytes": 238896,
+    "luts": 1455,
+    "palette_bytes": 512,
+    "unique_textures": 1726
+  },
+  "compiled_vertices": 1376,
+  "runtime_validation": {
+    "metrics": {
+      "magic": 1145654833,
+      "frames": 467,
+      "pose_submitted": 467,
+      "pose_completed": 467,
+      "pose_fallbacks": 1,
+      "geometry_submitted": 468,
+      "geometry_merged": 467,
+      "draw_overflow": 0,
+      "music_error": 0,
+      "slave_tasks": 934,
+      "master_tasks": 0,
+      "failed_tasks": 0
+    },
+    "panic": [
+      0,
+      0,
+      0
+    ],
+    "fields": 1200,
+    "previous_completed_frames": 520
+  },
+  "glb_uv_roundtrip_max_error": 2.3162841811252832e-08,
+  "texture_fix": "Convert canonical bottom-left UVs back to top-left on GLB export; assert UV roundtrip",
+  "preparation_fix": "Original topology bypasses Blender reduction; old reduced mesh remains archived",
+  "topology": "Original OBJ, without decimation or reconstructed mouth additions",
+  "roar_surface_distance_max": 3.296351487506114e-07,
+  "compiled_quad_merge": {
+    "candidates": 1412,
+    "enabled": true,
+    "max_fold_deg": 40.0,
+    "max_texel_error": 1.0,
+    "merged_quads": 825,
+    "polygons": 1899,
+    "rejected": {
+      "convex": 1315,
+      "fold": 313,
+      "material": 0,
+      "texel_error": 90,
+      "winding": 0
+    },
+    "single_triangles": 1074,
+    "source_triangles": 2724
+  },
+  "geometric_boundary_edges_archived_reduction": {
+    "before": 685,
+    "after": 142,
+    "full_reconstruction": 195
+  },
+  "validated_app_sha256": "396b3bcff8deee774a9b8f4fa07fa407a242d12e2a32ad782f34198bcdd92410",
+  "texture_density": 540,
+  "camera_yaw_pitch": [
+    0,
+    0
+  ]
+}

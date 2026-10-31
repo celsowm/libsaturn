@@ -238,6 +238,13 @@ endef
 $(foreach audio,$(EXAMPLE_AUDIO_STREAMS),$(eval $(call AUDIO_STREAM_RULE,$(audio))))
 endif
 
+ifneq ($(strip $(EXAMPLE_CDDA_INPUT)),)
+EXAMPLE_CDDA_SOURCE := $(GENERATED_DIR)/$(EXAMPLE)/audio/cdda.pcm
+$(EXAMPLE_CDDA_SOURCE): $(EXAMPLE_CDDA_INPUT) tools/convert_cd_audio.py
+	$(PYTHON) tools/convert_cd_audio.py --input "$(EXAMPLE_CDDA_INPUT)" \
+		--output "$@" --ffmpeg "$(FFMPEG)"
+endif
+
 # Example objects and outputs are keyed after the include, so flags an
 # example's Makefile.inc adds (dino_demo's -DDINO_MUSIC_68K) select their own
 # object directory instead of reusing objects built without them.
@@ -310,7 +317,7 @@ check-tools:
 		echo "Error: $(CC) not found in PATH"; exit 1; fi
 	@if [ -z "$(MKISOFS)" ]; then \
 		echo "Error: mkisofs/genisoimage/xorrisofs not found"; exit 1; fi
-	@if [ -n "$(EXAMPLE_AUDIO_STREAMS)" ] && ! $(PYTHON) -c 'import shutil,sys; sys.exit(0 if shutil.which(sys.argv[1]) else 1)' "$(FFMPEG)"; then \
+	@if [ -n "$(strip $(EXAMPLE_AUDIO_STREAMS) $(EXAMPLE_CDDA_INPUT))" ] && ! $(PYTHON) -c 'import shutil,sys; sys.exit(0 if shutil.which(sys.argv[1]) else 1)' "$(FFMPEG)"; then \
 		echo "Error: FFmpeg not found (set FFMPEG=/path/to/ffmpeg)"; exit 1; fi
 	@echo "[profiles] EXAMPLE=$(EXAMPLE) IP_PROFILE=$(IP_PROFILE) IP_TEMPLATE=$(IP_TEMPLATE_KIND)"
 
@@ -425,6 +432,7 @@ MODEL_QUALITY             ?= balanced
 MODEL_ANIMATION           ?= all
 MODEL_ANIMATION_FPS       ?= source
 MODEL_FACE_COLORS         ?= off
+MODEL_TEXTURE_LIGHTING    ?= off
 MODEL_LIGHT_DIR           ?= -0.5,0.6,0.8
 MODEL_AMBIENT             ?= 0.35
 MODEL_DIFFUSE             ?= 0.75
@@ -487,6 +495,7 @@ MODEL_IMPORT_ARGS = \
 	$(if $(filter skeletal,$(MODEL_TARGET)),--texture-format $(MODEL_TEXTURE_FORMAT)) \
 	$(if $(filter skeletal,$(MODEL_TARGET)),, \
 	--face-colors $(MODEL_FACE_COLORS) \
+	--texture-lighting $(MODEL_TEXTURE_LIGHTING) \
 	--light-dir=$(MODEL_LIGHT_DIR) \
 	--ambient $(MODEL_AMBIENT) \
 	--diffuse $(MODEL_DIFFUSE) \
@@ -654,6 +663,12 @@ endif
 
 # The ISO is a useful intermediate for filesystem inspection and the harness,
 # but the public BIN/CUE pair is the raw Mode 1 image expected by ODEs.
+ifneq ($(strip $(EXAMPLE_CDDA_SOURCE)),)
+# A CD-DA example publishes one mixed-mode BIN: data, audio pregap, exact PCM.
+$(DISC_BIN) $(CUE) &: $(ISO) $(EXAMPLE_CDDA_SOURCE) tools/build_cd_audio.py tools/iso_to_raw.py
+	$(PYTHON) tools/build_cd_audio.py --iso $(ISO) --audio "$(EXAMPLE_CDDA_SOURCE)" \
+		--output-bin $(DISC_BIN) --output-cue $(CUE)
+else
 $(DISC_BIN): $(ISO) tools/iso_to_raw.py
 	$(PYTHON) tools/iso_to_raw.py --iso $(ISO) --output $@
 
@@ -663,6 +678,7 @@ $(CUE): $(DISC_BIN) tools/gen_cue.py tools/check_disc_image.py tools/iso_to_raw.
 		--bin-name $(EXAMPLE).bin \
 		--cue-output $(CUE)
 	$(PYTHON) tools/check_disc_image.py --iso $(ISO) --bin $(DISC_BIN) --cue $(CUE)
+endif
 
 # -- Host tests -------------------------------------------------
 # tests/host/*.cpp exercise the pure helpers in src/core/runtime/logic.hpp. They are

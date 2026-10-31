@@ -1,0 +1,20 @@
+{
+  "source": "PCSX-Redux emulation; not a physical hardware measurement",
+  "field_hz_assumed": 59.94,
+  "captured_fields": 480,
+  "stride_guest_frames": 32,
+  "period_fields": [
+    57,
+    57,
+    58,
+    57,
+    57,
+    58,
+    57,
+    57
+  ],
+  "mean_period_fields": 57.25,
+  "period_seconds": 0.9551217884551219,
+  "reconstructed_cycle_seconds": 1.3333333333333333,
+  "suggested_walk_speed_percent": 139.59825327510913
+}

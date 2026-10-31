@@ -29,9 +29,10 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     }
     if ((config->width != saturn::internal::kDefaultWidth &&
          config->width != 640u && config->width != 704u) ||
-        config->height != saturn::internal::kDefaultHeight) {
+        (config->height != saturn::internal::kDefaultHeight && config->height != 448u)) {
         return SAT_ERR_UNSUPPORTED;
     }
+    if (config->height == 448u && config->width < 640u) return SAT_ERR_UNSUPPORTED;
     if (config->ntsc > SAT_VIDEO_AUTO) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -55,6 +56,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
 
     saturn::hal::vdp2::init_ntsc_320x224();
     saturn::hal::vdp2::set_horizontal_resolution(config->width);
+    saturn::hal::vdp2::set_double_interlace(config->height == 448u);
     saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);
     saturn::hal::scu::init_frame_clock();
     saturn::hal::scu::init_interrupts();

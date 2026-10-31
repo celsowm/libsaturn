@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cstring>
 #include <cstdio>
+#include <string>
+#include <algorithm>
 
 static std::vector<uint8_t> payload;
 extern "C" sat_result_t sat_asset_open(const char*,sat_asset_t* out) { *out={0,1};return SAT_OK; }
@@ -57,6 +59,32 @@ int main() {
     sat_character_asset_release(&assets[0]);assert(!assets[0].storage);
     assert(sat_clip_sample(&assets[1].clips[1],SAT_FX16_ONE/3,pose.data(),(uint16_t)pose.size())==SAT_OK);
     assert(!sat_character_joint_name(&assets[0],0));
+    {
+        /* Compacting keeps every view readable and drops only the pixels and their table. */
+        const sat_skeleton_joint_t first_joint=assets[1].skeleton.joints[0];
+        const sat_vec3_t first_vertex=assets[1].model.vertices[0];
+        const uint16_t first_face=assets[1].model.indices[0],palette=assets[1].model.palettes_rgb555[1];
+        std::vector<sat_skeleton_pose_joint_t> before(assets[1].clips[1].frame_count*assets[1].skeleton.joint_count);
+        std::memcpy(before.data(),assets[1].clips[1].frames,before.size()*sizeof(before[0]));
+        const std::string clip_name=sat_character_clip_name(&assets[1],4);
+        const uint32_t full=assets[1].storage_bytes;
+        std::vector<uint32_t> small(full/sizeof(uint32_t)+1);
+        uint32_t retained=0;
+        assert(sat_character_asset_compact(&assets[1],small.data(),8,&retained)==SAT_ERR_CAPACITY);
+        assert(sat_character_asset_compact(&assets[1],small.data(),
+            (uint32_t)(small.size()*sizeof(uint32_t)),&retained)==SAT_OK);
+        assert(retained<full && assets[1].storage==(const uint8_t*)small.data());
+        std::fill(red.begin(),red.end(),0xA5A5A5A5u);
+        assert(!assets[1].model.textures);
+        assert(std::memcmp(&assets[1].skeleton.joints[0],&first_joint,sizeof(first_joint))==0);
+        assert(std::memcmp(&assets[1].model.vertices[0],&first_vertex,sizeof(first_vertex))==0);
+        assert(assets[1].model.indices[0]==first_face && assets[1].model.palettes_rgb555[1]==palette);
+        assert(std::memcmp(assets[1].clips[1].frames,before.data(),before.size()*sizeof(before[0]))==0);
+        assert(clip_name==sat_character_clip_name(&assets[1],4));
+        assert(std::strcmp(sat_character_joint_name(&assets[1],0),"root")==0);
+        assert(sat_skin_validate(&assets[1].skin)==SAT_OK);
+        assert(sat_clip_sample(&assets[1].clips[1],SAT_FX16_ONE/3,pose.data(),(uint16_t)pose.size())==SAT_OK);
+    }
     load_fixture("build/generated/character_examples/disc/high_blue.ska");
     std::memcpy(blue.data(),payload.data(),payload.size());
     sat_character_asset_t sentinel{};sentinel.storage_bytes=123;

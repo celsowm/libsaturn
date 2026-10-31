@@ -97,6 +97,10 @@ void* volatile g_swap_user = nullptr;
 TextureArena g_texture_arena(kTextureBase, kVramSize);
 uint16_t g_width = 320;
 uint16_t g_height = 224;
+bool g_double_interlace = false;
+uint8_t g_interlace_bank = 0u;
+volatile uint32_t g_interlace_publish_frame = 0u;
+volatile uint32_t g_interlace_pending_base = 0u;
 /* 640/704-wide hi-res: TVMR TVM = 001, an 8 bits/pixel framebuffer. */
 bool g_hires = false;
 /* TVMR TVM = 011, rotation 8: a 512 x 512 x 8 bits framebuffer the VDP2 reads back rotated.
@@ -123,7 +127,7 @@ uint16_t g_erase_word = 0x0000u;
  * 16-pixel units at 8 bits/pixel (VDP1 manual 4.4); Y3 is the last line. */
 uint16_t full_erase_ewrr(uint16_t width, uint16_t height) {
     const uint16_t unit = framebuffer_8bpp() ? 16u : 8u;
-    return static_cast<uint16_t>(((width / unit) << 9u) | (height - 1u));
+    return static_cast<uint16_t>(((width / unit) << 9u) | ((g_double_interlace ? height / 2u : height) - 1u));
 }
 #if SAT_PROFILE_METRICS
 uint32_t g_test_scene_command_hash;
@@ -180,13 +184,20 @@ inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
 void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
     g_height = height;
+    g_double_interlace = height == 448u;
+    g_on_submit_pending = false;
     g_hires = width >= 640u;
     g_fb_rotation = false;
     g_fb_rotation_boot_clear = 0u;
-    g_texture_arena.reset(kTextureBase, kVramSize);
+    /* Two immutable command banks plus a fixed root jump. Auto plotting
+     * must keep running every field even while the CPU builds a new scene. */
+    g_interlace_bank = 0u;
+    g_interlace_pending_base = 0u;
+    g_list_submitted = false;
+    g_texture_arena.reset(g_double_interlace ? 32u + 2u * kCommandAreaBytes : kTextureBase, kVramSize);
 
     TVMR = g_hires ? 0x0001u : 0x0000u;
-    FBCR = 0x0000;
+    FBCR = g_double_interlace ? 0x0008u : 0x0000u;
     PTMR = 0x0000;
     g_on_submit = false;  // 1-cycle below; begin_frame reapplies a pending mode
     g_swap_state = kSwapIdle;
@@ -1167,6 +1178,22 @@ bool wait_draw_end() {
 }
 
 void on_vblank_in() {
+    if (g_double_interlace) {
+        /* One-cycle swaps every field. The next draw is displayed one field
+         * after the upcoming display field, so draw the opposite parity.
+         * TVSTAT.ODD already describes the upcoming field at VBlank-IN.
+         * VDP1 manual 4.2: DIE=1, DIL selects source-coordinate parity. */
+        const uint16_t odd = (vdp2::read_tvstat() & 0x0002u) != 0u;
+        FBCR = static_cast<uint16_t>(0x0008u | (odd ? 0u : 0x0004u));
+        /* Publish before the EVEN draw, retaining that scene for ODD too.
+         * This prevents a weave pair from combining different pose lists. */
+        const uint32_t base = g_interlace_pending_base;
+        if (odd && base != 0u) {
+            VDP1_VRAM_32[0] = 0x50000000u | (base / 8u);
+            g_interlace_publish_frame = g_vblank_ins;
+            g_interlace_pending_base = 0u;
+        }
+    }
     g_vblank_ins = g_vblank_ins + 1u;
     if (g_swap_state == kSwapPending) {
         service_swap();
@@ -1223,7 +1250,7 @@ void submit() {
     if (g_list_submitted) {
         if (g_on_submit) {
             (void)wait_until([] { return list_ended() && swap_settled(); }, 4u);
-        } else {
+        } else if (!g_double_interlace) {
             (void)wait_draw_end();
         }
     }
@@ -1249,7 +1276,24 @@ void submit() {
     end.grda = 0;
     end.pad = 0;
 
-    if (g_submit_dma) {
+    if (g_double_interlace) {
+        /* Before reusing the inactive bank, allow the previous root jump
+         * to be consumed at a field start. The other bank keeps rendering. */
+        if (g_list_submitted) {
+            (void)wait_until([] {
+                return g_interlace_pending_base == 0u &&
+                    g_vblank_ins != g_interlace_publish_frame && !in_vblank();
+            }, 4u);
+        }
+        const uint32_t base = 32u + static_cast<uint32_t>(g_interlace_bank) * kCommandAreaBytes;
+        submit_copy::copy_commands_relocated(reinterpret_cast<const uint32_t*>(g_cmd_buffer),
+                                              VDP1_VRAM_32 + base / 4u, g_cmd_count, base);
+        /* The VBlank handler publishes the completed bank at a pair boundary.
+         * SKIP ASSIGN reads no texture; all later links target this bank. */
+        asm volatile("" ::: "memory");
+        g_interlace_pending_base = base;
+        g_interlace_bank ^= 1u;
+    } else if (g_submit_dma) {
         /* Command table and Gouraud tables by SCU-DMA. A DMA that fails is
          * redone by the CPU: the table must be complete before the VDP1
          * draws. */

@@ -84,6 +84,9 @@ def main() -> int:
                              "off|auto|on (default off)")
     parser.add_argument("--light-dir", default="-0.5,0.6,0.8",
                         help="Baked light direction x,y,z in asset space (towards the light)")
+    parser.add_argument("--texture-lighting", default="off", choices=("off", "baked-smooth"),
+                        help="Animated textures: bake fixed smooth light into the face patches; "
+                             "weld moving points to shade continuously across UV seams")
     parser.add_argument("--ambient", type=float, default=0.35,
                         help="Baked light floor for --face-colors (linear)")
     parser.add_argument("--diffuse", type=float, default=0.75,
@@ -274,6 +277,7 @@ def _main_animated(args) -> int:
             weld_vertices=args.weld_vertices == "on",
             texture_format=args.texture_format,
             locality_order=args.locality_order == "on",
+            texture_lighting=args.texture_lighting,
         )
         header_path, source_path = emit_anim.emit_animated_c_h(
             result.static, result.animations, Path(args.out_prefix), args.symbol)

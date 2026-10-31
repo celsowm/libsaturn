@@ -121,6 +121,13 @@ if (-not (Test-Path $binPath)) {
     throw "Expected executable $binPath alongside $isoPath but it's missing."
 }
 
+# A mixed-mode soundtrack lives outside the ISO filesystem. Prefer the full
+# published CUE unless the caller explicitly chose a disc image.
+if (-not $DiscImage) {
+    $cuePath = [IO.Path]::ChangeExtension($isoPath, '.cue')
+    if (Test-Path $cuePath) { $isoPath = $cuePath }
+}
+
 # Ymir's direct-injection harness does not run the Saturn BIOS's Slave handoff
 # routine. For the dual-SH2 and high-level parallel examples, provide the
 # entry symbol through Ymir's generic SH-2 reset vector so SSHON still starts

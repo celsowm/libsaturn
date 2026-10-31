@@ -17,11 +17,11 @@
  * headers, while the SCSP service composes storage and hardware transactions. */
 namespace saturn::core::audio::playback {
 
-constexpr uint16_t kSoundCapacity=24u;
+constexpr uint16_t kSoundCapacity=64u;
 constexpr uint16_t kVoiceCapacity=32u;
 constexpr uint16_t kResidentVoiceCapacity=
     kVoiceCapacity-saturn::core::kAudioStreamCapacity;
-constexpr uint16_t kAllocationCapacity=40u;
+constexpr uint16_t kAllocationCapacity=64u;
 constexpr uint32_t kSoundRamBase=saturn::hal::scsp::kSystemReservedBytes;
 constexpr uint32_t kResidentSoundRamEnd=saturn::core::kAudioStreamRamBase;
 
