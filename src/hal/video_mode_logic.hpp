@@ -11,10 +11,11 @@
  * The VDP2 manual's TV screen mode register (2.4) defines HRESO bits 2-0 as
  * 320/352/640/704, VRESO bits 5-4 as 224/240/256 (11 is setting-prohibited,
  * and 256 needs a PAL TV), and LSMD bits 7-6 as non-interlaced / prohibited /
- * single-density / double-density. This library implements non-interlaced and
- * single-density interlace. Double-density interlace needs a distinct VDP1
- * picture in each field (VDP1 FBCR DIE=1 plus per-field drawing), which no
- * public framebuffer path exposes yet, so it is reported as unsupported
+ * single-density / double-density. This library implements non-interlaced,
+ * single-density interlace, and double-density interlace in one shape: height
+ * 448 at width 640 or 704. There VDP1 draws full-resolution coordinates split
+ * into alternating fields (src/hal/vdp1/vdp1.cpp, FBCR DIE=1). Double density
+ * at any other size has no drawing path, so it is reported as unsupported
  * rather than written and left to tear. */
 
 namespace saturn::hal::video_mode {
@@ -48,8 +49,21 @@ inline uint16_t lsmd_bits(uint8_t interlace) {
          : (interlace == SAT_VIDEO_INTERLACE_SINGLE ? 2u : 0u);
 }
 
+/* Height 448 is the whole-picture spelling of double density: VRESO 224 and
+ * two different fields. A config with interlace 0 selects it too. */
+inline bool double_density_height(uint16_t height) {
+    return height == 448u;
+}
+
 inline sat_result_t validate(uint16_t width, uint16_t height, uint8_t interlace,
                              bool console_pal) {
+    if (double_density_height(height)) {
+        if (!supported_width(width) || interlace == SAT_VIDEO_INTERLACE_SINGLE ||
+            interlace > SAT_VIDEO_INTERLACE_DOUBLE) {
+            return SAT_ERR_INVALID_ARG;
+        }
+        return hreso_bits(width) >= 2u ? SAT_OK : SAT_ERR_UNSUPPORTED;
+    }
     if (!supported_width(width) || !supported_height(height) ||
         interlace > SAT_VIDEO_INTERLACE_DOUBLE) {
         return SAT_ERR_INVALID_ARG;
@@ -72,7 +86,8 @@ inline sat_result_t validate(const sat_video_config_t* config, bool console_pal)
 /* Bits 7-0 of TVMD for a validated mode. DISP and BDCLMD (bits 15 and 8) are
  * preserved by the caller. */
 inline uint16_t mode_bits(uint16_t width, uint16_t height, uint8_t interlace) {
-    return static_cast<uint16_t>((lsmd_bits(interlace) << 6u) |
+    const uint8_t scan = double_density_height(height) ? SAT_VIDEO_INTERLACE_DOUBLE : interlace;
+    return static_cast<uint16_t>((lsmd_bits(scan) << 6u) |
                                  (vreso_bits(height) << 4u) |
                                  hreso_bits(width));
 }

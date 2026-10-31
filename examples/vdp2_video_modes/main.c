@@ -17,8 +17,9 @@
  * CRAOFB); at 320/352 they are RGB555.
  *
  * 256-line modes exist only on a PAL console (VRESO 10b). Double-density
- * interlace is reported as unsupported, never written: it needs a different
- * VDP1 picture in each field, which no public framebuffer path exposes.
+ * interlace at these heights is reported as unsupported, never written: it
+ * needs a different VDP1 picture in each field, which only the 640/704x448
+ * mode provides (see dino_demo).
  *
  * Controls: A next mode, C previous mode, START exits.
  * The mode advances automatically every 60 fields so a harness capture run

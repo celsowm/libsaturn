@@ -245,7 +245,7 @@
       "tests": ["tests/host/test_video_mode.cpp", "harness/run-vdp2-video-modes.ps1",
                 "harness/tests/test_vdp2_video_modes.py",
                 "examples/vdp2_video_modes/main.c"],
-      "notes": "E09 exposes single-density interlace through sat_init's sat_video_config_t.interlace (TVMD LSMD=10) and sat_video_interlace_mode(); the logical picture height stays 224/240/256 and the output picture is twice as tall. VDP1 stays in its DIE=0 single-density state. Double-density interlace (LSMD=11, a different VDP1 picture per field) is refused with SAT_ERR_UNSUPPORTED because no public framebuffer path exposes per-field drawing. Ymir renders 320x480 and 640x480 and the PAL 320x512/640x512 fields; physical hardware remains PENDING in the acceptance checklist.",
+      "notes": "E09 exposes single-density interlace through sat_init's sat_video_config_t.interlace (TVMD LSMD=10) and sat_video_interlace_mode(); the logical picture height stays 224/240/256 and the output picture is twice as tall. VDP1 stays in its DIE=0 single-density state. Double-density interlace (LSMD=11, a different VDP1 picture per field) exists only as height 448 at width 640 or 704, the mode dino_demo runs; at other sizes it is refused with SAT_ERR_UNSUPPORTED because no public framebuffer path exposes per-field drawing there. Ymir renders 320x480 and 640x480 and the PAL 320x512/640x512 fields; physical hardware remains PENDING in the acceptance checklist.",
       "plan_milestone": "M4"
     },
     {

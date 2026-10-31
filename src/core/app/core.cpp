@@ -45,6 +45,9 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     render2d_runtime_reset(g_render2d_runtime);
 
     g_state.config = *config;
+    if (saturn::hal::video_mode::double_density_height(config->height)) {
+        g_state.config.interlace = SAT_VIDEO_INTERLACE_DOUBLE;
+    }
     if (config->ntsc == SAT_VIDEO_AUTO) {
         g_state.config.ntsc = sat_video_is_pal() != 0u ? SAT_VIDEO_PAL : SAT_VIDEO_NTSC;
     }

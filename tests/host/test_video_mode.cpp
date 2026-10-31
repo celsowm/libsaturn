@@ -95,6 +95,19 @@ TEST(config_validation_uses_the_same_rules) {
               SAT_ERR_INVALID_ARG);
 }
 
+TEST(height_448_is_hires_double_density) {
+    /* The positional config {640, 448, AUTO, 0} and the explicit one agree. */
+    ASSERT_EQ(validate(640u, 448u, SAT_VIDEO_INTERLACE_NONE, false), SAT_OK);
+    ASSERT_EQ(validate(704u, 448u, SAT_VIDEO_INTERLACE_DOUBLE, true), SAT_OK);
+    ASSERT_EQ(mode_bits(640u, 448u, SAT_VIDEO_INTERLACE_NONE), 0x00C2u);
+    ASSERT_EQ(mode_bits(704u, 448u, SAT_VIDEO_INTERLACE_DOUBLE), 0x00C3u);
+    /* No drawing path at low resolution, and single density has its own spelling. */
+    ASSERT_EQ(validate(320u, 448u, SAT_VIDEO_INTERLACE_NONE, false), SAT_ERR_UNSUPPORTED);
+    ASSERT_EQ(validate(352u, 448u, SAT_VIDEO_INTERLACE_DOUBLE, false), SAT_ERR_UNSUPPORTED);
+    ASSERT_EQ(validate(640u, 448u, SAT_VIDEO_INTERLACE_SINGLE, false), SAT_ERR_INVALID_ARG);
+    ASSERT_EQ(validate(480u, 448u, SAT_VIDEO_INTERLACE_NONE, false), SAT_ERR_INVALID_ARG);
+}
+
 int main() {
     widths_are_the_four_tv_modes();
     heights_are_the_three_vreso_modes();
@@ -103,6 +116,7 @@ int main() {
     validation_marks_pal_only_and_unimplemented_modes();
     validation_rejects_impossible_values();
     config_validation_uses_the_same_rules();
-    printf("PASS: test_video_mode.cpp (7 tests)\n");
+    height_448_is_hires_double_density();
+    printf("PASS: test_video_mode.cpp (8 tests)\n");
     return 0;
 }

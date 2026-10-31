@@ -41,9 +41,9 @@ produces a picture twice as tall (448/480/512). The VBlank interrupt still
 fires once per field, so `sat_video_refresh_hz()` remains 60/50 and a full
 interlaced frame spans two VBlanks.
 
-Double-density interlace is refused with `SAT_ERR_UNSUPPORTED`: it needs a
-different VDP1 picture in each field, which no public framebuffer path
-exposes. A 256-line picture is refused on an NTSC console.
+Double-density interlace at these heights is refused with
+`SAT_ERR_UNSUPPORTED`: it needs a different VDP1 picture in each field, which
+only the 640/704x448 mode provides (see `dino_demo`). A 256-line picture is refused on an NTSC console.
 
 ## Evidence and limits
 

@@ -69,9 +69,17 @@ typedef enum sat_result {
  *   SAT_VIDEO_INTERLACE_SINGLE single-density interlace (two fields show the
  *                              same picture; output height is twice `height`)
  *   SAT_VIDEO_INTERLACE_DOUBLE double-density interlace (two different
- *                              pictures per frame) - NOT SUPPORTED by this
- *                              library yet; sat_init returns
+ *                              pictures per frame): only as height 448 below;
+ *                              at other heights sat_init returns
  *                              SAT_ERR_UNSUPPORTED
+ *
+ * Height 448 with width 640 or 704 selects double-density interlace, whether
+ * `interlace` is 0 or SAT_VIDEO_INTERLACE_DOUBLE. Full-resolution coordinates
+ * are split into alternating even/odd 224-line fields, and
+ * sat_video_height() reads 448. It requires the SCU VBlank interrupt,
+ * SAT_VDP1_FRAME_AUTO and two immutable VRAM command banks (131104 bytes total
+ * before textures). Gouraud remains unavailable in hi-res. The time base counts
+ * fields, still 60/50 Hz, rather than interlaced pairs.
  *
  * Single-density interlace is the VDP2's LSMD=10 mode and is valid at 224,
  * 240 and 256 lines (320x448, 320x480, 320x512 and the 352/640/704
