@@ -14,6 +14,10 @@ constexpr uint32_t kLineBytes = 16u;
 
 uint8_t control_register();
 void purge_all(Mode mode);
+/* Puts the calling CPU's cache in the full 4 KiB mode, whatever the BIOS or a
+ * loader left, and records what it found. `cpu` is 0 for Master, 1 for Slave. */
+void enable_at_start(uint8_t cpu);
+uint8_t control_at_start(uint8_t cpu);
 bool invalidate_line(uint32_t cached_address);
 /* Invalidates every line overlapping [address, address + size). Returns
  * false, touching nothing, unless the whole span is cacheable Work RAM. */

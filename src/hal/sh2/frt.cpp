@@ -30,6 +30,12 @@ void set_prescaler(Prescaler prescaler) {
     compiler_barrier();
 }
 
+void set_free_running() {
+    /* Status flags ignore a written 1, so this clears none of them. */
+    FRT_FTCSR = static_cast<uint8_t>(FRT_FTCSR & ~kClearOnCompareA);
+    compiler_barrier();
+}
+
 uint8_t timer_interrupt_enable() {
     return FRT_TIER;
 }

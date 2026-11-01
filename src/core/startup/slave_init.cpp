@@ -4,6 +4,7 @@
 #include "src/hal/dual_sh2/mailbox.hpp"
 #include "src/hal/dual_sh2/memory.hpp"
 #include "src/hal/dual_sh2/signal.hpp"
+#include "src/hal/sh2/cache.hpp"
 #include "src/hal/sh2/cpu.hpp"
 #include "src/hal/sh2/frt.hpp"
 
@@ -13,8 +14,10 @@ extern "C" void saturn_slave_init(void) {
     /* The BIOS provides the vector table and initial FRT route.  Establish the
      * local context again without touching the Master's BSS, stack or devices. */
     hal::sh2::set_interrupt_mask(0x0Fu);
+    hal::sh2::cache::enable_at_start(1u);
     hal::sh2::write_vector_base(core::startup::kSlaveVectorBase);
     hal::sh2::frt::configure_polling();
+    hal::sh2::frt::set_free_running();
     /* Keep local worker-duration measurements at the same nominal rate as
      * the Master. Durations are measured locally; the counters are not phase
      * synchronized and must never be subtracted across CPUs. */

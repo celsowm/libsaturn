@@ -12,6 +12,18 @@ constexpr uint32_t kCcrAddress = 0xFFFFFE92u;
 constexpr uint32_t kCcrCp = 0x10u;
 constexpr uint32_t kWorkRamLowBase = 0x00200000u;
 constexpr uint32_t kWorkRamLowEnd = 0x00300000u;
+/* Replacement-disable, way-size and enable bits. The way select is not state. */
+constexpr uint32_t kCcrModeBits = 0x0Fu;
+
+/* Written by each CPU and read across them: always through the cache-through
+ * alias. */
+uint8_t g_control_at_start[2];
+
+volatile uint8_t& control_at_start_slot(uint8_t cpu) {
+    return *reinterpret_cast<volatile uint8_t*>(
+        reinterpret_cast<uintptr_t>(&g_control_at_start[cpu & 1u]) |
+        saturn::core::startup::kCacheThroughBit);
+}
 
 volatile uint8_t& ccr() {
     return *reinterpret_cast<volatile uint8_t*>(kCcrAddress);
@@ -33,6 +45,21 @@ void purge_all(Mode mode) {
     ccr() = kCcrCp;
     ccr() = static_cast<uint8_t>(mode);
     compiler_barrier();
+}
+
+void enable_at_start(uint8_t cpu) {
+    const uint8_t found = ccr();
+    control_at_start_slot(cpu) = found;
+    if ((found & kCcrModeBits) == static_cast<uint8_t>(Mode::Cache4KiB)) return;
+    /* The manual wants CCR written from the cache-through area. */
+    using Fn = void (*)(Mode);
+    const Fn purge = reinterpret_cast<Fn>(
+        reinterpret_cast<uintptr_t>(&purge_all) | saturn::core::startup::kCacheThroughBit);
+    purge(Mode::Cache4KiB);
+}
+
+uint8_t control_at_start(uint8_t cpu) {
+    return control_at_start_slot(cpu);
 }
 
 bool is_supported_work_ram(uint32_t address, uint32_t size) {
@@ -78,4 +105,8 @@ bool invalidate_range(uint32_t cached_address, uint32_t size) {
 
 extern "C" uint8_t sat_sh2_cache_control(void) {
     return saturn::hal::sh2::cache::control_register();
+}
+
+extern "C" uint8_t sat_sh2_cache_control_at_start(uint8_t cpu) {
+    return saturn::hal::sh2::cache::control_at_start(cpu);
 }

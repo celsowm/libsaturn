@@ -12,6 +12,7 @@
 #include "src/core/runtime/state.hpp"
 #include "src/graphics/2d/textures/runtime.hpp"
 #include "src/hal/scu/scu.hpp"
+#include "src/hal/sh2/cache.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 #include "src/hal/video_mode_logic.hpp"
@@ -21,6 +22,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     using namespace saturn::core;
 
     extern void _saturn_early_init(void);
+    saturn::hal::sh2::cache::enable_at_start(0u);
     sat_boot_mark(SAT_BOOT_EARLY_BEGIN, 0, SAT_OK);
     _saturn_early_init();
     sat_boot_mark(SAT_BOOT_EARLY_END, 1, SAT_OK);

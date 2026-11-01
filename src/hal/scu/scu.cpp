@@ -80,8 +80,9 @@ static void wait_vblank_level(uint16_t level) {
  * tick rate is measured between two real VBLANK edges instead of derived
  * from a clock constant, so the 320/352 dot clocks and PAL need no table. */
 void init_frame_clock() {
-    /* Only the two clock-select bits belong to the frame clock.  Input
-     * capture and compare/overflow enables are intentionally preserved. */
+    /* Only the clock-select and counter-clear bits belong to the frame clock.
+     * Input capture and compare/overflow enables are intentionally preserved. */
+    saturn::hal::sh2::frt::set_free_running();
     saturn::hal::sh2::frt::set_prescaler(
         saturn::hal::sh2::frt::Prescaler::Divide128);
     wait_vblank_level(0u);
