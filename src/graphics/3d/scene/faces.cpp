@@ -1416,9 +1416,13 @@ static sat_result_t submit_instance(
         }
         const sat_scene3d_material_t& base=materials[face_materials[f]];
         const bool known_safe=base.kind==SAT_SCENE3D_RGB?all_safe_rgb:all_safe_indexed;
-        if (known_safe && !override_slot && programs) {
+        /* One corner far off-screen sends the whole instance here. A face it
+         * doesn't touch can still draw from its program and needs no cold
+         * record, so a bounded cold store is not spent on the entire mesh. */
+        if (!override_slot && programs) {
             const auto* program=&programs[face_materials[f]];
-            if (program->texture) {
+            if (program->texture &&
+                (known_safe || safe_projection(*scene,screen_scratch,idx,false))) {
                 append_program(scene,screen_scratch,idx,program,instance->pass);
                 continue;
             }

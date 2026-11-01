@@ -663,6 +663,51 @@ static void projected_hot_queue_matches_general_and_owns_fallbacks() {
     assert(sat_scene3d_faces_use_projected_storage(&scene,nullptr,0)==SAT_OK);
 }
 
+static void offscreen_corner_keeps_other_faces_out_of_the_cold_store() {
+    constexpr uint16_t capacity=8,faces=5;
+    sat_scene3d_face_t cold[1]{};
+    sat_scene3d_projected_face_t hot[capacity]{};
+    uint32_t keys[capacity]{};uint16_t order[capacity]{};
+    sat_scene3d_faces_t scene{};
+    assert(sat_scene3d_faces_init(&scene,cold,keys,order,capacity)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_storage(&scene,hot,capacity)==SAT_OK);
+    scene.cold_capacity=1;
+    sat_mat4_t vp{};vp.m[0]=vp.m[5]=vp.m[14]=SAT_FX16_ONE;
+    const sat_vec3_t eye{},forward{0,0,SAT_FX16_ONE};
+    sat_vdp1_texture_t texture{};texture.valid=1;texture.width=texture.height=8;
+    texture.format=SAT_VDP1_TEXTURE_LUT4;texture.srca=81;
+    sat_scene3d_material_t material{};material.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+    material.texture=&texture;material.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    sat_scene3d_material_program_t program[1]{};sat_scene3d_material_programs_t table{};
+    assert(sat_scene3d_material_programs_init(&table,&material,1,program,1)==SAT_OK);
+    const sat_quad3_t near_centre=quad(3);
+    sat_vec3_t vertices[8];
+    for(unsigned i=0;i<4;++i){
+        vertices[i]=near_centre.v[i];
+        vertices[4+i]=near_centre.v[i];
+    }
+    // Past the projection bound, in front of the camera: only this corner's face needs a cold record.
+    vertices[7].x=SAT_FX16_ONE*1200;
+    // The last face is the unsafe one, so the store is free until then: a mesh that spent it on every face
+    // before reaching this one would skip the rest.
+    uint16_t indices[faces*4],map[faces]{};
+    for(unsigned i=0;i<faces*4u;++i)indices[i]=static_cast<uint16_t>(i%4u);
+    for(unsigned i=0;i<4;++i)indices[4*4+i]=static_cast<uint16_t>(4u+i);
+    sat_mesh_t mesh{};mesh.vertices=vertices;mesh.indices=indices;
+    mesh.vertex_count=mesh.vertex_cap=8;mesh.face_count=mesh.face_cap=faces;
+    sat_scene3d_instance_binding_t binding{};
+    assert(sat_scene3d_instance_binding_init(&binding,&mesh,&material,1,map)==SAT_OK);
+    binding.programs=&table;
+    sat_scene3d_instance_t instance{};instance.mesh=&mesh;instance.materials=&material;
+    instance.material_count=1;instance.face_materials=map;instance.validated_binding=&binding;
+    sat_projected_vertex_t screen[8]{};
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+    assert(sat_scene3d_faces_submit_instance(&scene,&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+    assert(scene.count==faces && scene.skipped_faces==0 && scene.cold_count==1);
+    for(unsigned i=0;i<4u;++i)assert(hot[i].kind==SAT_SCENE3D_PROJECTED_PROGRAM);
+    assert(hot[4].kind==SAT_SCENE3D_PROJECTED_COLD);
+}
+
 static void bounded_cold_store_skips_and_counts_overflow() {
     constexpr uint16_t capacity=4;
     sat_scene3d_face_t cold[1]{};
@@ -850,6 +895,7 @@ int main() {
     screen_culling_skips_only_the_world_test();
     pre_projected_instance_matches_world_submission();
     bounded_cold_store_skips_and_counts_overflow();
+    offscreen_corner_keeps_other_faces_out_of_the_cold_store();
     direct_spans_preserve_order_and_cold_lifetimes();
     projected_hot_queue_matches_general_and_owns_fallbacks();
     compiled_materials_preserve_emission_and_residency();

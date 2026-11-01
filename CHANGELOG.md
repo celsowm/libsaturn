@@ -787,6 +787,9 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- A compiled instance with one corner past the off-screen bound spent a cold record on every face, because it left
+  the fast path whole. With a bounded `cold_capacity` the last faces of the mesh were skipped, which left holes in it.
+  A face whose own corners are safe now draws from its program, and only the faces touching that corner go cold.
 - E01 `vdp2_dual_rotation` configured RBG0/RBG1 as 256-colour screens while
   uploading 4bpp/16-colour tiles and 16-entry palettes, so Ymir and Mednafen
   rendered the scene in grayscale and the DUAL pixel assertion was skipped.
