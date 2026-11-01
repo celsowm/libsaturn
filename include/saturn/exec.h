@@ -44,6 +44,13 @@ extern "C" {
 sat_result_t sat_exec(sat_cdfs_volume_t* volume, const char* disc_path,
                       const void* arg, uint32_t arg_bytes);
 
+/* sat_exec that leaves the VDP2 registers and display as they are, so a VDP2
+ * picture stays up while the file is read. VDP1 still stops. The new program's
+ * sat_init turns the display off and clears the registers; VRAM and CRAM keep
+ * the picture for it to show again. */
+sat_result_t sat_exec_keep_display(sat_cdfs_volume_t* volume, const char* disc_path,
+                                   const void* arg, uint32_t arg_bytes);
+
 /* The argument the previous program passed to sat_exec. Copies up to
  * `capacity` bytes to `out` (may be NULL with 0 to only ask), stores the full
  * size in *out_bytes (may be NULL) and forgets it, so a later reset does not

@@ -32,10 +32,8 @@ sat_result_t read_image(const sat_cd_device_t* device, uint32_t lba, uint32_t se
     return SAT_OK;
 }
 
-}  // namespace
-
-extern "C" sat_result_t sat_exec(sat_cdfs_volume_t* volume, const char* disc_path,
-                                 const void* arg, uint32_t arg_bytes) {
+sat_result_t run_program(sat_cdfs_volume_t* volume, const char* disc_path,
+                         const void* arg, uint32_t arg_bytes, bool keep_display) {
     if (volume == nullptr || disc_path == nullptr || (arg == nullptr && arg_bytes != 0u)) {
         return SAT_ERR_INVALID_ARG;
     }
@@ -65,9 +63,21 @@ extern "C" sat_result_t sat_exec(sat_cdfs_volume_t* volume, const char* disc_pat
 
     /* The argument may sit in Work RAM Low too: seal it before the read. */
     logic::seal(*exec_hal::handoff(), arg, arg_bytes);
-    exec_hal::stop_machine();
+    exec_hal::stop_machine(keep_display);
     if (read_image(device, lba, sectors) != SAT_OK) exec_hal::reset_machine();
     exec_hal::start_image(file.size);
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_exec(sat_cdfs_volume_t* volume, const char* disc_path,
+                                 const void* arg, uint32_t arg_bytes) {
+    return run_program(volume, disc_path, arg, arg_bytes, false);
+}
+
+extern "C" sat_result_t sat_exec_keep_display(sat_cdfs_volume_t* volume, const char* disc_path,
+                                              const void* arg, uint32_t arg_bytes) {
+    return run_program(volume, disc_path, arg, arg_bytes, true);
 }
 
 extern "C" sat_result_t sat_exec_arg(void* out, uint32_t capacity, uint32_t* out_bytes) {

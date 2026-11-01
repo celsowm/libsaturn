@@ -87,7 +87,7 @@ sat_cd_block_t* bound_block(const sat_cd_device_t* device) {
     return saturn::hal::cd::bound_block(device);
 }
 
-void stop_machine() {
+void stop_machine(bool keep_display) {
     namespace sh2 = saturn::hal::sh2;
     (void)sh2::save_and_mask_interrupts();
     /* The BIOS vectors and on-chip priorities come back; then mask again. */
@@ -109,6 +109,7 @@ void stop_machine() {
     (void)saturn::hal::smpc::sound_off();
 
     reg<uint16_t>(kVdp1Ptmr) = 0u;
+    if (keep_display) return;
     for (uint32_t offset = kVdp2FirstCleared; offset < kVdp2End; offset += 2u) {
         reg<uint16_t>(kVdp2Base + offset) = 0u;
     }

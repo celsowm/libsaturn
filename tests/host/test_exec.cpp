@@ -22,6 +22,7 @@ uint8_t g_image[kStoredSectors * SAT_CD_SECTOR_BYTES] = {};
 alignas(4) uint8_t g_staging[SAT_EXEC_MAX_BYTES] = {};
 logic::Handoff g_handoff = {};
 int g_stops = 0;
+bool g_kept_display = false;
 int g_reads = 0;
 int g_failures_left = 0;     /* reads to fail before succeeding */
 bool g_fail_always = false;
@@ -144,7 +145,7 @@ namespace saturn::storage::exec {
 void* staging() { return g_staging; }
 logic::Handoff* handoff() { return &g_handoff; }
 sat_cd_block_t* bound_block(const sat_cd_device_t*) { return nullptr; }
-void stop_machine() { ++g_stops; }
+void stop_machine(bool keep_display) { ++g_stops; g_kept_display = keep_display; }
 void start_image(uint32_t bytes) {
     g_started_bytes = bytes;
     throw Started{};
@@ -224,6 +225,24 @@ static void test_no_argument_still_counts() {
     OK(sat_exec_arg(nullptr, 0u, &bytes) == SAT_ERR_NOT_FOUND);
 }
 
+static void test_keep_display_only_changes_the_stop() {
+    reset_counters();
+    OK(run("0.BIN", nullptr, 0u) == 'S' && !g_kept_display);
+    OK(sat_exec_arg(nullptr, 0u, nullptr) == SAT_OK);
+    reset_counters();
+    const char arg[] = "F";
+    try {
+        (void)sat_exec_keep_display(&g_volume, "0.BIN", arg, sizeof(arg));
+        OK(false);
+    } catch (const Started&) {
+    }
+    OK(g_kept_display && g_stops == 1 && g_started_bytes == kSmallBytes);
+    uint32_t bytes = 0u;
+    OK(sat_exec_arg(nullptr, 0u, &bytes) == SAT_ERR_CAPACITY && bytes == sizeof(arg));
+    char out[SAT_EXEC_ARG_MAX] = {};
+    OK(sat_exec_arg(out, sizeof(out), &bytes) == SAT_OK && std::strcmp(out, arg) == 0);
+}
+
 static void test_large_image_in_chunks() {
     reset_counters();
     OK(run("GAME.BIN", nullptr, 0u) == 'S');
@@ -256,6 +275,7 @@ int main() {
     test_rejects_before_stopping();
     test_starts_small_image();
     test_no_argument_still_counts();
+    test_keep_display_only_changes_the_stop();
     test_large_image_in_chunks();
     test_retries_then_resets();
     std::puts("test_exec: OK");

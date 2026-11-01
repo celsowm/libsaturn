@@ -17,9 +17,9 @@ logic::Handoff* handoff();
 /* The CD block behind a device bound by sat_cd_block_bind_device, else NULL. */
 sat_cd_block_t* bound_block(const sat_cd_device_t* device);
 /* Interrupts back to the BIOS vectors and masked, Slave off, SCU DMA and DSP
- * stopped, SCSP slots keyed off with the sound CPU off, VDP1 idle, VDP2
- * registers cleared with the display off. */
-void stop_machine();
+ * stopped, SCSP slots keyed off with the sound CPU off, VDP1 idle and, unless
+ * `keep_display`, VDP2 registers cleared with the display off. */
+void stop_machine(bool keep_display);
 /* Copies `bytes` of the staged image to SAT_EXEC_LOAD_ADDRESS and jumps there. */
 [[noreturn]] void start_image(uint32_t bytes);
 /* SMPC SYSRES: the BIOS boots the disc again. */
