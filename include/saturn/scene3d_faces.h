@@ -115,7 +115,8 @@ typedef enum sat_scene3d_projected_kind {
     SAT_SCENE3D_PROJECTED_COLD = 2
 } sat_scene3d_projected_kind_t;
 typedef struct sat_scene3d_projected_face {
-    sat_quad2_t projected;
+    /* Corners as the XY words of a VDP1 command: x at the lower address. */
+    uint32_t xy[4];
     union {
         const sat_scene3d_material_program_t* program;
         const sat_scene3d_face_t* cold;

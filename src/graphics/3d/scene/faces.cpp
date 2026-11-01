@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "saturn/scene3d_faces.h"
 #include "saturn/parallel.h"
 #include "saturn/vdp1_color_calc.h"
@@ -39,6 +40,39 @@ uint32_t g_test_emit_ticks;
 uint32_t g_test_projection_ticks;
 uint32_t g_test_prepare_ticks;
 #endif
+
+/* Two consecutive 16-bit command words as one 32-bit store: `first` at the
+ * lower address on either byte order (the SH-2 is big-endian; host tests
+ * are not). */
+inline uint32_t command_pair(uint16_t first,uint16_t second) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__==__ORDER_LITTLE_ENDIAN__
+    return (static_cast<uint32_t>(second)<<16)|first;
+#else
+    return (static_cast<uint32_t>(first)<<16)|second;
+#endif
+}
+/* Two 16-bit fields at a 4-byte boundary, read as the 32-bit word they are
+ * in memory; one load instead of two loads and a merge. */
+typedef uint32_t __attribute__((may_alias,aligned(4))) aligned_pair_t;
+inline uint32_t load_pair(const int16_t* first) {
+    return *reinterpret_cast<const aligned_pair_t*>(first);
+}
+inline uint32_t load_pair(const uint16_t* first) {
+    return *reinterpret_cast<const aligned_pair_t*>(first);
+}
+static_assert(offsetof(sat_projected_vertex_t,x)==0 && offsetof(sat_projected_vertex_t,y)==2 &&
+    alignof(sat_projected_vertex_t)>=4,"a vertex's x and y must be one aligned word");
+static_assert(offsetof(sat_vdp1_projected_program_t,command)==0 &&
+    alignof(sat_vdp1_projected_program_t)>=4,"command[2] and command[4] must be aligned words");
+inline sat_quad2_t quad_of_pairs(const uint32_t xy[4]) {
+    sat_quad2_t quad;
+    for(uint8_t c=0;c<4u;++c) {
+        int16_t pair[2];
+        __builtin_memcpy(pair,&xy[c],sizeof(pair));
+        quad.x[c]=pair[0];quad.y[c]=pair[1];
+    }
+    return quad;
+}
 
 uint16_t remaining(const sat_scene3d_faces_t* scene) {
     return static_cast<uint16_t>(scene->capacity-scene->count-scene->projected_gap);
@@ -317,7 +351,9 @@ bool store_face(sat_scene3d_faces_t* scene,const sat_scene3d_face_t& face) {
         return true;
     }
 #endif
-    hot.projected=face.projected;
+    for(uint8_t c=0;c<4u;++c)
+        hot.xy[c]=command_pair(static_cast<uint16_t>(face.projected.x[c]),
+            static_cast<uint16_t>(face.projected.y[c]));
     return true;
 }
 
@@ -415,7 +451,7 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
 #endif
         for(uint8_t c=0;c<4u;++c) {
             const auto& vertex=projected[indices[c]];
-            item.projected.x[c]=vertex.x;item.projected.y[c]=vertex.y;
+            item.xy[c]=load_pair(&vertex.x);
             w[c]=static_cast<uint32_t>(vertex.w);
         }
         item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
@@ -539,26 +575,16 @@ sat_result_t emit_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {
 }
 
 /* Emits the run of program faces starting at order[*i], exactly as one
- * draw_projected_program call per face would: same checks in the same
- * order, same command words, same counters, and on an error the faces
- * before the failing one stay emitted. Only the per-face call chain and
- * its repeated global checks are gone. */
-/* Two consecutive 16-bit command words as one 32-bit store: `first` at the
- * lower address on either byte order (the SH-2 is big-endian; host tests
- * are not). */
-inline uint32_t command_pair(uint16_t first,uint16_t second) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__==__ORDER_LITTLE_ENDIAN__
-    return (static_cast<uint32_t>(second)<<16)|first;
-#else
-    return (static_cast<uint32_t>(first)<<16)|second;
-#endif
-}
-
+ * draw_projected_program call per face would: same command words, same
+ * counters, and on an error the faces before the failing one stay emitted.
+ * The flush already proved every program and texture valid, so only the
+ * capacity check remains per face. */
 template<bool Indirect>
 sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t ordered) {
     SAT_TRY(saturn::core::require_initialized());
     uint32_t available;
     auto* const base=saturn::hal::vdp1::projected_program_slots(&available);
+    if(!base)return SAT_ERR_NOT_INITIALIZED;
     uint32_t* out=reinterpret_cast<uint32_t*>(base);
     uint32_t n=0u,cached=0u;
     sat_result_t st=SAT_OK;
@@ -569,21 +595,15 @@ sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t or
         const uint16_t logical=order[k];
         const auto& hot=entries[Indirect?scene->projected_indices[logical]:logical];
         if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
-        const sat_vdp1_projected_program_t& program=*hot.program;
-        const sat_vdp1_texture_t* const texture=program.texture;
-        if(!texture) {st=SAT_ERR_INVALID_ARG;break;}
-        if(!base) {st=SAT_ERR_NOT_INITIALIZED;break;}
-        if(!texture->valid) {st=SAT_ERR_INVALID_ARG;break;}
         if(n==available) {st=SAT_ERR_CAPACITY;break;}
-        const uint16_t* const prefix=program.command;
-        const sat_quad2_t& q=hot.projected;
+        const uint16_t* const prefix=hot.program->command;
         out[0]=command_pair(prefix[0],0u);
-        out[1]=command_pair(prefix[2],prefix[3]);
-        out[2]=command_pair(prefix[4],prefix[5]);
-        out[3]=command_pair(static_cast<uint16_t>(q.x[0]),static_cast<uint16_t>(q.y[0]));
-        out[4]=command_pair(static_cast<uint16_t>(q.x[1]),static_cast<uint16_t>(q.y[1]));
-        out[5]=command_pair(static_cast<uint16_t>(q.x[2]),static_cast<uint16_t>(q.y[2]));
-        out[6]=command_pair(static_cast<uint16_t>(q.x[3]),static_cast<uint16_t>(q.y[3]));
+        out[1]=load_pair(prefix+2);
+        out[2]=load_pair(prefix+4);
+        out[3]=hot.xy[0];
+        out[4]=hot.xy[1];
+        out[5]=hot.xy[2];
+        out[6]=hot.xy[3];
         out[7]=0u;
         out+=8;
         ++n;
@@ -625,9 +645,11 @@ sat_result_t emit_projected_ordered(sat_scene3d_faces_t* scene,uint32_t ordered)
             continue;
         }
         else if(hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM)
-            st=saturn::internal::draw_projected_program(hot.projected,*hot.program);
-        else if(hot.kind==SAT_SCENE3D_PROJECTED_RGB)
-            st=sat_draw_quad2_polygon(&hot.projected,hot.rgb555);
+            st=saturn::internal::draw_projected_program(quad_of_pairs(hot.xy),*hot.program);
+        else if(hot.kind==SAT_SCENE3D_PROJECTED_RGB) {
+            const sat_quad2_t quad=quad_of_pairs(hot.xy);
+            st=sat_draw_quad2_polygon(&quad,hot.rgb555);
+        }
         else {
             if(!hot.cold->projected_safe)++scene->fallback_faces;
             st=emit<true>(*scene,*hot.cold);
@@ -705,7 +727,7 @@ extern "C" sat_result_t sat_scene3d_faces_get(
         if(!scene->native_commands)return SAT_ERR_INVALID_ARG;
         const auto& c=scene->native_commands[scene->projected_indices?scene->projected_indices[index]:index];
         out->projected={{c.xa,c.xb,c.xc,c.xd},{c.ya,c.yb,c.yc,c.yd}};
-    } else out->projected=hot.projected;
+    } else out->projected=quad_of_pairs(hot.xy);
     out->projected_safe=1;out->gouraud_valid=0;
     out->cached_projected=hot.cached_projected;
     out->program_valid=hot.kind==SAT_SCENE3D_PROJECTED_PROGRAM;

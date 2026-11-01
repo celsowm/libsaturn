@@ -696,10 +696,11 @@ struct RightShift {
 
 /* Counting pass shared by the painter orders: bucket_of(key) maps every live
  * key below kPaintBuckets, higher buckets paint first, and faces keep
- * ascending index inside a bucket. keys[] is overwritten with buckets. */
+ * ascending index inside a bucket. keys[] is overwritten with buckets. No live
+ * key maps above top_bucket, so only the counters up to it are touched. */
 template <typename Index, typename BucketOf>
 inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
-                       BucketOf bucket_of) {
+                       uint32_t top_bucket, BucketOf bucket_of) {
     /* face_count fits uint16_t, so every running position does too. The
      * counters are cleared and summed two to a 32-bit word: each store is a
      * bus write through the SH-2's cache. */
@@ -708,7 +709,8 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
         uint16_t start[kPaintBuckets];
     } counters;
     uint16_t* const start = counters.start;
-    for (uint32_t w = 0; w < kPaintBuckets / 2u; ++w) {
+    const uint32_t word_count = top_bucket / 2u + 1u;
+    for (uint32_t w = 0; w < word_count; ++w) {
         counters.words[w] = 0u;
     }
     for (uint32_t f = 0; f < face_count; ++f) {
@@ -720,7 +722,7 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
         ++start[bucket];
     }
     uint32_t running = 0u;
-    for (uint32_t w = kPaintBuckets / 2u; w-- > 0u;) {
+    for (uint32_t w = word_count; w-- > 0u;) {
         /* Buckets 2w (lower address) and 2w + 1, the higher one first. */
         const uint32_t pair = counters.words[w];
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -770,7 +772,7 @@ inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index*
         return 0u;
     }
     const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
-    paint_detail::distribute(depth, face_count, out,
+    paint_detail::distribute(depth, face_count, out, shift(hi - lo),
         [lo, shift](uint32_t key) { return shift(key - lo); });
     return live;
 }
@@ -849,7 +851,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
     }
     if (global_spread) {
         const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
-        paint_detail::distribute(keys, face_count, out,
+        paint_detail::distribute(keys, face_count, out, shift(hi - lo),
             [lo, shift](uint32_t key) { return shift(key - lo); });
         return live;
     }
@@ -874,7 +876,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         base += share;
     }
     last = 0u;
-    paint_detail::distribute(keys, face_count, out,
+    paint_detail::distribute(keys, face_count, out, kPaintBuckets - 1u,
         [&groups, group_count, group_of, low_mask, &last](uint32_t key) {
             const uint32_t id = group_of(key);
             if (groups[last].id != id) {

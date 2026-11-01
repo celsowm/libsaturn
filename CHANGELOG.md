@@ -16,6 +16,12 @@ The version is defined once, in the `VERSION` file.
 
 ### Changed
 
+- `sat_scene3d_projected_face_t` stores its corners as `xy[4]`, the XY words of
+  a VDP1 command, instead of a `sat_quad2_t`. `sat_scene3d_faces_get` still
+  returns a quad. Flushing no longer rechecks each face's texture after the
+  queue was validated or trusted, and the painter only touches the counters of
+  the depth range in use. About 5% fewer Master cycles per image in a fight on
+  Ymir, with identical commands.
 - The Makefile stops with a clear error on GNU Make older than 4.3. Those
   versions ran grouped-target generators several times under `-j`, which broke
   CD-DA disc images with a missing `.tmp` file.

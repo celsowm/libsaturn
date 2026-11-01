@@ -1,3 +1,4 @@
+#include <cstring>
 /* Reuse the established renderer stubs; exercise the actual staged VDP1 HAL
  * and painter together instead of mocking the traversal being checked. */
 #define main ordinary_scene_regressions /* not run here */
@@ -80,5 +81,31 @@ int main() {
     uint16_t used=0,capacity=0,reserved=0;bool overlay=false;
     vd::command_stats(used,capacity,reserved,overlay);
     assert(used==2 && reserved==4 && (commands[1].ctrl&0x7000u)==0);
+    // A hot program run writes every command word from the prefix and the
+    // XY words, with x at the lower address.
+    {
+        sat_vdp1_projected_program_t program{{0x1234,0x5678,0x1111,0x2222,0x3333,0x4444},&texture};
+        texture.valid=1;
+        vd::begin_frame(commands,32);
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+        const int16_t corners[2][8]={{-1,2,3,-4,5,-6,-7,8},{9,-10,-11,12,13,-14,-15,16}};
+        for(uint16_t i=0;i<2u;++i) {
+            std::memcpy(hot[i].xy,corners[i],sizeof(hot[i].xy));
+            hot[i].program=&program;
+            hot[i].kind=SAT_SCENE3D_PROJECTED_PROGRAM;
+            keys[i]=100u-i; // the second face is nearer and paints last
+        }
+        scene.count=2u;
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+        assert(scene.emitted_faces==2u);
+        for(uint16_t i=0;i<2u;++i) {
+            const vd::Command& c=commands[2u+i];
+            assert(c.ctrl==0x1234 && c.link==0 && c.pmod==0x1111 && c.colr==0x2222);
+            assert(c.srca==0x3333 && c.size==0x4444 && c.grda==0 && c.pad==0);
+            const int16_t* const e=corners[i];
+            assert(c.xa==e[0] && c.ya==e[1] && c.xb==e[2] && c.yb==e[3]);
+            assert(c.xc==e[4] && c.yc==e[5] && c.xd==e[6] && c.yd==e[7]);
+        }
+    }
     puts("Native staged scene: stable painter links, coordinates, residency and rollback OK");
 }
