@@ -78,6 +78,8 @@ typedef struct sat_cd_block {
     uint8_t stream_active;     /* a background read is open (sat_cd_stream_begin) */
     uint32_t stream_remaining; /* its sectors not yet moved to the destination */
     uint8_t* stream_destination;
+    uint8_t* stream_ring_base; /* a ring stream (sat_cd_stream_begin_ring): the ring and its end, else NULL */
+    uint8_t* stream_ring_end;
     /* Hook calls that returned an error, and the most recent such status
      * (SAT_OK until the first). Reset by sat_cd_block_init. */
     uint32_t progress_error_count;
@@ -152,6 +154,24 @@ sat_result_t sat_cd_stream_poll(
     sat_cd_block_t* block, uint32_t max_sectors, uint32_t* out_remaining);
 /* Waits for the rest of the stream and closes it; OK if none is open. */
 sat_result_t sat_cd_stream_finish(sat_cd_block_t* block);
+
+/* A stream longer than the CD Block's buffer, for a file read once from start to end (a movie). One
+ * CdPlay covers all `sector_count` sectors (up to 0xFFFFFF); the drive fills its own 200-sector
+ * buffer, pauses when it is full and resumes by itself as sectors are taken out, so there is no
+ * restart per segment and no seek. The sectors land in a ring of `ring_sectors` sectors at `ring`
+ * (2-byte aligned), one after the other, wrapping at its end.
+ *
+ * The caller owns the ring's free space. sat_cd_stream_poll's `max_sectors` is the room it has (0 would
+ * mean no limit, so a caller with a full ring does not poll); a poll moves only sectors that fit before
+ * the ring's end, so a read of the sectors it has taken may be split once per lap. How many a poll took
+ * is `remaining` before it minus `remaining` after. Finishing a ring stream waits for the last sector
+ * and so needs the room to hold it: close it with sat_cd_stream_abort when the caller stops early.
+ * SAT_ERR_INVALID_ARG for a count above 0xFFFFFF, an empty ring or an odd address. */
+sat_result_t sat_cd_stream_begin_ring(
+    sat_cd_block_t* block, uint32_t lba, uint32_t sector_count, void* ring, uint32_t ring_sectors);
+/* Ends a stream at once: the drive is paused, what it still holds is discarded, nothing else is
+ * transferred. OK if none is open. */
+sat_result_t sat_cd_stream_abort(sat_cd_block_t* block);
 /* Sectors still to come, 0 when no stream is open. */
 uint32_t sat_cd_stream_remaining(const sat_cd_block_t* block);
 

@@ -49,9 +49,18 @@ void retarget_refuses_illegal_rings() {
     multi.plane_address[2] = 0x02000u;
     assert(saturn::hal::vdp2::nbg::retarget_plane_base(multi, 0x04000u) == Status::BadFormat);
 
+    /* A bitmap moves on 128 KiB boundaries and must fit. 512x256 at 32768 colours is 256 KiB. */
     Layer bitmap = one_plane(0x00000u);
     bitmap.bitmap = true;
-    assert(saturn::hal::vdp2::nbg::retarget_plane_base(bitmap, 0x20000u) == Status::BadFormat);
+    bitmap.bitmap_size = 0;
+    bitmap.colors = saturn::hal::vdp2::nbg::Colors::C32768;
+    assert(saturn::hal::vdp2::nbg::retarget_plane_base(bitmap, 0x40000u) == Status::Ok);
+    assert(bitmap.plane_address[0] == 0x40000u);
+    assert(saturn::hal::vdp2::nbg::retarget_plane_base(bitmap, 0x00000u) == Status::Ok);
+    assert(saturn::hal::vdp2::nbg::retarget_plane_base(bitmap, 0x41000u) == Status::BadPlane);
+    assert(saturn::hal::vdp2::nbg::retarget_plane_base(bitmap, 0x60000u) == Status::BadPlane);
+    assert(saturn::hal::vdp2::nbg::retarget_plane_base(bitmap, 0x80000u) == Status::BadPlane);
+    assert(bitmap.plane_address[0] == 0x00000u);
 
     /* 2x2 characters use an 0x800-byte page; 0x1000 is a legal page there. */
     Layer big = one_plane(0x00000u);

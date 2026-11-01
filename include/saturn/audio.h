@@ -127,6 +127,19 @@ typedef struct sat_audio_stats {
     uint16_t voice_capacity;
 } sat_audio_stats_t;
 
+/* One block of blocked IMA ADPCM, the format sat_music reads from SAT_AUDIO_IMA_ADPCM assets and a movie
+ * carries its sound in: SAT_AUDIO_IMA_BLOCK_FRAMES frames per block; per channel a 4-byte header (the first
+ * sample as S16BE, the step index, a pad byte), then the other 1023 frames as 4-bit codes, high nibble first,
+ * the channels alternating within a byte (mono: two frames to a byte). A block is
+ * SAT_AUDIO_IMA_BLOCK_BYTES(channels) long (1032 for stereo), padded to 4 bytes. */
+#define SAT_AUDIO_IMA_BLOCK_FRAMES 1024u
+#define SAT_AUDIO_IMA_BLOCK_BYTES(channels) \
+    ((4u * (channels) + ((SAT_AUDIO_IMA_BLOCK_FRAMES - 1u) * (channels) + 1u) / 2u + 3u) & ~3u)
+/* Decodes one block to channel-planar S16BE, SAT_AUDIO_IMA_BLOCK_FRAMES * 2 bytes per channel, the left
+ * channel first: ready for sat_audio_stream_write on one mono stream per channel. `channels` is 1 or 2.
+ * SAT_ERR_INVALID_ARG for a null pointer, another channel count or a step index above 88. */
+sat_result_t sat_audio_ima_decode_block(const void* block, uint8_t channels, void* out_planar_s16be);
+
 sat_result_t sat_audio_init(void);
 sat_result_t sat_audio_shutdown(void);
 sat_result_t sat_audio_update(void);

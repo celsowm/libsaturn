@@ -70,6 +70,40 @@ int main() {
     never_complete=true;
     assert(sat_cd_stream_finish(&block)==SAT_ERR_TIMEOUT);
     assert(!block.read_active && !block.stream_active);
+    // A ring stream: one play over more sectors than the ring holds, the caller's room as the limit.
+    reset();cfg.operation_timeout_ms=200;assert(sat_cd_block_init_ex(&block,&cfg)==SAT_OK);
+    static uint8_t ring[4*2048+2048];
+    assert(sat_cd_stream_begin_ring(nullptr,21,10,ring,4)==SAT_ERR_INVALID_ARG);
+    assert(sat_cd_stream_begin_ring(&block,21,0,ring,4)==SAT_ERR_INVALID_ARG);
+    assert(sat_cd_stream_begin_ring(&block,21,0x1000000u,ring,4)==SAT_ERR_INVALID_ARG);
+    assert(sat_cd_stream_begin_ring(&block,21,10,ring,0)==SAT_ERR_INVALID_ARG);
+    assert(sat_cd_stream_begin_ring(&block,21,10,ring+1,4)==SAT_ERR_INVALID_ARG);
+    assert(sat_cd_stream_begin_ring(&block,21,10,nullptr,4)==SAT_ERR_INVALID_ARG);
+    for(unsigned i=0;i<sizeof ring;++i)ring[i]=0xAA;
+    ready_sectors=3;
+    assert(sat_cd_stream_begin_ring(&block,21,10,ring,4)==SAT_OK);
+    assert(sat_cd_stream_begin(&block,21,1,sector)==SAT_ERR_BUSY);
+    uint32_t remaining=0;
+    auto zeros=[&](unsigned first,unsigned count) {   // the fake bus stores zero words: they mark where sectors landed
+        for(unsigned s=first;s<first+count;++s)for(unsigned i=0;i<2048;++i)if(ring[s*2048+i]!=0)return false;
+        return true;
+    };
+    assert(sat_cd_stream_poll(&block,2,&remaining)==SAT_OK && remaining==8);     // the room allows 2 of the 3 that are ready
+    assert(zeros(0,2) && ring[2*2048]==0xAA);
+    assert(sat_cd_stream_poll(&block,0,&remaining)==SAT_OK && remaining==6);     // 3 are ready, 2 fit before the end
+    assert(zeros(2,2));
+    for(unsigned i=0;i<sizeof ring;++i)ring[i]=0xAA;                              // the next sectors must start at the ring's base
+    assert(sat_cd_stream_poll(&block,0,&remaining)==SAT_OK && remaining==3);
+    assert(zeros(0,3) && ring[3*2048]==0xAA && ring[4*2048]==0xAA);
+    assert(sat_cd_stream_poll(&block,0,&remaining)==SAT_OK && remaining==2);     // 1 fits before the end
+    assert(sat_cd_stream_poll(&block,0,&remaining)==SAT_OK && remaining==0);     // the last 2: the stream closes
+    assert(!block.stream_active && block.stream_ring_end==nullptr);
+    // Abort: closes at once, and a plain stream may begin again.
+    assert(sat_cd_stream_begin_ring(&block,21,10,ring,4)==SAT_OK);
+    assert(sat_cd_stream_abort(&block)==SAT_OK && !block.stream_active && sat_cd_stream_remaining(&block)==0);
+    assert(sat_cd_stream_abort(&block)==SAT_OK && sat_cd_stream_abort(nullptr)==SAT_ERR_INVALID_ARG);
+    assert(sat_cd_stream_begin(&block,21,1,sector)==SAT_OK);
+    never_complete=false;
     cfg.now_ms=nullptr;assert(sat_cd_block_init_ex(&block,&cfg)==SAT_ERR_INVALID_ARG);
     std::puts("CD deadline bus tests passed");
 }

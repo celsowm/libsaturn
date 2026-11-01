@@ -247,6 +247,8 @@ void close_stream(sat_cd_block_t* block) {
     block->stream_active = 0u;
     block->stream_remaining = 0u;
     block->stream_destination = nullptr;
+    block->stream_ring_base = nullptr;
+    block->stream_ring_end = nullptr;
 }
 
 /* One step of an open stream: moves what has arrived, at most `limit` sectors
@@ -260,9 +262,18 @@ sat_result_t stream_step(sat_cd_block_t* block, uint32_t limit, bool wait) {
     }
     uint32_t take = ready < block->stream_remaining ? ready : block->stream_remaining;
     if (limit != 0u && take > limit) take = limit;
+    if (block->stream_ring_end != nullptr) {
+        /* One contiguous transfer: up to the ring's end, the rest on the next poll. */
+        const uint32_t to_end = static_cast<uint32_t>(block->stream_ring_end - block->stream_destination) /
+                                SAT_CD_SECTOR_BYTES;
+        if (take > to_end) take = to_end;
+    }
     if (take == 0u) return SAT_OK;
     SAT_TRY(take_sectors(block, block->stream_destination, take));
     block->stream_destination += take * SAT_CD_SECTOR_BYTES;
+    if (block->stream_ring_end != nullptr && block->stream_destination >= block->stream_ring_end) {
+        block->stream_destination = block->stream_ring_base;
+    }
     block->stream_remaining -= take;
     if (block->stream_remaining == 0u) close_stream(block);
     return SAT_OK;
@@ -376,13 +387,9 @@ extern "C" sat_result_t sat_cd_block_read_sectors(
     return snapshot(block,status);
 }
 
-extern "C" sat_result_t sat_cd_stream_begin(
-    sat_cd_block_t* block, uint32_t lba, uint32_t sector_count, void* destination) {
-    if (block == nullptr || block->initialized == 0u || destination == nullptr ||
-        sector_count == 0u || sector_count > SAT_CD_STREAM_MAX_SECTORS ||
-        lba > 0xFFFFFFu - 150u || (reinterpret_cast<uintptr_t>(destination) & 1u) != 0u) {
-        return SAT_ERR_INVALID_ARG;
-    }
+namespace {
+
+sat_result_t stream_begin(sat_cd_block_t* block, uint32_t lba, uint32_t sector_count, uint8_t* destination) {
     if (block->read_active != 0u || block->stream_active != 0u) return SAT_ERR_BUSY;
     begin_operation(block);
     block->diagnostics.lba = lba;
@@ -393,8 +400,46 @@ extern "C" sat_result_t sat_cd_stream_begin(
     SAT_TRY(status);
     block->stream_active = 1u;
     block->stream_remaining = sector_count;
-    block->stream_destination = static_cast<uint8_t*>(destination);
+    block->stream_destination = destination;
     return SAT_OK;
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_cd_stream_begin(
+    sat_cd_block_t* block, uint32_t lba, uint32_t sector_count, void* destination) {
+    if (block == nullptr || block->initialized == 0u || destination == nullptr ||
+        sector_count == 0u || sector_count > SAT_CD_STREAM_MAX_SECTORS ||
+        lba > 0xFFFFFFu - 150u || (reinterpret_cast<uintptr_t>(destination) & 1u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    return stream_begin(block, lba, sector_count, static_cast<uint8_t*>(destination));
+}
+
+extern "C" sat_result_t sat_cd_stream_begin_ring(
+    sat_cd_block_t* block, uint32_t lba, uint32_t sector_count, void* ring, uint32_t ring_sectors) {
+    if (block == nullptr || block->initialized == 0u || ring == nullptr || ring_sectors == 0u ||
+        sector_count == 0u || sector_count > 0xFFFFFFu || lba > 0xFFFFFFu - 150u ||
+        (reinterpret_cast<uintptr_t>(ring) & 1u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    uint8_t* const base = static_cast<uint8_t*>(ring);
+    SAT_TRY(stream_begin(block, lba, sector_count, base));
+    block->stream_ring_base = base;
+    block->stream_ring_end = base + ring_sectors * SAT_CD_SECTOR_BYTES;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_cd_stream_abort(sat_cd_block_t* block) {
+    if (block == nullptr) return SAT_ERR_INVALID_ARG;
+    if (block->stream_active == 0u) return SAT_OK;
+    if (block->read_active != 0u) return SAT_ERR_BUSY;
+    close_stream(block);
+    /* Drops what the buffer holds, as sat_cd_block_init does; the next play replaces the drive's range. */
+    block->read_active = 1u;
+    const sat_result_t status = execute_and_wait(block, {0x48fcu, 0u, 0u, 0u}, SAT_CD_BLOCK_HIRQ_ESEL);
+    block->read_active = 0u;
+    return status;
 }
 
 extern "C" sat_result_t sat_cd_stream_poll(

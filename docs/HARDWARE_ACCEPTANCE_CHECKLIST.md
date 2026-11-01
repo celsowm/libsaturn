@@ -165,3 +165,18 @@ a separate example and five-minute Dino stability on both. Repeat progress-bar
 on/off and record CD/audio initialization. Missing pre-video evidence is UNKNOWN;
 a licensed-screen freeze alone cannot identify the failed stage. See the
 [native boot plan](NATIVE_SATURN_BOOT_PLAN.md) for the complete acceptance matrix.
+
+## Software video (saturn/movie.h)
+
+Run a 20 fps Cinepak movie (Tekken 3's intro in the game, 240x168, about 120 KiB/s of picture and sound,
+the worst ten seconds about 215 KiB/s) from a real disc. Emulators answer seeks at once and read at the
+nominal rate; a drive does neither. Record:
+
+- Whether `sat_cd_stream_begin_ring` keeps up over the whole file: the ring's low point, the number of frames
+  the player had to skip, and whether the drive pauses and resumes by itself when the ring is full.
+- Decode and upload time per frame (the Master decodes; one SCU DMA moves the picture rows to the hidden
+  VDP2 bitmap), and whether the bitmap flip tears.
+- Sound against picture: the intro's player starts its clock a fixed 8 fields after the SCSP streams are
+  resumed, which was tuned on Ymir (within 15 ms there). The SCSP's start latency on a console is unknown.
+- DATATRNS is read as 16-bit words; the CD guide asks for longwords. This path has never run on hardware.
+

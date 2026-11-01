@@ -92,6 +92,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp2/sprite_shadow.cpp
     src/graphics/vdp2/stage_map2.cpp
     src/graphics/vdp2/stage_map2_vdp2.cpp
+    src/graphics/movie/cinepak.cpp
     src/graphics/video.cpp
     src/graphics/vdp2/tate_fb.cpp
 )
@@ -100,6 +101,7 @@ set(LIBSATURN_AUDIO_SOURCES
     src/audio/driver/api.cpp
     src/audio/effects/api.cpp
     src/audio/playback/api.cpp
+    src/audio/playback/ima.cpp
     src/audio/playback/music.cpp
     src/audio/playback/sound.cpp
     src/audio/playback/state.cpp

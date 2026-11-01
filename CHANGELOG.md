@@ -13,6 +13,18 @@ The version is defined once, in the `VERSION` file.
 
 - `sat_video_set_display_mode`: a VDP2-only display mode change, for a screen made
   of VDP2 layers alone. VDP1 and `sat_video_width`/`height` keep the `sat_init` mode.
+- `sat_exec_keep_display`: `sat_exec` that keeps a VDP2 picture up while the next
+  program is read.
+- `saturn/movie.h`: `sat_movie_decoder_t` and `sat_movie_decode_frame`, a Cinepak decoder for software
+  video (one strip, RGB555 dots out, no MPEG card). Checked bit for bit against ffmpeg's decoder on a
+  1,950-frame movie.
+- `sat_cd_stream_begin_ring` and `sat_cd_stream_abort`: one CD Block play over a whole file, read into a
+  ring the caller drains, so a movie streams without a restart per segment.
+- `sat_audio_ima_decode_block`: the blocked IMA ADPCM decoder `sat_music` uses, for sound a program streams
+  itself.
+- `sat_vdp2_layer_set_pattern_name_base` now moves a bitmap layer's base too (a multiple of 0x20000), with the
+  cycle patterns, at the next `sat_vdp2_layers_commit`: a bitmap can be double-buffered between VRAM-A and
+  VRAM-B.
 
 ### Removed
 

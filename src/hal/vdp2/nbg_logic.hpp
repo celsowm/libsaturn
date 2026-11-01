@@ -182,7 +182,15 @@ inline Status validate(uint8_t index, const Layer& l, bool split_a, bool split_b
  * page must keep the same bank and map-offset group. The caller re-runs the
  * cycle planner; nothing is written here. */
 inline Status retarget_plane_base(Layer& l, uint32_t base) {
-    if (l.bitmap) return Status::BadFormat;
+    if (l.bitmap) {
+        /* A bitmap is one block on a 128 KiB boundary (the map offset register's unit) that fits VRAM.
+         * The cycle planner reads the banks it spans from the new base, so a double-buffered movie moves
+         * between VRAM-A and VRAM-B and the CPU slots follow. */
+        const uint32_t bytes = bitmap_bytes(l.bitmap_size, l.colors);
+        if (base % 0x20000u != 0u || base >= kVramBytes || base + bytes > kVramBytes) return Status::BadPlane;
+        for (uint8_t p = 0u; p < 4u; ++p) l.plane_address[p] = base;
+        return Status::Ok;
+    }
     for (uint8_t p = 1u; p < 4u; ++p) {
         if (l.plane_address[p] != l.plane_address[0]) return Status::BadFormat;
     }
