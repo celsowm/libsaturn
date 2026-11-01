@@ -555,6 +555,7 @@ void set_video_mode(uint16_t width, uint16_t height, uint8_t interlace) {
     g_video_height = height;
     g_video_interlace = interlace;
     const uint16_t mode = saturn::hal::video_mode::mode_bits(width, height, interlace);
+    const bool was_hires = g_hires;
     g_hires = saturn::hal::video_mode::hreso_bits(width) >= 2u;
     TVMD = static_cast<uint16_t>((TVMD & 0xFF00u) | mode);
     /* Only hi-res needs a different sprite format. At 320/352 the library
@@ -563,6 +564,10 @@ void set_video_mode(uint16_t width, uint16_t height, uint8_t interlace) {
     if (g_hires) {
         SPCTL = sprite_type_bits();
         CRAOFB = g_cram_banks.craofb;
+    } else if (was_hires) {
+        /* Back from hi-res: undo the writes above. */
+        SPCTL = sprite_type_bits();
+        CRAOFB = g_sprite_fb8 ? g_cram_banks.craofb : 0u;
     }
 }
 

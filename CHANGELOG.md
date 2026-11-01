@@ -9,6 +9,11 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+### Added
+
+- `sat_video_set_display_mode`: a VDP2-only display mode change, for a screen made
+  of VDP2 layers alone. VDP1 and `sat_video_width`/`height` keep the `sat_init` mode.
+
 ### Removed
 
 - `sat_frame_count`, which only advanced inside `sat_wait_vblank`. Call

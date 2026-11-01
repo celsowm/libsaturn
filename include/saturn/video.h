@@ -38,11 +38,18 @@ typedef struct sat_video_mode {
  * show it, SAT_ERR_UNSUPPORTED for a legal VDP2 mode this library does not
  * implement (double-density interlace, or 256 lines on an NTSC console) and
  * SAT_ERR_INVALID_ARG for a width/height/interlace value the VDP2 cannot
- * express. Only sat_init() changes the mode: the VDP2 manual requires the
- * horizontal-resolution switch to go through the BIOS and a reset when
- * leaving dedicated-monitor modes, so a mode change is a full sat_shutdown()
- * plus sat_init(). */
+ * express. A whole-system mode change is a full sat_shutdown() plus sat_init():
+ * the VDP2 manual requires the horizontal-resolution switch to go through the
+ * BIOS and a reset when leaving dedicated-monitor modes. */
 sat_result_t sat_video_mode_supported(const sat_video_mode_t* mode);
+
+/* Changes only the VDP2's display mode, at the next VBlank, for a picture made
+ * of VDP2 layers alone: a 320x224 program showing a 704x448 screen while it
+ * loads, for example. sat_video_width/height and the VDP1 keep the sat_init
+ * mode, so hide or clear the sprite layer and draw no VDP1 frame until the
+ * sat_init mode is set back. Configure layers after this call: their VRAM
+ * access timing depends on the mode. The result of sat_video_mode_supported. */
+sat_result_t sat_video_set_display_mode(const sat_video_mode_t* mode);
 
 /* The interlace setting sat_init resolved: SAT_VIDEO_INTERLACE_*. */
 uint8_t sat_video_interlace_mode(void);

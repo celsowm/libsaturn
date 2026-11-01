@@ -57,6 +57,17 @@ extern "C" sat_result_t sat_video_mode_supported(const sat_video_mode_t* mode) {
                                              mode->interlace, pal);
 }
 
+extern "C" sat_result_t sat_video_set_display_mode(const sat_video_mode_t* mode) {
+    const sat_result_t status = sat_video_mode_supported(mode);
+    if (status != SAT_OK) return status;
+    const uint8_t interlace = saturn::hal::video_mode::double_density_height(mode->height)
+                                  ? static_cast<uint8_t>(SAT_VIDEO_INTERLACE_DOUBLE)
+                                  : mode->interlace;
+    saturn::hal::vdp2::wait_vblank_start();
+    saturn::hal::vdp2::set_video_mode(mode->width, mode->height, interlace);
+    return SAT_OK;
+}
+
 extern "C" uint8_t sat_video_interlace_mode(void) {
     return saturn::core::g_state.config.interlace;
 }
