@@ -18,7 +18,7 @@ for filename in pure:
         '#include "src/hal/',
         '#include "src/core/runtime/',
         "saturn::hal::",
-        "sat_frame_count(",
+        "sat_field_count(",
         "g_audio_streams",
         "g_state",
         "SAT_SKYBRIDGE",

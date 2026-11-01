@@ -927,16 +927,9 @@ constexpr uint32_t kRangeTimeoutTicks = 60000u;
 
 /* The Slave runs uncached-aliased inputs; when its cache is enabled it may hold
  * stale copies of what the Master just wrote (write-through, so RAM is right),
- * so drop everything first. The purge writes CCR, which the manual wants done
- * from the cache-through area: call it there. */
+ * so drop everything first. */
 void purge_slave_cache() {
-    namespace cache = saturn::hal::sh2::cache;
-    const uint8_t ccr = cache::control_register();
-    if ((ccr & 0x01u) == 0u) return;
-    using Fn = void (*)(cache::Mode);
-    const Fn purge = reinterpret_cast<Fn>(
-        reinterpret_cast<uintptr_t>(&cache::purge_all) | saturn::core::startup::kCacheThroughBit);
-    purge(static_cast<cache::Mode>(ccr & 0x09u));
+    saturn::hal::sh2::cache::purge_keeping_mode();
 }
 
 }  // namespace

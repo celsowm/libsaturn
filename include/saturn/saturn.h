@@ -6,6 +6,7 @@
 
 #include "saturn/version.h"
 #include "saturn/core.h"
+#include "saturn/cdda.h"
 #include "saturn/dual_sh2.h"
 #include "saturn/parallel.h"
 #include "saturn/geometry2d.h"

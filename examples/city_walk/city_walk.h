@@ -118,7 +118,7 @@ typedef struct city_telemetry {
 #define CITY_TELEMETRY_MAGIC SAT_FOURCC('C', 'I', 'T', 'Y')
 extern volatile city_telemetry_t g_city;
 
-/* Free-running timer: sat_frame_count() floors per call, so summing short
+/* Free-running timer: sat_field_count() floors per call, so summing short
  * operations with it gives 0 (see the R3 probe). */
 static inline uint16_t city_frt_now(void) {
     return sat_time_frc();

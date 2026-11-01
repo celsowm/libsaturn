@@ -18,8 +18,10 @@ void init_frame_clock();
 void wait_vblank();
 /* sat_wait_vblank calls, i.e. program frames. */
 uint32_t frame_counter();
-/* Display frames elapsed since init_frame_clock, including missed ones. */
-uint32_t display_frames();
+
+/* Display fields since init_frame_clock, current at any moment and without a
+ * jump if VBlank-IN stops arriving. Master only: its FRT and counter. */
+uint32_t field_count();
 /* Calibrated FRT ticks in one display frame; zero if calibration failed. */
 uint16_t ticks_per_frame();
 /* FRT ticks elapsed since init_frame_clock, extended in software across wraps

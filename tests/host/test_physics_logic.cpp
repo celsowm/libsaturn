@@ -9,7 +9,7 @@
 static sat_fx16_t F(int x) { return static_cast<sat_fx16_t>(x * SAT_FX16_ONE); }
 
 static uint32_t g_frames;
-extern "C" uint32_t sat_frame_count(void) { return g_frames; }
+extern "C" uint32_t sat_field_count(void) { return g_frames; }
 
 static int solid_tiles(int c, int r, void*) {
     return (r == 3 && c >= 0 && c < 8) ? SAT_TILE_SOLID : SAT_TILE_EMPTY;

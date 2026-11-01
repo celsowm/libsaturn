@@ -14,6 +14,12 @@
 #   make clean
 # ================================================================
 
+# Grouped targets (&:) need GNU Make 4.3. Older versions, such as macOS's 3.81,
+# read each output as its own rule, so -j runs one generator several times at once.
+ifeq ($(filter grouped-target,$(.FEATURES)),)
+$(error GNU Make 4.3 or newer is required, found $(MAKE_VERSION); on macOS: brew install make, then use gmake)
+endif
+
 # The first rule below is an implementation detail; a bare `make` builds the example.
 .DEFAULT_GOAL := all
 

@@ -76,6 +76,14 @@ inline uint32_t frames_between(uint32_t then, uint32_t now) {
     return frames == 0u ? 1u : frames;
 }
 
+/* Fields once VBlank-IN no longer counts them: those counted before it stopped,
+ * plus the FRT time since. Continues the count without a jump. */
+inline uint32_t fields_after_irq(uint32_t base, uint64_t ticks_since, uint16_t ticks_per_frame) {
+    return ticks_per_frame == 0u
+        ? base
+        : base + static_cast<uint32_t>(ticks_since / ticks_per_frame);
+}
+
 /* 16-bit FRT reading folded into a 64-bit total. Correct only while two
  * observations are less than one FRT wrap apart -- the reason the VBlank-IN
  * handler observes it every frame. */

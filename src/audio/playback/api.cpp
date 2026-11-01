@@ -48,7 +48,7 @@ extern "C" uint8_t sat_audio_is_initialized(void) {
 
 extern "C" sat_result_t sat_audio_update(void) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
-    const uint32_t now = sat_frame_count();
+    const uint32_t now = sat_field_count();
     const uint8_t vblank =
         (saturn::hal::vdp2::read_tvstat() & 0x0008u) != 0u ? 1u : 0u;
     const uint32_t service_frame=g_audio_clock.tick(now,vblank);

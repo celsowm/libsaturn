@@ -180,7 +180,7 @@ static sat_result_t study_end(void) {
         row->draw_waits = frame.draw_waits;
         row->draw_timeouts = frame.draw_timeouts;
         row->vblank_end = sat_irq_count(SAT_IRQ_VBLANK_IN);
-        row->display_frames_end = sat_frame_count();
+        row->display_frames_end = sat_field_count();
         row->projection_ticks = sat_scene3d_test_projection_ticks();
         row->prepare_ticks = sat_scene3d_test_prepare_ticks();
         row->painter_ticks = sat_scene3d_test_painter_ticks();

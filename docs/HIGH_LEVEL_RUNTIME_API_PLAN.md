@@ -369,7 +369,7 @@ Requirements:
 - time advances while game code is busy;
 - no duplicate calibration subsystem;
 - wrap behavior documented;
-- `sat_frame_count()` remains supported;
+- `sat_field_count()` remains supported;
 - host tests cover wrap-safe deltas.
 
 Phase gate: host tests green, existing examples build, no heap introduced.

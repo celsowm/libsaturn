@@ -4,7 +4,7 @@
  *   WRAM-L staging -> cart    (CPU 16-bit / 32-bit stores across the A-Bus)
  *   cart -> WRAM-L            (the residency ring page-in path)
  *
- * Timings are raw FRT ticks around each operation (sat_frame_count floors per
+ * Timings are raw FRT ticks around each operation (sat_field_count floors per
  * call, so summing short operations gives 0). ticks_per_10_vblanks calibrates
  * them against real VBlank edges; a single window must stay under the 16-bit
  * FRC wrap.

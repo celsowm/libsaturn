@@ -64,7 +64,7 @@ Consequences that shaped everything:
 
 Two measurement traps worth remembering:
 
-* `sat_frame_count()` floors per call, so summing many short intervals gives 0.
+* `sat_field_count()` counts whole fields, so summing many short intervals gives 0.
   Use raw FRT ticks for anything under a few frames.
 * Sample the frame cost at the *same point of consecutive iterations* (the top
   of the loop). Sampling between `begin_frame` and `end_frame` measures only

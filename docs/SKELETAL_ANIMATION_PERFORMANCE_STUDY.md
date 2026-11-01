@@ -71,7 +71,7 @@ character with status OK.
 
 ## What the FPS number means
 
-The original HUD sampled `sat_frame_count()`, assumed 60 Hz and truncated
+The original HUD sampled the field count (now `sat_field_count()`), assumed 60 Hz and truncated
 to an integer. The current `SUB/S` display samples `sat_time_ms()` and rounds
 to one decimal place. Its value is render-loop throughput over a short window. It is not an independently
 measured rate of newly presented framebuffer images. Pausing can raise this

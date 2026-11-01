@@ -34,6 +34,7 @@ namespace frt { uint16_t counter(){static uint16_t tick;return ++tick;} }
 namespace cache {
 uint8_t control_register(){return 0;}
 void purge_all(Mode) {}
+void purge_keeping_mode() {}
 bool is_supported_work_ram(uint32_t a,uint32_t n){return a>=kWorkRamBase &&
     a+n>=a && a+n<=kWorkRamBase+kWorkRamBytes;}
 bool invalidate_range(uint32_t,uint32_t){++invalidations;return true;}

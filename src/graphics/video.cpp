@@ -96,8 +96,8 @@ extern "C" sat_result_t sat_wait_vblank(void) {
     return SAT_OK;
 }
 
-extern "C" uint32_t sat_frame_count(void) {
-    return saturn::hal::scu::display_frames();
+extern "C" uint32_t sat_field_count(void) {
+    return saturn::hal::scu::field_count();
 }
 
 extern "C" sat_result_t sat_set_clear_color(uint16_t rgb555) {

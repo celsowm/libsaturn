@@ -75,7 +75,17 @@ static void clock_extends_only_when_observed_each_wrap() {
     assert(once < every_frame);
 }
 
+/* After interrupts stop, whole fields of timer time follow the last count. */
+static void fields_continue_from_the_timer() {
+    assert(fields_after_irq(100u, 0u, 3500u) == 100u);
+    assert(fields_after_irq(100u, 3499u, 3500u) == 100u);
+    assert(fields_after_irq(100u, 3500u, 3500u) == 101u);
+    assert(fields_after_irq(100u, 35000u, 3500u) == 110u);
+    assert(fields_after_irq(100u, 35000u, 0u) == 100u); /* uncalibrated */
+}
+
 int main() {
+    fields_continue_from_the_timer();
     levels_and_vectors_follow_the_scu_table();
     ims_masks_everything_not_enabled();
     sr_mask_admits_the_lowest_enabled_level_only();

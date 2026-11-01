@@ -69,15 +69,16 @@ uint8_t sat_video_is_ntsc_timing(void);
  * number (frame->ms conversion, per-second budgets, animation periods). */
 uint32_t sat_video_refresh_hz(void);
 
-/* Display frames (VBlanks) elapsed since sat_init.
+/* Display fields (VBlanks) elapsed since sat_init, current at any moment.
  *
  * Unlike counting sat_wait_vblank calls, this keeps counting while the
- * program is busy: a frame that takes three VBlanks to build advances it by
+ * program is busy: a frame that takes three fields to build advances it by
  * three. Time-based animation should step by its deltas, or it plays in slow
- * motion exactly when the scene is heaviest. Measured with the SH-2
- * free-running timer, calibrated against real VBlank edges during sat_init;
- * a single program frame longer than about 18 NTSC frames undercounts. */
-uint32_t sat_frame_count(void);
+ * motion exactly when the scene is heaviest. It counts VBlank interrupts; if
+ * those stop it continues without a jump from the SH-2 free-running timer,
+ * calibrated against real VBlank edges during sat_init, where a gap of about
+ * 18 NTSC fields between calls undercounts. Call it on the Master. */
+uint32_t sat_field_count(void);
 
 /* ------------------------------------------------------------------ */
 /* Clear / backdrop color                                              */

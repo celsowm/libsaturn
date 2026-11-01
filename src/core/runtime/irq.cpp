@@ -3,6 +3,7 @@
 #include "src/core/runtime/state.hpp"
 #include "src/hal/scu/irq.hpp"
 #include "src/hal/scu/irq_logic.hpp"
+#include "src/hal/scu/scu.hpp"
 
 namespace {
 
@@ -22,6 +23,10 @@ sat_result_t require_active() {
 
 extern "C" int sat_irq_active(void) {
     return saturn::core::g_state.initialized && irq::live() ? 1 : 0;
+}
+
+extern "C" uint32_t sat_irq_fallbacks(void) {
+    return saturn::hal::scu::irq_fallbacks();
 }
 
 extern "C" sat_result_t sat_irq_set_handler(sat_irq_source_t source,

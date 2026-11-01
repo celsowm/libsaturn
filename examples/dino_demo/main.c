@@ -52,6 +52,7 @@
 #include "saturn/anim3d.h"
 #include "saturn/app.h"
 #include "saturn/asset.h"
+#include "saturn/sh2.h"
 #include "saturn/audio.h"
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
@@ -100,7 +101,7 @@
 #endif
 
 #if DINO_MUSIC_CDDA
-#include "music_cdda.h"
+#include "saturn/cdda.h"
 #elif !DINO_MUSIC_68K
 #include "dino_demo/audio_bone_and_plastic.h"
 #else
@@ -354,8 +355,18 @@ static sat_result_t init_music(void) {
     if (st != SAT_OK) return st;
 
 #if DINO_MUSIC_CDDA
-    st = dino_music_cdda_start(&g_cd_block);
+    /* The mixed-mode disc holds the complete reference soundtrack on track 2. */
+    sat_cd_toc_t toc;
+    uint32_t music_start, music_length;
+    st = sat_cd_read_toc(&g_cd_block, &toc);
     if (st != SAT_OK) return st;
+    if (toc.last_track != 2u) return SAT_ERR_INVALID_ARG;
+    st = sat_cd_toc_audio_track(&toc, 2u, &music_start, &music_length);
+    if (st != SAT_OK) return st;
+    st = sat_cdda_play(&g_cd_block, music_start, music_length);
+    if (st != SAT_OK) return st;
+    /* Full level; no PCM voices are active. */
+    sat_cdda_set_level(SAT_CDDA_LEVEL_MAX);
     g_music_ready = 1;
     return SAT_OK;
 #elif DINO_MUSIC_68K
@@ -401,7 +412,7 @@ static void update_music(void) {
 #endif
 #if DINO_MUSIC_CDDA
     if (!g_music_ready || g_music_error != SAT_OK) return;
-    g_music_error = dino_music_cdda_status();
+    g_music_error = sat_cd_check_periodic();
 #elif DINO_MUSIC_68K
     sat_sound_driver_info_t info;
     if (!g_music_ready || g_music_error != SAT_OK) return;
@@ -438,13 +449,13 @@ static void update_render_stats(void) {
 }
 
 /* Display time since the previous call, in 16.16 seconds. Counting real
- * display frames (sat_frame_count) rather than loop iterations keeps the
+ * display frames (sat_field_count) rather than loop iterations keeps the
  * walk at its authored speed when a frame takes more than one VBlank to
  * build; (n*65536)/rate on the running total keeps NTSC and PAL drift-free
  * instead of accumulating a truncated constant's bias. */
 static sat_fx16_t vblank_dt(void) {
     const uint32_t rate = sat_video_refresh_hz();
-    uint32_t n = sat_frame_count();
+    uint32_t n = sat_field_count();
     uint64_t now = (uint64_t)n * 65536u / rate;
     uint64_t prev = (uint64_t)g_tick * 65536u / rate;
     g_tick = n;
@@ -806,7 +817,7 @@ static void intro_palette(uint32_t gain) {
 }
 
 static void intro_begin(void) {
-    g_intro_start = sat_frame_count();
+    g_intro_start = sat_field_count();
     g_intro_active = 1u;
     g_intro_gain = 0u;
     g_half[0].world = g_half[1].world = &g_dino_world;
@@ -817,7 +828,7 @@ static void intro_update(const sat_pad_state_t* pad) {
     if ((pad->pressed & SAT_PAD_B) != 0u) intro_begin();
     if (!g_intro_active) return;
     const uint32_t rate = sat_video_refresh_hz();
-    const uint32_t elapsed = sat_frame_count() - g_intro_start;
+    const uint32_t elapsed = sat_field_count() - g_intro_start;
     const uint32_t duration = 6u * rate;
     /* Viewer controls immediately take over; B replays the entrance. */
     const uint16_t interrupt = SAT_PAD_A | SAT_PAD_C | SAT_PAD_L | SAT_PAD_R |
@@ -880,7 +891,7 @@ static void light_init(void) {
 
 /* Moves the band: rewrites the line colour table, in VBlank. */
 static void light_update(void) {
-    const uint32_t frame = sat_frame_count();
+    const uint32_t frame = sat_field_count();
     /* eased sweep: the band lingers at the ends like a turning beam */
     const int32_t s = sat_triangle_wave(frame, 2u * LIGHT_SWEEP_FRAMES, (int32_t)LIGHT_SWEEP_FRAMES);
     const int32_t n = (int32_t)LIGHT_SWEEP_FRAMES;
@@ -1072,7 +1083,7 @@ int main(void) {
 #endif
     g_pose_read = 0u;
     g_job_pending = 0;
-    g_tick = sat_frame_count();
+    g_tick = sat_field_count();
     g_dino_diagnostics.magic=DINO_DIAGNOSTICS_MAGIC;
 #if DINO_PIPELINE_METRICS
     g_dino_pipeline.magic = SAT_FOURCC('D','P','R','1');
@@ -1087,8 +1098,8 @@ int main(void) {
 #if DINO_PIPELINE_METRICS
         g_pipeline_sample = (dino_pipeline_sample_t){0};
         g_pipeline_sample.serial = g_dino_pipeline.count;
-        g_pipeline_sample.field = sat_frame_count();
-        g_pipeline_sample.master_ccr = *(volatile uint8_t*)0xFFFFFE92u;
+        g_pipeline_sample.field = sat_field_count();
+        g_pipeline_sample.master_ccr = sat_sh2_cache_control();
         g_pipeline_sample.master_tcr = *(volatile uint8_t*)0xFFFFFE16u;
 #endif
         /* VDP2 latches its registers per frame; replay the hi-res sprite

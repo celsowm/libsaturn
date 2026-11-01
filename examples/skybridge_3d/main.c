@@ -119,7 +119,7 @@ int main(void) {
          * priority configuration before the comparatively slow SMPC pad poll,
          * math, audio and VDP1 submissions. The color-calc PRISA selector
          * now lives in the layer shadow, so it cannot alternate per frame. */
-        now=sat_frame_count();
+        now=sat_field_count();
         g_frame=now;
         sky_scroll.x_integer=sb_scenery_sky_scroll(
             (uint16_t)g_yaw,g_frame);

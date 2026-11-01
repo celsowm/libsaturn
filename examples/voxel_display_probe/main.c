@@ -116,7 +116,7 @@ int main(void) {
     uint32_t elapsed_vblanks = 0u;
     uint32_t generate_ms = 0u;
     uint32_t update_ms = 0u;
-    uint32_t previous_display = sat_frame_count();
+    uint32_t previous_display = sat_field_count();
     const sat_rect_t fullscreen = {0, 0, SCREEN_W, SCREEN_H};
 
     for (;;) {
@@ -149,7 +149,7 @@ int main(void) {
         stat("VBLS ", elapsed_vblanks, 230, 204);
         sat_example_must(sat_end_frame());
 
-        const uint32_t now = sat_frame_count();
+        const uint32_t now = sat_field_count();
         elapsed_vblanks = now - previous_display;
         previous_display = now;
         ++frame;

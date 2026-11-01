@@ -838,7 +838,7 @@ int character_demo_run(character_demo_mode_t mode) {
             sat_example_must(sat_vdp1_frame_stats(&frame_stats));
             handoff_sample_t handoff={g_metrics.frames,wait_us,end_us,
                 frame_stats.late_swaps,frame_stats.draw_waits,frame_stats.draw_timeouts,
-                sat_frame_count(),vblank_start};
+                sat_field_count(),vblank_start};
             g_character_handoff.rows[g_character_benchmark.count]=handoff;
             g_character_handoff.count=g_character_benchmark.count+1u;
 #if CHARACTER_DEMO_PARALLEL_GEOMETRY && CHARACTER_DEMO_MAX_ACTORS > 1

@@ -9,7 +9,7 @@
  * kinds, because an INDEXED_SOLID 8x8 sprite stretched over a wall is a
  * different hardware path from an RGB polygon.
  *
- * Frames are measured with sat_frame_count() deltas, never a wall clock: it
+ * Frames are measured with sat_field_count() deltas, never a wall clock: it
  * keeps counting while the program is busy, so a frame that takes three
  * VBlanks advances it by three. g_fill holds what the harness reads.
  */
@@ -99,7 +99,7 @@ typedef struct fill_results {
     uint32_t faces[PROBE_PHASES];
     uint32_t overdraw_x10[PROBE_PHASES];
     uint32_t quad_px[PROBE_PHASES];        /* edge of one quad, in pixels */
-    uint32_t frames_elapsed[PROBE_PHASES]; /* sat_frame_count delta */
+    uint32_t frames_elapsed[PROBE_PHASES]; /* sat_field_count delta */
     uint32_t frames_rendered[PROBE_PHASES];
     uint32_t submitted[PROBE_PHASES];
     uint32_t flushed[PROBE_PHASES];
@@ -363,10 +363,10 @@ int main(void) {
          * top, before the VBlank wait. Sampling between begin_frame and
          * end_frame instead measures only the render window, which always
          * fits inside one VBlank and reports a flat 1 for every workload. */
-        previous = sat_frame_count();
+        previous = sat_field_count();
         for (frame = 0u; frame < PROBE_WARMUP + PROBE_FRAMES; ++frame) {
             sat_scene_stats_t stats;
-            const uint32_t top = sat_frame_count();
+            const uint32_t top = sat_field_count();
             uint32_t cost = top - previous;
             previous = top;
             if (frame == PROBE_WARMUP) {
@@ -398,7 +398,7 @@ int main(void) {
             }
             if (frame >= PROBE_WARMUP) {
                 g_fill.frames_rendered[phase] = frame - PROBE_WARMUP + 1u;
-                g_fill.frames_elapsed[phase] = sat_frame_count() - start;
+                g_fill.frames_elapsed[phase] = sat_field_count() - start;
             }
         }
     }

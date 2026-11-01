@@ -14,6 +14,9 @@ constexpr uint32_t kLineBytes = 16u;
 
 uint8_t control_register();
 void purge_all(Mode mode);
+/* Purges the calling CPU's cache in its present mode, from the cache-through
+ * area as the manual wants for a CCR write. Does nothing while the cache is off. */
+void purge_keeping_mode();
 /* Puts the calling CPU's cache in the full 4 KiB mode, whatever the BIOS or a
  * loader left, and records what it found. `cpu` is 0 for Master, 1 for Slave. */
 void enable_at_start(uint8_t cpu);

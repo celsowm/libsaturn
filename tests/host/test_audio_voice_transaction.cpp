@@ -18,7 +18,7 @@ static bool driver_running=false;
 static bool driver_capacity=true;
 static uint32_t scheduled_count=0u;
 
-extern "C" uint32_t sat_frame_count(void) { return frame; }
+extern "C" uint32_t sat_field_count(void) { return frame; }
 namespace saturn::hal::scsp {
 bool configure_slot(uint8_t, const SlotConfig&) {
     ++configure_count;

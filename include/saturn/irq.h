@@ -39,6 +39,10 @@ typedef void (*sat_irq_handler_t)(void* user);
 /* 1 when SCU interrupts run (VBlank-IN arrived after sat_init), else 0. */
 int sat_irq_active(void);
 
+/* Times VBlank-IN stopped arriving after it had started, so that the library
+ * went back to polling. Above 0 means interrupts were lost mid-run. */
+uint32_t sat_irq_fallbacks(void);
+
 /* Installs a handler and unmasks its source; NULL removes it and masks the
  * source again. A VBlank-IN handler runs after the library's own frame
  * work, and VBlank-IN itself stays enabled. SAT_ERR_UNSUPPORTED while

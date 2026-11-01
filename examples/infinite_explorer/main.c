@@ -67,7 +67,7 @@ static int8_t g_signal_dir;
 static uint32_t g_signal_distance;
 static uint16_t g_scanner_cooldown;
 static uint8_t g_weather_audio;
-/* Display frames (sat_frame_count) at the previous loop iteration, so the
+/* Display frames (sat_field_count) at the previous loop iteration, so the
  * game can measure how much real time actually elapsed. The Egg Mobile is
  * heavier to draw than the old billboard, so a program frame now spans
  * roughly two display frames -- without this, every held-frame step (turn
@@ -739,13 +739,13 @@ int main(void) {
     sat_example_must(sat_vdp1_set_erase_transparent());
     init_audio();
     reset_game();
-    g_prev_display_frame = sat_frame_count();
+    g_prev_display_frame = sat_field_count();
         for (;;) {
         sat_pad_state_t pad = {0}; sat_vdp2_scroll_t sky_scroll;
         int32_t sin_h, cos_h;
         uint32_t now_display_frame, dt_ticks;
         sat_example_must(sat_wait_vblank());
-        now_display_frame = sat_frame_count();
+        now_display_frame = sat_field_count();
         dt_ticks = now_display_frame - g_prev_display_frame;
         g_prev_display_frame = now_display_frame;
         if (dt_ticks == 0u) dt_ticks = 1u;

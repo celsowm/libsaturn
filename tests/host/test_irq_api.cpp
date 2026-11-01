@@ -18,6 +18,10 @@ bool timer1_line_only = false;
 void on_timer0(void* user) { ++*static_cast<int*>(user); }
 }
 
+namespace saturn::hal::scu {
+uint32_t irq_fallbacks() { return 2u; }
+}
+
 namespace saturn::hal::scu::irq {
 bool start() { return live; }
 void stop() {}
@@ -54,6 +58,7 @@ int main() {
 
     live = true;
     assert(sat_irq_active() == 1);
+    assert(sat_irq_fallbacks() == 2u);
     assert(sat_irq_set_handler(SAT_IRQ_TIMER0, on_timer0, &fired) == SAT_OK);
     assert(handlers[SAT_IRQ_TIMER0] == on_timer0 && users[SAT_IRQ_TIMER0] == &fired);
     handlers[SAT_IRQ_TIMER0](users[SAT_IRQ_TIMER0]);

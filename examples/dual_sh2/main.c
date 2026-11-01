@@ -88,7 +88,7 @@ int main(void) {
             if (sat_dual_sh2_send(kRequestCommand, last_input, 0u) == SAT_OK) {
                 ++requests_sent;
                 waiting = 1u;
-                waiting_since = sat_frame_count();
+                waiting_since = sat_field_count();
             } else {
                 ++errors;
                 validation_pass = 0u;
@@ -108,7 +108,7 @@ int main(void) {
                     validation_pass = 0u;
                 }
                 waiting = 0u;
-            } else if (sat_frame_count() - waiting_since >= kResponseTimeoutFrames) {
+            } else if (sat_field_count() - waiting_since >= kResponseTimeoutFrames) {
                 ++errors;
                 validation_pass = 0u;
                 waiting = 0u;

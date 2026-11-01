@@ -89,7 +89,7 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
      * streaming, including VBlank edges sampled during synchronous CD reads.
      * Duration is measured in the actual NTSC/PAL display rate, not a hard-
      * coded 60 Hz assumption. */
-    const uint32_t now=sat_frame_count();
+    const uint32_t now=sat_field_count();
     const uint32_t start=saturn::core::audio::voice::lifetime::play_start(
         now,g_audio_clock.service_frame,g_audio_clock.valid!=0u);
     const uint32_t display_rate=

@@ -161,7 +161,7 @@ int main(void) {
     g_camera.projection_scale = 80u;
     g_camera.view_distance = VIEW_DISTANCE;
     const sat_rect_t fullscreen = {0, 0, 320u, 224u};
-    uint32_t previous_frame = sat_frame_count();
+    uint32_t previous_frame = sat_field_count();
 
     for (;;) {
         sat_pad_state_t pad = {0};
@@ -183,7 +183,7 @@ int main(void) {
         sat_example_must(sat_draw_texture(g_texture, 0, &fullscreen, 0));
         hud();
         sat_example_must(sat_end_frame());
-        const uint32_t now = sat_frame_count();
+        const uint32_t now = sat_field_count();
         g_frame_delta = now - previous_frame;
         previous_frame = now;
     }

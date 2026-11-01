@@ -27,6 +27,7 @@
 #include "saturn/asset.h"
 #include "saturn/audio.h"
 #include "saturn/cd_block.h"
+#include "saturn/sh2.h"
 #include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
 #include "saturn/color.h"
@@ -93,7 +94,7 @@
 typedef struct bh_bench_result {
     uint32_t n;                  /* bullets held */
     uint32_t frames;             /* program frames measured */
-    uint32_t vblanks;            /* display fields they took (sat_frame_count delta) */
+    uint32_t vblanks;            /* display fields they took (sat_field_count delta) */
     uint32_t ticks_total;        /* FRT ticks, whole frames */
     uint32_t ticks_serv, ticks_sim, ticks_build, ticks_draw, ticks_end;   /* summed per stage */
     uint32_t ticks_max;          /* longest frame */
@@ -110,7 +111,7 @@ typedef struct bh_telemetry {
     uint32_t setup_ok;           /* 1 once every boot step passed */
     uint32_t setup_error;        /* the first failing result code, 0 none */
     uint32_t frame;              /* program frames */
-    uint32_t video_frames;       /* sat_frame_count() */
+    uint32_t video_frames;       /* sat_field_count() */
     uint32_t frt_hz;
     uint32_t sim_hash;
     uint32_t bullets, enemies, shots, explosions;
@@ -338,7 +339,7 @@ static void bench_begin(uint8_t phase) {
     bh_sim_set_steady_bullets(&g_sim, kBenchSizes[phase - 1u]);
     sat_vdp1_frame_stats_t fs;
     (void)sat_vdp1_frame_stats(&fs);
-    g_bench_vblank0 = sat_frame_count();
+    g_bench_vblank0 = sat_field_count();
     g_bench_late0 = fs.late_swaps;
     g_bench_tests0 = g_sim.stats.bullet_tests;
     g_bench_hits0 = g_sim.stats.player_hits;
@@ -351,7 +352,7 @@ static void bench_end(void) {
     bh_bench_result_t* r = (bh_bench_result_t*)&g_bh_telemetry.bench[g_bench_phase - 1u];
     sat_vdp1_frame_stats_t fs;
     (void)sat_vdp1_frame_stats(&fs);
-    r->vblanks = sat_frame_count() - g_bench_vblank0;
+    r->vblanks = sat_field_count() - g_bench_vblank0;
     r->late_swaps = fs.late_swaps - g_bench_late0;
     r->bullet_tests = g_sim.stats.bullet_tests - g_bench_tests0;
     r->player_hits = g_sim.stats.player_hits - g_bench_hits0;
@@ -372,8 +373,8 @@ static sat_result_t boot(void) {
 #endif
     g_bh_telemetry.magic = TELEMETRY_MAGIC;
     g_bh_telemetry.frt_hz = sat_time_frequency_hz();
-    g_bh_telemetry.ccr_initial = *(volatile uint8_t*)0xFFFFFE92u;
-    g_bh_telemetry.ccr_now = *(volatile uint8_t*)0xFFFFFE92u;
+    g_bh_telemetry.ccr_initial = sat_sh2_cache_control();
+    g_bh_telemetry.ccr_now = sat_sh2_cache_control();
 #ifdef BH_FRAME_ON_SUBMIT
     SETUP(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
 #endif
@@ -490,7 +491,7 @@ int main(void) {
 
     sat_pad_state_t pad = {0};
     uint16_t t_last = sat_time_frc();
-    g_fps_vblank0 = sat_frame_count();
+    g_fps_vblank0 = sat_field_count();
 
     for (;;) {
         const uint16_t t_start = sat_time_frc();
@@ -617,7 +618,7 @@ int main(void) {
         g_bh_telemetry.music_loops = g_stream.disc.stats.music_loops;
         g_bh_telemetry.data_deferred = g_stream.disc.stats.data_deferred;
         g_bh_telemetry.frame++;
-        g_bh_telemetry.video_frames = sat_frame_count();
+        g_bh_telemetry.video_frames = sat_field_count();
         g_bh_telemetry.sim_hash = bh_sim_hash(&g_sim);
         g_bh_telemetry.bullets = g_sim.bullet_count;
         g_bh_telemetry.enemies = g_sim.enemy_count;

@@ -9,17 +9,9 @@ void* write_pointer(uint32_t cached_base) {
 }
 
 /* A slot is up to megabytes and the cache 4 KiB: purging it all is cheaper
- * than one associative purge per 16-byte line of the slot. The purge writes
- * CCR, which the manual wants done from the cache-through area: call it
- * there (as the Slave purge in core/parallel does). */
+ * than one associative purge per 16-byte line of the slot. */
 void purge_cpu_cache() {
-    namespace cache = saturn::hal::sh2::cache;
-    const uint8_t ccr = cache::control_register();
-    if ((ccr & 0x01u) == 0u) return;
-    using Fn = void (*)(cache::Mode);
-    const Fn purge = reinterpret_cast<Fn>(
-        reinterpret_cast<uintptr_t>(&cache::purge_all) | kCacheThroughBit);
-    purge(static_cast<cache::Mode>(ccr & 0x09u));
+    saturn::hal::sh2::cache::purge_keeping_mode();
 }
 
 }  // namespace saturn::storage::cart_overlay

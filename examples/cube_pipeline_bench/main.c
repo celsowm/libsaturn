@@ -300,7 +300,7 @@ int main(void) {
     while(1) {
         bench_sample_t s={0};const uint32_t before_wait=now();
         must(sat_wait_vblank());const uint32_t work_start=now();
-        s.wait=work_start-before_wait;s.field_begin=sat_frame_count();
+        s.wait=work_start-before_wait;s.field_begin=sat_field_count();
         uint32_t t=now();
         if(CUBE_BENCH_STAGE==1)raw_begin();else must(sat_begin_frame());
         if(CUBE_BENCH_STAGE>=4)must(sat_scene_begin(&scene,&camera,FX(1)/8,W,H,OVERLAY));
@@ -331,7 +331,7 @@ int main(void) {
         s.faces=CUBE_BENCH_STAGE>=4?scene.flushed_faces:CUBE_BENCH_STAGE?native_count:0;
         s.draw_waits=frame.draw_waits;s.draw_timeouts=frame.draw_timeouts;
         t=now();if(CUBE_BENCH_STAGE==1)raw_present(&s);else must(sat_end_frame());s.present=now()-t;
-        s.work=now()-work_start;s.field_end=sat_frame_count();s.serial=g_cube_bench.serial+1;
+        s.work=now()-work_start;s.field_end=sat_field_count();s.serial=g_cube_bench.serial+1;
         g_cube_bench.samples[g_cube_bench.cursor]=s;
         g_cube_bench.cursor=(g_cube_bench.cursor+1)%ROWS;
         ++g_cube_bench.count;g_cube_bench.serial=s.serial;g_cube_bench.field=s.field_end;

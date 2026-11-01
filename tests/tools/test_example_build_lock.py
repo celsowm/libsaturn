@@ -14,7 +14,7 @@ def dry_run(*args: str, locked: bool = False) -> str:
     if locked:
         env["LIBSATURN_EXAMPLE_LOCKED"] = "1"
     return subprocess.check_output(
-        ["make", "-n", *args], cwd=root, text=True, env=env,
+        [shutil.which("gmake") or "make", "-n", *args], cwd=root, text=True, env=env,
         stderr=subprocess.STDOUT,
     )
 

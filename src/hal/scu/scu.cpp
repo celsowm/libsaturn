@@ -19,6 +19,11 @@ uint64_t g_clock_ticks = 0;
 uint64_t g_last_display_tick_total = 0;
 uint32_t g_last_vblank_count = 0;
 uint32_t g_irq_fallbacks = 0;
+/* field_count once interrupts stop: fields so far, and when and at what
+ * g_display_frames that was. */
+uint32_t g_field_base = 0;
+uint32_t g_field_base_frames = 0;
+uint64_t g_field_base_ticks = 0;
 constexpr uint16_t kVblankFlag = 0x0008u;
 constexpr uint32_t kMaxPollSpins = 2000000u;
 /* Fewer ticks than this per frame is not a working timer. */
@@ -43,7 +48,16 @@ void init_interrupts() {
     if (irq::start()) g_last_vblank_count = irq::count(irq_logic::kVblankIn);
 }
 
+/* Call before irq::stop while the counter still holds its total. */
+static void continue_fields_without_irq() {
+    if (!irq::live()) return;
+    g_field_base += irq::count(irq_logic::kVblankIn);
+    g_field_base_frames = g_display_frames;
+    g_field_base_ticks = elapsed_ticks();
+}
+
 void shutdown_interrupts() {
+    continue_fields_without_irq();
     irq::stop();
 }
 
@@ -98,6 +112,9 @@ void init_frame_clock() {
     g_last_display_tick_total = 0u;
     g_frame_counter = 0u;
     g_display_frames = 0u;
+    g_field_base = 0u;
+    g_field_base_frames = 0u;
+    g_field_base_ticks = 0u;
 }
 
 /* Waits for the START of the next vertical blank.
@@ -132,6 +149,7 @@ void wait_vblank() {
         }
         /* The host stopped delivering VBlank-IN: poll from now on. */
         ++g_irq_fallbacks;
+        continue_fields_without_irq();
         irq::stop();
         if (g_ticks_per_frame != 0u) g_last_display_tick_total = elapsed_ticks();
     }
@@ -158,8 +176,12 @@ uint32_t frame_counter() {
     return g_frame_counter;
 }
 
-uint32_t display_frames() {
-    return g_display_frames;
+
+uint32_t field_count() {
+    if (irq::live()) return g_field_base + irq::count(irq_logic::kVblankIn);
+    if (g_ticks_per_frame == 0u) return g_field_base + (g_display_frames - g_field_base_frames);
+    return irq_logic::fields_after_irq(g_field_base, elapsed_ticks() - g_field_base_ticks,
+                                       g_ticks_per_frame);
 }
 
 uint16_t ticks_per_frame() {

@@ -115,7 +115,7 @@ sat_result_t city_loader_run(uint8_t* staging, uint32_t staging_bytes,
     sat_result_t st;
     sat_cdfs_file_t file = {0u, 0u, 0u, {0u, 0u, 0u}};
     uint32_t cd_ticks = 0u, copy_ticks = 0u, spans = 0u;
-    const uint32_t total_begin = sat_frame_count();
+    const uint32_t total_begin = sat_field_count();
 
     if (staging == 0 || staging_bytes < SPAN_BYTES) return SAT_ERR_INVALID_ARG;
     st = check_cart();
@@ -221,6 +221,6 @@ sat_result_t city_loader_run(uint8_t* staging, uint32_t staging_bytes,
     g_city.load_cd_ticks = cd_ticks;
     g_city.load_copy_ticks = copy_ticks;
     g_city.load_spans = spans;
-    g_city.load_total_vblanks = sat_frame_count() - total_begin;
+    g_city.load_total_vblanks = sat_field_count() - total_begin;
     return SAT_OK;
 }

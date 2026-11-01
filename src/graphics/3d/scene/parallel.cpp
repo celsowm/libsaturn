@@ -4,6 +4,7 @@
 using saturn::core::scene::record_frame_result;
 
 #include "src/hal/dual_sh2/memory.hpp"
+#include "src/hal/sh2/cache.hpp"
 #include "src/hal/sh2/frt.hpp"
 #include "src/graphics/3d/scene/test_metrics.h"
 
@@ -195,7 +196,7 @@ sat_result_t prepare_batch_task(
     profile->geometry_ticks = static_cast<uint16_t>(geometry_end-sources_end);
     profile->output_ticks = static_cast<uint16_t>(outputs_end-geometry_end);
     profile->total_ticks = static_cast<uint16_t>(outputs_end-profile_start);
-    profile->ccr = *reinterpret_cast<volatile uint8_t*>(0xFFFFFE92u);
+    profile->ccr = saturn::hal::sh2::cache::control_register();
     profile->timer_control = saturn::hal::sh2::frt::timer_control();
 #endif
     if (result == SAT_OK) {

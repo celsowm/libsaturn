@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise Make's real evaluated build paths without requiring SH-2 toolchain."""
 import hashlib
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ root = Path(__file__).resolve().parents[2]
 
 def profile(*args: str) -> dict[str, str]:
     output = subprocess.check_output(
-        ["make", "-s", "print-build-paths", *args],
+        [shutil.which("gmake") or "make", "-s", "print-build-paths", *args],
         cwd=root, text=True,
     )
     return dict(line.split("=", 1) for line in output.splitlines() if "=" in line)

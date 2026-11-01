@@ -47,15 +47,28 @@ void purge_all(Mode mode) {
     compiler_barrier();
 }
 
+namespace {
+
+void purge_through_alias(Mode mode) {
+    using Fn = void (*)(Mode);
+    const Fn purge = reinterpret_cast<Fn>(
+        reinterpret_cast<uintptr_t>(&purge_all) | saturn::core::startup::kCacheThroughBit);
+    purge(mode);
+}
+
+}  // namespace
+
+void purge_keeping_mode() {
+    const uint8_t found = ccr();
+    if ((found & 0x01u) == 0u) return;
+    purge_through_alias(static_cast<Mode>(found & 0x09u));
+}
+
 void enable_at_start(uint8_t cpu) {
     const uint8_t found = ccr();
     control_at_start_slot(cpu) = found;
     if ((found & kCcrModeBits) == static_cast<uint8_t>(Mode::Cache4KiB)) return;
-    /* The manual wants CCR written from the cache-through area. */
-    using Fn = void (*)(Mode);
-    const Fn purge = reinterpret_cast<Fn>(
-        reinterpret_cast<uintptr_t>(&purge_all) | saturn::core::startup::kCacheThroughBit);
-    purge(Mode::Cache4KiB);
+    purge_through_alias(Mode::Cache4KiB);
 }
 
 uint8_t control_at_start(uint8_t cpu) {

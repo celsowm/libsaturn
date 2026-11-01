@@ -181,9 +181,9 @@ int main(void) {
     progress("READY", 100u);
 
     g_city.state = CITY_STATE_RUNNING;
-    previous = sat_frame_count();
+    previous = sat_field_count();
     for (;;) {
-        const uint32_t top = sat_frame_count();
+        const uint32_t top = sat_field_count();
         const uint32_t cost = top - previous;
         const uint16_t frame_begin = city_frt_now();
         uint16_t mark;

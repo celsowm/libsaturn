@@ -101,13 +101,13 @@ static void note(sat_result_t st) {
 }
 
 /* Display time since the previous call, in 16.16 seconds. Counting real
- * display frames (sat_frame_count) rather than loop iterations keeps the
+ * display frames (sat_field_count) rather than loop iterations keeps the
  * walk at its authored speed when a frame takes more than one VBlank to
  * build; (n*65536)/rate on the running total keeps NTSC and PAL drift-free
  * instead of accumulating a truncated constant's bias. */
 static sat_fx16_t vblank_dt(void) {
     const uint32_t rate = sat_video_refresh_hz();
-    uint32_t n = sat_frame_count();
+    uint32_t n = sat_field_count();
     uint64_t now = (uint64_t)n * 65536u / rate;
     uint64_t prev = (uint64_t)g_tick * 65536u / rate;
     g_tick = n;
@@ -160,7 +160,7 @@ static void update_camera_from_inputs(const sat_pad_state_t* pad) {
 /* Counts program frames against display time; refreshes once a second. */
 static void update_fps(void) {
     const uint32_t rate = sat_video_refresh_hz();
-    uint32_t now = sat_frame_count();
+    uint32_t now = sat_field_count();
     uint32_t span = now - g_fps_mark;
 
     ++g_fps_frames;
@@ -278,7 +278,7 @@ int main(void) {
     }
     g_show_hud = 1;
     g_draw_overflow = 0;
-    g_tick = sat_frame_count();
+    g_tick = sat_field_count();
     g_fps_mark = g_tick;
     g_fps_frames = 0;
     g_fps = 0;

@@ -9,8 +9,28 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+### Removed
+
+- `sat_frame_count`, which only advanced inside `sat_wait_vblank`. Call
+  `sat_field_count`.
+
+### Changed
+
+- The Makefile stops with a clear error on GNU Make older than 4.3. Those
+  versions ran grouped-target generators several times under `-j`, which broke
+  CD-DA disc images with a missing `.tmp` file.
+
 ### Added
 
+- `saturn/cdda.h`: CD audio that examples and games had each written for
+  themselves. `sat_cd_read_toc`, `sat_cd_toc_audio_track`, `sat_cdda_play`,
+  `sat_cd_get_status` and `sat_cdda_set_level`.
+- `sat_field_count`: display fields, current at any moment and without a jump
+  if VBlank interrupts stop. `sat_irq_fallbacks` says whether they did.
+- `sat_cd_check_periodic`: a CD fault check that sends no command.
+- `sat_sh2_cache_control_at_start`: what the BIOS or a loader left in the cache
+  control register. `sat_init` and the Slave's start-up now set the full 4 KiB
+  cache and a free-running FRT themselves.
 - Transactional VDP2 CRAM ranges (M7 follow-up):
   `sat_vdp2_plan_palette_reserve` / `sat_vdp2_plan_palette_release` join the
   existing VRAM transaction. The seven-bank CRAM allocator is now a real

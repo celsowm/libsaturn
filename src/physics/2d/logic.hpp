@@ -9,9 +9,9 @@
 namespace saturn::core::physics {
 using namespace saturn::core::collide2d;
 
-inline void clock_init(sat_step_clock_t& c) { c.last_frame = sat_frame_count(); }
+inline void clock_init(sat_step_clock_t& c) { c.last_frame = sat_field_count(); }
 inline uint16_t clock_steps(sat_step_clock_t& c, uint16_t max_steps) {
-    const uint32_t now = sat_frame_count();
+    const uint32_t now = sat_field_count();
     const uint32_t elapsed = now - c.last_frame;
     c.last_frame = now;
     return static_cast<uint16_t>(elapsed > max_steps ? max_steps : elapsed);
