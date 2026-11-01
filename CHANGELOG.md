@@ -18,6 +18,11 @@ The version is defined once, in the `VERSION` file.
 - `saturn/movie.h`: `sat_movie_decoder_t` and `sat_movie_decode_frame`, a Cinepak decoder for software
   video (one strip, RGB555 dots out, no MPEG card). Checked bit for bit against ffmpeg's decoder on a
   1,950-frame movie.
+- `sat_movie_play`: plays a movie file from the disc (Cinepak pictures, IMA ADPCM sound) with the SH-2s, a 15-bit
+  VDP2 bitmap flipped between VRAM-A and VRAM-B, and two SCSP streams; and `tools/satmovie.py`, which converts any
+  video to that file (ffmpeg does the encoding) and refuses a file a 2x drive could not read in time.
+- `assets/movies/libsaturn_intro.mov`, the LibSaturn logo intro already converted (288x216, 24 fps, sound, 0.7 MiB),
+  installed to `share/libsaturn/assets/movies/` for games to put on their disc, and the `movie_player` example.
 - `sat_cd_stream_begin_ring` and `sat_cd_stream_abort`: one CD Block play over a whole file, read into a
   ring the caller drains, so a movie streams without a restart per segment.
 - `sat_audio_ima_decode_block`: the blocked IMA ADPCM decoder `sat_music` uses, for sound a program streams

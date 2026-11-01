@@ -198,6 +198,7 @@ The repository includes focused hardware examples, system tests, and larger demo
 | [`vdp2_effects_demo`](examples/vdp2_effects_demo) | VDP2 effects and composition |
 | [`parallel_runtime`](examples/parallel_runtime) | Master/Slave execution and bounded jobs |
 | [`cd_streaming_jukebox`](examples/cd_streaming_jukebox) | Audio streamed from disc |
+| [`movie_player`](examples/movie_player) | Plays the LibSaturn intro movie with `sat_movie_play`; shows the decode counters |
 | [`scsp_dsp_demo`](examples/scsp_dsp_demo) | SCSP DSP effects |
 | [`scu_dsp_demo`](examples/scu_dsp_demo) | SCU DSP operation |
 

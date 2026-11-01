@@ -57,7 +57,11 @@ install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_cue.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_disc_image.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/satlz.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/satmovie.py"
     DESTINATION ${LIBSATURN_INSTALL_SHAREDIR}/tools)
+# LibSaturn's own intro movie, converted for sat_movie_play (a game stages it on its disc, e.g. as LSINTRO.MOV).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/assets/movies/libsaturn_intro.mov"
+    DESTINATION ${LIBSATURN_INSTALL_SHAREDIR}/assets/movies)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/core/startup/aip.s"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot/ip_sbl_template.bin"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/boot/ip_yaul_template.bin"

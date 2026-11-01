@@ -93,6 +93,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp2/stage_map2.cpp
     src/graphics/vdp2/stage_map2_vdp2.cpp
     src/graphics/movie/cinepak.cpp
+    src/graphics/movie/player.cpp
     src/graphics/video.cpp
     src/graphics/vdp2/tate_fb.cpp
 )
