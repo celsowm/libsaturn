@@ -142,7 +142,7 @@ def encode_adx_payload(pcm: bytes, rate: int, channels: int, ffmpeg: str) -> byt
     ]
     encoded = subprocess.run(command, input=pcm, check=True,
                              stdout=subprocess.PIPE).stdout
-    if len(encoded) < 36 or encoded[:2] != b"\\x80\\x00" or (
+    if len(encoded) < 36 or encoded[:2] != bytes((0x80, 0x00)) or (
         encoded[4:8] != bytes((3, 18, 4, channels))
     ):
         raise ValueError("FFmpeg did not generate CRI ADX encoding 3")
