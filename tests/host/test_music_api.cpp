@@ -15,7 +15,8 @@ namespace {
 int16_t g_samples[4096] = {};
 uint8_t g_adx_samples[4u + 4u * 36u] = {};
 bool g_adx = false;
-static uint8_t g_workspace[SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
+alignas(4) static uint8_t g_workspace[SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
+alignas(4) static uint8_t g_small_workspace[SAT_MUSIC_WORKSPACE_BYTES(8192u,1u)] = {};
 bool g_physical = false;
 bool g_stereo = false;
 /* Nonzero: the Nth CD read plays the left channel ahead, as a service run
@@ -135,6 +136,19 @@ int main() {
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     sat_music_t music{};
     OK(open_test_music(&music, "music/theme.satstream") == SAT_OK);
+    // Explicit ownership: reject invalid sizes and accidental aliasing.
+    sat_music_t probe{};
+    sat_music_desc_t invalid{"music/theme.satstream", nullptr,
+                             g_small_workspace, sizeof(g_small_workspace), 32768u};
+    OK(sat_music_open(&probe, &invalid) == SAT_ERR_CAPACITY);
+    invalid.workspace = g_workspace;
+    invalid.workspace_bytes = sizeof(g_workspace);
+    OK(sat_music_open(&probe, &invalid) == SAT_ERR_BUSY);
+    invalid.workspace = g_small_workspace;
+    invalid.workspace_bytes = sizeof(g_small_workspace);
+    invalid.ring_frames = 8192u;
+    OK(sat_music_open(&probe, &invalid) == SAT_OK);
+    OK(sat_music_close(probe) == SAT_OK);
     sat_music_info_t info{};
     OK(sat_music_info(music, &info) == SAT_OK && info.sample_rate == 22050u &&
        info.sample_count == 4096u && info.looping != 0u && info.starting == 0u);

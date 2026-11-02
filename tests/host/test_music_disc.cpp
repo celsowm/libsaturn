@@ -407,7 +407,7 @@ bool g_overlap = false;                 /* a segment was read while another was 
 
 sat_disc_stream_t g_disc;
 sat_music_t g_music;
-static uint8_t g_workspaces[2][SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
+alignas(4) static uint8_t g_workspaces[2][SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
 sat_music_t g_workspace_handles[2] = {};
 sat_result_t open_test_music(sat_music_t* out, const char* name, bool use_disc = true) {
     // Workspaces are owned by open handles, not call order. A closed

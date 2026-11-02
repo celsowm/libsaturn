@@ -1028,6 +1028,7 @@ void music_runtime_reset() {
     if (g_disc_standby != nullptr) sat_disc_stream_music_detach_standby(g_disc);
     g_disc_primary = nullptr;
     g_disc_standby = nullptr;
+    g_disc = nullptr;
     for (uint16_t i = 0u; i < SAT_MUSIC_CAPACITY; ++i) {
         MusicSlot& slot = g_music[i];
         slot.used = 0u;
