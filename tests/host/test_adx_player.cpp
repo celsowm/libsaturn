@@ -169,8 +169,6 @@ void verify(uint32_t first_frame, uint32_t sample_count) {
             CHECK(g_played[c][i] == g_expected[c][at * 2u + (i & 1u)]);
         }
 }
-} // namespace
-
 int main() {
     constexpr uint32_t kFrames = 15013u; // partial ADX final block and 5 CD segments
     make_track(kFrames);
