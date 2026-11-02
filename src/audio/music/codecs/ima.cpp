@@ -1,6 +1,6 @@
 #include "saturn/audio.h"
 
-#include "src/audio/playback/ima_adpcm.hpp"
+#include "src/audio/music/codecs/ima.hpp"
 
 extern "C" sat_result_t sat_audio_ima_decode_block(const void* block, uint8_t channels, void* out_planar_s16be) {
     if (block == nullptr || out_planar_s16be == nullptr) return SAT_ERR_INVALID_ARG;

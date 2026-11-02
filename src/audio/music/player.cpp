@@ -5,8 +5,8 @@
 #include "saturn/asset.h"
 #include "saturn/cdfs.h"
 #include "saturn/disc_stream.h"
-#include "src/audio/playback/ima_adpcm.hpp"
-#include "src/audio/playback/adx_adpcm.hpp"
+#include "src/audio/music/codecs/ima.hpp"
+#include "src/audio/music/codecs/adx.hpp"
 #include "src/audio/streaming/runtime.hpp"
 
 namespace {

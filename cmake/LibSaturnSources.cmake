@@ -102,8 +102,8 @@ set(LIBSATURN_AUDIO_SOURCES
     src/audio/driver/api.cpp
     src/audio/effects/api.cpp
     src/audio/playback/api.cpp
-    src/audio/playback/ima.cpp
-    src/audio/playback/music.cpp
+    src/audio/music/codecs/ima.cpp
+    src/audio/music/player.cpp
     src/audio/playback/sound.cpp
     src/audio/playback/state.cpp
     src/audio/playback/voice.cpp

@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
-#include "src/audio/playback/adx_adpcm.hpp"
+#include "src/audio/music/codecs/adx.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "ADX FAIL %s:%d\n", __FILE__, __LINE__); return 1; } } while (0)
 

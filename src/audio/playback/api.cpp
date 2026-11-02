@@ -5,7 +5,7 @@
 #include "saturn/scsp_dsp.h"
 
 namespace saturn::core {
-/* Weak: a program that never calls sat_music_* does not link music.cpp and
+/* Weak: a program that never calls sat_music_* does not link src/audio/music/player.cpp and
  * its ~297 KB g_music (crt0 zeroes it, which is the reset state). */
 void music_runtime_reset() __attribute__((weak));
 /* Likewise for the stream registry (four 8-KiB staging buffers, defined with
