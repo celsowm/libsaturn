@@ -19,6 +19,7 @@
 #include "saturn/audio.h"
 #include "saturn/disc_stream.h"
 #include "src/audio/playback/ima_adpcm.hpp"
+#include "src/audio/playback/adx_adpcm.hpp"
 #include "src/audio/streaming/runtime.hpp"
 #include "src/hal/scsp/scsp.hpp"
 
@@ -91,6 +92,32 @@ void add_adpcm(const char* path, const char* source, uint8_t channels, uint32_t 
     g_tracks.push_back(t);
 }
 
+
+// Native ADX encoding-3 frames with persistent predictive history and a
+// 4-byte LibSaturn LPC header. Frames are deliberately not sector aligned.
+void add_adx(const char* path, uint8_t channels, uint32_t frames, uint32_t lba) {
+    Track t{};
+    t.path = path;
+    t.source = "disc/adx-stereo";
+    t.format = SAT_AUDIO_ADX_ADPCM;
+    t.channels = channels;
+    t.sample_count = frames;
+    t.lba = lba;
+    t.image = {0x19, 0xA9, 0xF5, 0xB6};  // 6569, -2634 at 22050 Hz
+    const uint32_t groups = (frames + 31u) / 32u;
+    for (uint32_t block = 0; block < groups; ++block) {
+        for (uint8_t ch = 0u; ch < channels; ++ch) {
+            t.image.push_back(0u);
+            t.image.push_back(12u);
+            for (uint32_t i = 0u; i < 16u; ++i)
+                t.image.push_back(pattern(block * 151u + i * 3u + ch * 19u) & 0xFFu);
+        }
+    }
+    t.file.extent_lba = lba;
+    t.file.size = static_cast<uint32_t>(t.image.size());
+    g_tracks.push_back(t);
+}
+
 Track* find_track(const char* path) {
     for (Track& t : g_tracks) if (std::strcmp(t.path, path) == 0) return &t;
     return nullptr;
@@ -99,6 +126,27 @@ Track* find_track(const char* path) {
 /* Expected per-channel bytes of frames [first, first + n) of the looping track. */
 std::vector<uint8_t> expected(const Track& t, uint32_t channel, uint64_t first, uint64_t n) {
     std::vector<uint8_t> out;
+    if (t.format == SAT_AUDIO_ADX_ADPCM) {
+        namespace adx = saturn::core::audio::adx_adpcm;
+        adx::State state{};
+        adx::init(state, t.image.data());
+        const uint32_t bb = adx::block_bytes(t.channels);
+        const uint32_t blocks = (t.sample_count + 31u) / 32u;
+        std::vector<uint8_t> planar(blocks * adx::kChannelBytes);
+        uint8_t tmp[2u * adx::kChannelBytes] = {};
+        for (uint32_t b = 0u; b < blocks; ++b) {
+            CHECK(adx::decode_block(t.image.data() + 4u + b * bb,
+                                    t.channels, state, tmp));
+            std::memcpy(planar.data() + b * adx::kChannelBytes,
+                        tmp + channel * adx::kChannelBytes, adx::kChannelBytes);
+        }
+        for (uint64_t f = first; f < first + n; ++f) {
+            const uint32_t frame = static_cast<uint32_t>(f % t.sample_count);
+            out.push_back(planar[frame * 2u]);
+            out.push_back(planar[frame * 2u + 1u]);
+        }
+        return out;
+    }
     if (t.format == SAT_AUDIO_IMA_ADPCM) {
         const uint32_t bb = codec::block_bytes(t.channels);
         const uint32_t blocks = (t.sample_count + codec::kBlockFrames - 1u) / codec::kBlockFrames;
@@ -266,7 +314,8 @@ extern "C" sat_result_t sat_asset_info(sat_asset_t asset, sat_asset_info_t* out_
     *out_info = {};
     out_info->kind = SAT_ASSET_STREAM;
     out_info->source_path = t.source;
-    out_info->size = t.format == SAT_AUDIO_IMA_ADPCM ? static_cast<uint32_t>(t.image.size()) : t.sample_count * t.frame_bytes();
+    out_info->size = (t.format == SAT_AUDIO_IMA_ADPCM || t.format == SAT_AUDIO_ADX_ADPCM)
+        ? static_cast<uint32_t>(t.image.size()) : t.sample_count * t.frame_bytes();
     out_info->sample_rate = 22050u;
     out_info->sample_count = t.sample_count;
     out_info->channels = t.channels;
@@ -417,7 +466,8 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(sat_music_play(g_music) == SAT_OK);
     /* play reads nothing and waits for nothing: the rings fill over the next fields and the streams
      * are released together once they are full */
-    CHECK(g_asset_reads == 0u && g_drive.begins == 0u && stream_buffered(0) == 0u);
+    const uint32_t expected_reads = t->format == SAT_AUDIO_ADX_ADPCM ? 1u : 0u;
+    CHECK(g_asset_reads == expected_reads && g_drive.begins == 0u && stream_buffered(0) == 0u);
     CHECK(sat_music_info(g_music, &info) == SAT_OK && info.starting == 1u && info.playing == 1u);
     uint32_t start_fields = 0u;
     while (info.starting != 0u) {
@@ -428,7 +478,7 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(g_played.underruns == 0u && g_played.ch[0].empty());     /* nothing was played while filling */
     CHECK(stream_buffered(0) > 24000u);                             /* started from a full ring */
     CHECK(g_drive.finishes == 0u);                                  /* not even the start waited for the drive */
-    CHECK(g_asset_reads == 0u);                         /* the legacy path is never taken */
+    CHECK(g_asset_reads == expected_reads);  /* ADX opens with one 4-byte header read */
     const uint32_t finishes_after_prime = g_drive.finishes;
     const uint32_t begins_after_prime = g_drive.begins;
     uint32_t min_fill = 0xFFFFFFFFu;
@@ -440,13 +490,15 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(g_played.underruns == 0u);
     CHECK(g_drive.finishes == finishes_after_prime);    /* nothing waited for the drive */
     CHECK(g_drive.begins > begins_after_prime);         /* but segments did keep arriving */
-    CHECK(g_asset_reads == 0u);
+    CHECK(g_asset_reads == expected_reads);
     CHECK(min_fill >= 4096u);                           /* never down to the SCSP half */
     /* a frame pays for a slice, not a segment: 4 KiB of PCM, or one ADPCM block */
-    const uint32_t slice_frames = t->format == SAT_AUDIO_IMA_ADPCM ? codec::kBlockFrames : 4096u / t->frame_bytes();
+    const uint32_t slice_frames = t->format == SAT_AUDIO_IMA_ADPCM ? codec::kBlockFrames :
+        t->format == SAT_AUDIO_ADX_ADPCM ? 1024u : 4096u / t->frame_bytes();
     CHECK(g_max_update_frames > 0u && g_max_update_frames <= slice_frames);
     CHECK(g_drive.max_poll_sectors <= SAT_DISC_STREAM_SEGMENT_SECTORS);
-    if (t->format != SAT_AUDIO_IMA_ADPCM && t->frame_bytes() >= 4u) CHECK(g_overlap);
+    if (t->format != SAT_AUDIO_IMA_ADPCM && t->format != SAT_AUDIO_ADX_ADPCM &&
+        t->frame_bytes() >= 4u) CHECK(g_overlap);
     sat_audio_stream_stats_t st{};
     CHECK(sat_music_stats(g_music, &st) == SAT_OK && st.underrun_count == 0u && st.rejected_write_count == 0u);
     /* run past a loop at least */
@@ -998,6 +1050,7 @@ int main() {
     add_pcm("music/short", "disc/short", SAT_AUDIO_PCM_S16, 2u, 4100u, 2900u);              /* a bit over one segment */
     add_adpcm("music/adpcm-stereo", "disc/adpcm-stereo", 2u, 9500u, 3200u);                 /* partial last block */
     add_adpcm("music/adpcm-mono", "disc/adpcm-mono", 1u, 17000u, 3600u);
+    add_adx("music/adx-stereo", 2u, 26077u, 4200u);
     add_pcm("music/ram", "disc/ram", SAT_AUDIO_PCM_S16, 2u, 40000u, 5000u);
     g_tracks.back().source = "ram/only";                       /* not on the disc: sat_cdfs_source_file says NOT_FOUND */
     add_pcm("music/other-reader", "xother", SAT_AUDIO_PCM_S16, 2u, 40000u, 5200u);
@@ -1009,6 +1062,7 @@ int main() {
     steady_state("music/short", 1500, 0u);              /* loops every 11 fields: the drive must be quick */
     steady_state("music/adpcm-stereo", 1500);
     steady_state("music/adpcm-mono", 1500);
+    steady_state("music/adx-stereo", 1500);
 
     test_seek("music/s16-stereo", 1000u);
     test_seek("music/s8-mono", 12345u);
