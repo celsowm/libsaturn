@@ -743,6 +743,7 @@ HOST_TEST_EXTRA_test_cart_overlay := src/storage/cartridge/overlay.cpp src/stora
 HOST_TEST_EXTRA_test_lz := src/storage/compression/lz.cpp
 HOST_TEST_EXTRA_test_movie := src/graphics/movie/cinepak.cpp
 HOST_TEST_EXTRA_test_ima_block := src/audio/playback/ima.cpp
+HOST_TEST_EXTRA_test_adx_player := src/audio/playback/adx_player.cpp
 HOST_TEST_EXTRA_test_exec := src/storage/cd/exec.cpp src/storage/cd/api.cpp src/storage/cd/filesystem.cpp src/storage/files/api.cpp src/storage/files/asset_runtime.cpp
 HOST_TEST_EXTRA_test_cdfs_logic := src/storage/cd/api.cpp src/storage/cd/filesystem.cpp src/storage/files/api.cpp src/storage/files/asset_runtime.cpp
 HOST_TEST_EXTRA_test_cd_block_api := src/hal/cd/block.cpp src/storage/cd/api.cpp
