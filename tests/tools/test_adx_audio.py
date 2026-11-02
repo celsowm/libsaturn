@@ -46,6 +46,8 @@ def main():
         assert "SAT_AUDIO_ADX_TEST_SAMPLE_COUNT 1000u" in header
         assert "SAT_AUDIO_ADX_TEST_CHANNELS 2u" in header
         coeffs = struct.unpack(">hh", content[:4])
+        assert f"#define SAT_AUDIO_ADX_TEST_COEFF_1 {coeffs[0]}" in header
+        assert f"#define SAT_AUDIO_ADX_TEST_COEFF_2 {coeffs[1]}" in header
         assert 0 < coeffs[0] < 8192
         assert -4096 < coeffs[1] < 0
         assert not (content[4] & 0x80)   # first frame is not an EOF marker
