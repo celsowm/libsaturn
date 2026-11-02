@@ -442,7 +442,7 @@ sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
     namespace codec = saturn::core::audio::adx_adpcm;
     const uint32_t block_bytes = codec::block_bytes(slot.channels);
     uint32_t room = writable_frames(slot);
-    if (room > 1024u) room = 1024u;
+    if (room > kMusicFeedFrames) room = kMusicFeedFrames;
     uint32_t frames_out = 0u;
     uint32_t used = 0u;
     uint8_t pcm_block[2u * codec::kChannelBytes] = {};
