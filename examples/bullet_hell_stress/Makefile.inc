@@ -11,7 +11,7 @@
 #   BH_TATE_FB=1             the 320 x 224 hardware-rotated TATE (saturn/tate_fb.h): the VDP1 draws the
 #                             224 x 448 field upright (rotation-8 framebuffer), the VDP2 turns it; upright art,
 #                             no scrolling background, the HUD inside the field
-#   BH_MUSIC_LIB=1            plays STAGE.PCM through sat_music + sat_music_use_disc_stream on the stream's
+#   BH_MUSIC_LIB=1            plays STAGE.PCM through sat_music with an explicit scheduler on the stream's
 #                             scheduler instead of bh_stream's built-in raw feed (same drive sharing)
 #   BH_EXTRA_CFLAGS=...       experiment knobs, e.g. -DBH_BENCH_LOOP=3 (repeat the 512 phase forever)
 BH_GEN_DIR := $(GENERATED_DIR)/bullet_hell_stress

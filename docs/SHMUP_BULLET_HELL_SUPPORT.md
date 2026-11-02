@@ -173,7 +173,7 @@ and the demo has two, the atlas group (to `sat_sprite_atlas_upload_chunk`) and t
 - `sat_music` without a scheduler reads the disc synchronously, so a refill waits for the drive;
   that alone took the demo from 60 to about 40 fps, which is why the demo feeds its music here with
   the built-in feed. A program that wants `sat_music` (a loop in a file, seeking, pause, ADPCM) binds
-  the scheduler with `sat_music_use_disc_stream` instead and keeps the same guarantee (see
+  the scheduler with `the `disc` field of `sat_music_desc_t`` instead and keeps the same guarantee (see
   docs/SCSP_AUDIO_STREAMING_GUIDE.md, "Disc-scheduled music").
   `BH_MUSIC_LIB=1` builds the demo that way (STAGE.PCM through `sat_music` on the stream's own
   scheduler, stage data in the gaps); the Ymir acceptance passes 12/12 on both builds.
@@ -321,7 +321,7 @@ A build with `BH_AUTOBENCH=1` starts the 128/256/512/1024 benchmark after three 
   not on real hardware, where the VDP1 erase restrictions of the manual apply as described.
 - Enemies and bosses are the pack's placeholders; 19 green/red/orange sprites quantise with a visible
   mean error.
-- `sat_music` reads synchronously unless a scheduler is bound (`sat_music_use_disc_stream`); with one
+- `sat_music` reads synchronously unless a scheduler is bound (`the `disc` field of `sat_music_desc_t``); with one
   it streams one disc-backed track at a time without ever waiting for the drive (`sat_music_play`
   only marks the track wanted; the rings fill over the next updates). A second opened track is a
   standby that `sat_music_prefetch` fills silent, so `sat_music_play` on it is a gapless handoff (see

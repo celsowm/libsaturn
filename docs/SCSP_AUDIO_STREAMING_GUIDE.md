@@ -66,9 +66,8 @@ The predictor is continuous between ADX groups and reset when a track loops.
 The last group's padding is not played. Seeking to a nonzero frame is currently
 **unsupported** for ADX: safe random seek needs a stored predictor checkpoint
 or re-decoding history. Stopping/restarting at zero is supported. Like IMA,
-the current `sat_music` implementation retains its large Work RAM Low rings
-(~288 KiB of allocated music/runtime buffers); this implementation does
-**not** yet solve that memory cost.
+the unified player uses a caller-supplied workspace sized with
+`SAT_MUSIC_WORKSPACE_BYTES`, without implicit static music buffers.
 
 To prepare an asset (use a legally obtained input):
 
@@ -82,8 +81,8 @@ python3 tools/convert_audio.py --input source.wav \
 Register the emitted payload as a `SAT_ASSET_STREAM` with
 `format = SAT_AUDIO_ADX_ADPCM`, the generated `sample_count` and
 `sample_rate`, and either a memory pointer or a CD source path.
-Call `sat_music_use_disc_stream` before playback when using the asynchronous
-CD scheduler. The PCM16 and IMA paths remain unchanged.
+Provide the initialized disc scheduler in `sat_music_desc_t.disc`
+when opening the music asset. The PCM16 and IMA paths use the same API.
 
 At this stage the reference decoder has host tests against FFmpeg-produced
 frames, but physical Saturn throughput, seeks and collision with combat SFX
@@ -225,16 +224,21 @@ short: a poll costs commands, not sectors, so the scheduler moves whole segments
 below are Mednafen/Ymir, not hardware; and the manual's 500 ms (2x) / 800 ms (1x) average seek is longer
 than the music reserve, which no emulator run shows (see "Seek time on real hardware" there).
 
-By default `sat_music_update` reads the next 64 KiB of the track with a blocking CD read, so the
-frame waits for the drive (about 200 ms at 2x speed; measured on Mednafen the worst `sat_music_update`
-was 359,709 us and the worst frame 381 ms). The rings hold 1.5 s, so the audio does not underrun,
-but a game stalls every few seconds. Bind the disc scheduler once and the same API streams in the
-background:
+When a disc-backed asset is opened without a scheduler in its descriptor,
+`sat_music_update` may wait synchronously for the CD reader, stalling frames.
+Provide the same initialized scheduler to all music instances that share
+the drive so reads are serviced incrementally. The ring depth is configured
+per track, rather than being permanently fixed to 1.5 seconds:
 
 ```c
-static sat_disc_stream_t disc;                      /* ~32 KiB: put it in .wram_l */
+static sat_disc_stream_t disc;                      /* ~32 KiB */
+static uint8_t music_memory[SAT_MUSIC_WORKSPACE_BYTES(16384u, 2u)]
+    __attribute__((section(".wram_l"), aligned(4)));
 sat_disc_stream_init(&disc, &cd_block);
-sat_music_use_disc_stream(&disc);                   /* before sat_music_open */
+sat_music_desc_t desc = {
+    "music/example", &disc, music_memory, sizeof(music_memory), 16384u
+};
+sat_music_open(&music, &desc);
 ```
 
 A track registered with `sat_cdfs_register_source_manifest` and opened with `sat_music_open` then

@@ -38,7 +38,7 @@ struct MusicSlot {
     uint32_t position_frame;
     uint32_t decoded_block;
     saturn::core::audio::adx_adpcm::State adx_state;
-    // Disc-scheduled feed (sat_music_use_disc_stream): the track is read in
+    // Disc-scheduled feed (bound when the track opens): the track is read in
     // segments by the scheduler and delivered here without waiting.
     const sat_cdfs_file_t* file;  // non-null: this track streams through g_disc
     uint32_t src_bytes;           // bytes of the file the track occupies (PCM payload, or whole ADPCM blocks)
