@@ -225,6 +225,8 @@ extern "C" sat_result_t sat_adx_player_open(sat_adx_player_t* player,
         (config->channels != 1u && config->channels != 2u))
         return SAT_ERR_INVALID_ARG;
     if (sat_audio_is_initialized() == 0u) return SAT_ERR_NOT_INITIALIZED;
+    if (disc->music_ops != nullptr || disc->music_open != 0u ||
+        disc->standby_ops != nullptr) return SAT_ERR_BUSY;
     const uint64_t bytes = codec::kCoefficientBytes +
         ((static_cast<uint64_t>(config->sample_count) + 31u) / 32u) *
         codec::block_bytes(config->channels);
