@@ -494,7 +494,7 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(min_fill >= 4096u);                           /* never down to the SCSP half */
     /* a frame pays for a slice, not a segment: 4 KiB of PCM, or one ADPCM block */
     const uint32_t slice_frames = t->format == SAT_AUDIO_IMA_ADPCM ? codec::kBlockFrames :
-        t->format == SAT_AUDIO_ADX_ADPCM ? 1024u : 4096u / t->frame_bytes();
+        t->format == SAT_AUDIO_ADX_ADPCM ? 2048u : 4096u / t->frame_bytes();
     CHECK(g_max_update_frames > 0u && g_max_update_frames <= slice_frames);
     CHECK(g_drive.max_poll_sectors <= SAT_DISC_STREAM_SEGMENT_SECTORS);
     if (t->format != SAT_AUDIO_IMA_ADPCM && t->format != SAT_AUDIO_ADX_ADPCM &&
