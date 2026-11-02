@@ -71,8 +71,13 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
     // through it; any other source (RAM, a blob, a non-disc reader) is read as before.
     const sat_cdfs_file_t* disc_file = nullptr;
     uint32_t src_bytes = 0u;
-    if (desc->disc != nullptr && info.data == nullptr && info.source_path != nullptr &&
-        sat_cdfs_source_file(info.source_path, &disc_file) == SAT_OK) {
+    const bool on_disc = info.data == nullptr && info.source_path != nullptr &&
+        sat_cdfs_source_file(info.source_path, &disc_file) == SAT_OK;
+    // A track on the disc is read by the scheduler. The synchronous reader asks the drive for one block at a time
+    // (32 frames of ADX, 1024 of IMA): hundreds of blocking CD reads a second. RAM tracks and non-disc readers
+    // keep it.
+    if (on_disc && desc->disc == nullptr) return SAT_ERR_UNSUPPORTED;
+    if (on_disc) {
         if (g_disc_primary != nullptr && g_disc_standby != nullptr) return SAT_ERR_BUSY;
         src_bytes = compressed != 0u ? info.size : sample_count * frame_bytes;
         if (disc_file->size < src_bytes) return SAT_ERR_INVALID_ARG;

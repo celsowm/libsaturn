@@ -33,7 +33,10 @@ the caller never selects a different player for each codec.
    or codec selection in game logic.
 8. The SH-2 currently decodes ADPCM; offloading to the 68000 would require
    a separately measured architecture, not just a change of codec.
-9. Audio continuity and real-drive seeks require testing in emulator and on
+9. A track on the disc opens only with a disc scheduler (`desc->disc`); without one `sat_music_open` returns
+   `SAT_ERR_UNSUPPORTED`. The synchronous reader (`sat_asset_read_at` per ADPCM block) stays for RAM tracks and
+   non-disc readers, where a block read is not a drive access.
+10. Audio continuity and real-drive seeks require testing in emulator and on
    hardware; passing host tests is not evidence of hardware performance.
 
 ## Tests

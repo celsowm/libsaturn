@@ -644,8 +644,9 @@ void test_ownership() {
     /* the slots are free again, and so is the feed */
     CHECK(open_test_music(&second, "music/s8-stereo") == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
-    CHECK(open_test_music(&second, "music/s16-stereo", false) == SAT_OK); // explicit ordinary reader
-    CHECK(sat_music_info(second, &info) == SAT_OK && info.disc_streamed == 0u);
+    /* a track on the disc has no synchronous reader: one blocking CD read per ADPCM block is hundreds a second */
+    CHECK(open_test_music(&second, "music/s16-stereo", false) == SAT_ERR_UNSUPPORTED);
+    CHECK(open_test_music(&second, "music/s16-stereo") == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
 }
 

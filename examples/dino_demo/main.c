@@ -58,6 +58,7 @@
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
+#include "saturn/disc_stream.h"
 #include "saturn/color.h"
 #include "saturn/font.h"
 #include "saturn/fmt.h"
@@ -244,6 +245,7 @@ static sat_cdfs_source_desc_t g_music_source_desc;
 static sat_asset_desc_t g_music_asset_desc;
 static sat_asset_t g_music_asset;
 static sat_music_t g_music;
+static sat_disc_stream_t g_music_disc;   /* the scheduler reads the music track from the disc */
 static uint8_t g_music_workspace[SAT_MUSIC_WORKSPACE_BYTES(16384u,2u)] __attribute__((section(".wram_l"),aligned(4)));
 #endif
 static sat_result_t g_music_error;
@@ -399,7 +401,9 @@ static sat_result_t init_music(void) {
     st = sat_asset_register(&g_music_asset_desc, &g_music_asset);
     if (st != SAT_OK) return st;
 
-    st = sat_music_open(&g_music, &(sat_music_desc_t){g_music_asset_desc.logical_path, 0, g_music_workspace, sizeof(g_music_workspace), 16384u});
+    st = sat_disc_stream_init(&g_music_disc, &g_cd_block);
+    if (st != SAT_OK) return st;
+    st = sat_music_open(&g_music, &(sat_music_desc_t){g_music_asset_desc.logical_path, &g_music_disc, g_music_workspace, sizeof(g_music_workspace), 16384u});
     if (st != SAT_OK) return st;
     st = sat_music_play(g_music);
     if (st != SAT_OK) return st;

@@ -20,7 +20,7 @@ extern "C" {
 typedef struct sat_music { uint16_t slot; uint16_t generation; } sat_music_t;
 typedef struct sat_music_desc {
     const char* asset;
-    sat_disc_stream_t* disc; /* NULL: ordinary asset reader */
+    sat_disc_stream_t* disc; /* required for a track on the disc; NULL for RAM and other readers */
     void* workspace;        /* 4-byte-aligned, unique per open track */
     uint32_t workspace_bytes;
     uint32_t ring_frames;   /* 8192..32768, multiple of 4096 */

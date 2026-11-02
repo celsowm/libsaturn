@@ -11,6 +11,9 @@ The version is defined once, in the `VERSION` file.
 
 ### Changed
 
+- `sat_music_open` refuses a track on the disc when `desc->disc` is NULL (`SAT_ERR_UNSUPPORTED`). With the asset cache
+  gone, the synchronous reader would issue one blocking CD read per ADPCM block (1,378 a second for ADX); the disc
+  scheduler is the path for CD music. RAM tracks and non-disc readers are unchanged. `dino_demo` now binds a scheduler.
 - The asset cache owns no memory. The built-in 4 x 64 KiB cache in Work RAM Low is gone (a program that used any
   `sat_asset_*` call paid 256 KiB of Low WRAM for it). Until `sat_asset_cache_configure(memory, blocks)` is called,
   `sat_asset_read_at` reads straight from the file backend (partial reads continued, bounds and EOF unchanged) and
