@@ -12,6 +12,8 @@
 
 namespace {
 int16_t g_samples[4096] = {};
+uint8_t g_adx_samples[4u + 4u * 36u] = {};
+bool g_adx = false;
 bool g_physical = false;
 bool g_stereo = false;
 /* Nonzero: the Nth CD read plays the left channel ahead, as a service run
@@ -37,19 +39,20 @@ extern "C" sat_result_t sat_asset_info(sat_asset_t asset, sat_asset_info_t* out_
     if (out_info == nullptr) return SAT_ERR_INVALID_ARG;
     *out_info = {};
     out_info->kind = SAT_ASSET_STREAM;
-    out_info->data = asset.slot == 1u ? nullptr : g_samples;
+    out_info->data = asset.slot == 1u ? nullptr : (g_adx ? static_cast<const void*>(g_adx_samples) : static_cast<const void*>(g_samples));
     out_info->source_path = asset.slot == 1u ? "MUSIC/THEME.S16" : nullptr;
-    out_info->size = sizeof(g_samples);
+    out_info->size = g_adx ? sizeof(g_adx_samples) : sizeof(g_samples);
     out_info->sample_rate = 22050u;
-    out_info->sample_count = g_stereo ? 2048u : 4096u;
+    out_info->sample_count = g_adx ? 128u : (g_stereo ? 2048u : 4096u);
     out_info->channels = g_stereo ? 2u : 1u;
-    out_info->format = SAT_AUDIO_PCM_S16;
+    out_info->format = g_adx ? SAT_AUDIO_ADX_ADPCM : SAT_AUDIO_PCM_S16;
     return SAT_OK;
 }
 
 extern "C" sat_result_t sat_asset_read_at(
     const char*, uint32_t offset, void* destination, uint32_t bytes, uint32_t* out_read) {
-    if (destination == nullptr || out_read == nullptr || offset > sizeof(g_samples)) {
+    const uint32_t asset_bytes = g_adx ? sizeof(g_adx_samples) : sizeof(g_samples);
+    if (destination == nullptr || out_read == nullptr || offset > asset_bytes) {
         return SAT_ERR_INVALID_ARG;
     }
     if (g_skew_left_on_read != 0u && ++g_reads == g_skew_left_on_read) {
@@ -58,9 +61,10 @@ extern "C" sat_result_t sat_asset_read_at(
         saturn::core::audio_stream_consume(left.ring, 4096u);
     }
     if (g_first_offset < 0) g_first_offset = offset;
-    const uint32_t available = static_cast<uint32_t>(sizeof(g_samples)) - offset;
+    const uint32_t available = asset_bytes - offset;
     const uint32_t count = bytes < available ? bytes : available;
-    std::memcpy(destination, reinterpret_cast<const uint8_t*>(g_samples) + offset, count);
+    const uint8_t* source = g_adx ? g_adx_samples : reinterpret_cast<const uint8_t*>(g_samples);
+    std::memcpy(destination, source + offset, count);
     *out_read = count;
     return SAT_OK;
 }
@@ -218,6 +222,27 @@ int main() {
     OK(sat_music_play(seeking) == SAT_OK && g_first_offset == -1);
     OK(sat_music_update(seeking) == SAT_OK && g_first_offset == 10 * 4);
     OK(sat_music_close(seeking) == SAT_OK);
+    // ADX is an actual sat_music asset: opening, coefficient parsing,
+    // compressed file reads, loop predictor reset and safe seek behaviour.
+    g_adx = true;
+    g_physical = true;
+    g_stereo = true;
+    g_adx_samples[0] = 0x19;
+    g_adx_samples[1] = 0xA9;
+    g_adx_samples[2] = 0xF5;
+    g_adx_samples[3] = 0xB6;
+    sat_music_t adx{};
+    OK(sat_music_open(&adx, "music/test-adx.satstream") == SAT_OK);
+    OK(sat_music_info(adx, &info) == SAT_OK &&
+       info.format == SAT_AUDIO_ADX_ADPCM && info.sample_count == 128u);
+    OK(sat_music_play(adx) == SAT_OK);
+    OK(pump(adx) == 4u);
+    OK(sat_music_stats(adx, &stats) == SAT_OK && stats.buffered_frames == 32768u);
+    OK(sat_music_seek(adx, 1u) == SAT_ERR_UNSUPPORTED);
+    OK(sat_music_seek(adx, 0u) == SAT_OK);
+    OK(pump(adx) == 4u);
+    OK(sat_music_close(adx) == SAT_OK);
+    g_adx = false;
     std::puts("music api: OK");
     return 0;
 }
