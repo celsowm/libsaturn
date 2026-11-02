@@ -15,7 +15,6 @@ extern "C" {
 
 #define SAT_ASSET_CAPACITY 32u
 #define SAT_ASSET_CACHE_BLOCK_BYTES 65536u
-#define SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY 4u
 #define SAT_ASSET_CACHE_BLOCK_CAPACITY 32u
 #define SAT_ASSET_PREFETCH_CAPACITY 4u
 
@@ -136,9 +135,12 @@ sat_result_t sat_asset_prefetch_status(
 );
 sat_result_t sat_asset_prefetch_cancel(sat_asset_prefetch_t request);
 sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats);
-/* Caller-owned cache storage. Pass 0/nullptr to restore internal four blocks.
- * The provided memory must remain valid until cache reset/reconfiguration.
- * Invalidates cached contents; refuses changes during pending prefetch. */
+/* The asset cache keeps no memory of its own: until this is called with `blocks` blocks of
+ * SAT_ASSET_CACHE_BLOCK_BYTES (at most SAT_ASSET_CACHE_BLOCK_CAPACITY) of caller-owned memory, the program pays
+ * nothing for it. Without a cache sat_asset_read_at reads each request straight from the file backend, and
+ * sat_asset_prefetch_submit returns SAT_ERR_UNSUPPORTED (there is nowhere to warm). NULL with 0 blocks switches
+ * the cache off again. The memory must stay valid until it is reconfigured or switched off. Invalidates cached
+ * contents; refuses changes during a pending prefetch (SAT_ERR_BUSY). */
 sat_result_t sat_asset_cache_configure(void* memory, uint16_t blocks);
 
 /* Typed logical-path loaders. The registered payload and auxiliary metadata

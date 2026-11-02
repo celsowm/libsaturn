@@ -225,8 +225,56 @@ int main() {
        physical_read == 2u && physical_out[0] == 8u && physical_out[1] == 9u);
     OK(sat_asset_read_at("data/cd-raw.bin", 0u, physical_out, 1u, &physical_read) == SAT_OK &&
        physical_read == 1u && physical_out[0] == 7u);
+    /* No cache memory was given: reads go straight to the backend, nothing is cached or counted, and a prefetch has
+     * nowhere to warm. */
     sat_asset_cache_stats_t cache_stats{};
-    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.used == 1u &&
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.capacity == 0u && cache_stats.used == 0u &&
+       cache_stats.fills == 0u && cache_stats.hits == 0u && cache_stats.misses == 0u);
+    OK(sat_asset_read_at("data/cd-raw.bin", 3u, physical_out, sizeof(physical_out), &physical_read) == SAT_OK &&
+       physical_read == 0u);                                                     // EOF: offset == size
+    OK(sat_asset_read_at("data/cd-raw.bin", 4u, physical_out, sizeof(physical_out), &physical_read) ==
+       SAT_ERR_INVALID_ARG);                                                     // past the end
+    sat_asset_prefetch_t no_cache_prefetch{};
+    OK(sat_asset_prefetch_submit("data/cd-raw.bin", 0u, 1u, &no_cache_prefetch) == SAT_ERR_UNSUPPORTED);
+    {
+        /* A backend that returns short reads: the direct path continues them, and refuses a backend that stalls. */
+        struct Chunked {
+            const uint8_t* data; uint32_t size, calls; bool stall;
+            static sat_result_t read(void* context, uint32_t offset, void* out, uint32_t bytes, uint32_t* got) {
+                Chunked& self = *static_cast<Chunked*>(context);
+                ++self.calls;
+                const uint32_t n = self.stall ? 0u : (bytes < 3u ? bytes : 3u);
+                for (uint32_t i = 0u; i < n; ++i) static_cast<uint8_t*>(out)[i] = self.data[offset + i];
+                *got = n;
+                return SAT_OK;
+            }
+        };
+        static Chunked chunked{raw_data, sizeof(raw_data), 0u, false};
+        OK(sat_file_register_backend("ASSETS/CHUNKED.BIN", chunked.size, Chunked::read, &chunked) == SAT_OK);
+        sat_asset_desc_t chunked_desc = {};
+        chunked_desc.logical_path = "data/chunked.bin";
+        chunked_desc.source_path = "ASSETS/CHUNKED.BIN";
+        chunked_desc.size = chunked.size;
+        chunked_desc.kind = SAT_ASSET_DATA;
+        sat_asset_t chunked_asset{};
+        OK(sat_asset_register(&chunked_desc, &chunked_asset) == SAT_OK);
+        uint8_t chunk_out[8] = {};
+        OK(sat_asset_read_at("data/chunked.bin", 0u, chunk_out, sizeof(chunk_out), &physical_read) == SAT_OK &&
+           physical_read == sizeof(raw_data) && std::memcmp(chunk_out, raw_data, sizeof(raw_data)) == 0);
+        chunked.stall = true;
+        OK(sat_asset_read_at("data/chunked.bin", 0u, chunk_out, sizeof(chunk_out), &physical_read) == SAT_ERR_IO);
+        OK(sat_asset_close(chunked_asset) == SAT_OK);
+    }
+    /* A cache the application configures: the reads below go through it. */
+    alignas(4) static uint8_t cache_memory[4u * SAT_ASSET_CACHE_BLOCK_BYTES] = {};
+    OK(sat_asset_cache_configure(cache_memory, 0u) == SAT_ERR_INVALID_ARG);       // memory without blocks
+    OK(sat_asset_cache_configure(nullptr, 1u) == SAT_ERR_INVALID_ARG);            // blocks without memory
+    OK(sat_asset_cache_configure(cache_memory, 4u) == SAT_OK);
+    OK(sat_asset_read_at("data/cd-raw.bin", 1u, physical_out, sizeof(physical_out), &physical_read) == SAT_OK &&
+       physical_read == 2u && physical_out[0] == 8u && physical_out[1] == 9u);
+    OK(sat_asset_read_at("data/cd-raw.bin", 0u, physical_out, 1u, &physical_read) == SAT_OK &&
+       physical_read == 1u && physical_out[0] == 7u);
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.capacity == 4u && cache_stats.used == 1u &&
        cache_stats.fills == 1u && cache_stats.hits >= 1u);
     uint8_t streamed_data[4096u] = {};
     for (uint32_t i = 0u; i < sizeof(streamed_data); ++i) {
@@ -315,9 +363,10 @@ int main() {
     OK(sat_asset_cache_stats(&cache_stats) == SAT_OK &&
        cache_stats.capacity == 6u && cache_stats.used == 1u);
     OK(sat_asset_cache_configure(nullptr, 0u) == SAT_OK);
-    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK &&
-       cache_stats.capacity == SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY &&
-       cache_stats.used == 0u);
+    OK(sat_asset_cache_stats(&cache_stats) == SAT_OK && cache_stats.capacity == 0u && cache_stats.used == 0u);
+    OK(sat_asset_read_at("data/full-block.bin", 0u, full_block_probe, sizeof(full_block_probe), &physical_read) ==
+           SAT_OK && physical_read == sizeof(full_block_probe) &&
+       std::memcmp(full_block_probe, full_block_data, sizeof(full_block_probe)) == 0);   // direct again
     std::puts("file asset logic: OK");
     return 0;
 }

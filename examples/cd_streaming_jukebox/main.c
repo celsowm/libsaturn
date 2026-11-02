@@ -36,7 +36,12 @@
 #endif
 
 #define TRACK_COUNT CD_JUKEBOX_TRACK_COUNT
-#define PREFETCH_BYTES (SAT_ASSET_CACHE_BLOCK_BYTES * SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY)
+#define PREFETCH_BLOCKS 4u
+#define PREFETCH_BYTES (SAT_ASSET_CACHE_BLOCK_BYTES * PREFETCH_BLOCKS)
+#if !JUKEBOX_DISC_STREAM
+/* Only the cache prefetch path needs cache memory; the scheduler reads the track itself. */
+static uint8_t g_asset_cache[PREFETCH_BYTES] __attribute__((section(".wram_l"),aligned(4)));
+#endif
 
 typedef struct track {
     const char* title;
@@ -133,6 +138,10 @@ static sat_result_t register_cd_tracks(void) {
         g_source_manifest[i] = (sat_cdfs_source_desc_t){
             g_tracks[i].disc_path, g_tracks[i].source_path, g_tracks[i].expected_bytes};
     }
+#if !JUKEBOX_DISC_STREAM
+    status = sat_asset_cache_configure(g_asset_cache, PREFETCH_BLOCKS);
+    if (status != SAT_OK) return status;
+#endif
     status = sat_cdfs_register_source_manifest(
         &g_volume, g_source_manifest, TRACK_COUNT, g_sources);
     if (status != SAT_OK) return status;

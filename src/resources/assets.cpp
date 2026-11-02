@@ -173,6 +173,7 @@ extern "C" sat_result_t sat_asset_prefetch_submit(
     sat_asset_info_t info{};
     SAT_TRY(lookup_asset(logical_path, &info));
     if (info.source_path == nullptr) return SAT_ERR_UNSUPPORTED;
+    if (saturn::core::g_file_asset_runtime.cache_block_count == 0u) return SAT_ERR_UNSUPPORTED;   // nowhere to warm
     if (offset > info.size) return SAT_ERR_INVALID_ARG;
     char source_path[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(normalize_source_path(info.source_path, source_path));
@@ -284,10 +285,7 @@ extern "C" sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats
                    g_file_asset_runtime.prefetch[i].state == SAT_ASSET_PREFETCH_PENDING ? 1u : 0u;
     }
     out_stats->used = used;
-    /* Unconfigured until the first fill, which takes the built-in blocks. */
-    out_stats->capacity = g_file_asset_runtime.cache_configured != 0u
-        ? g_file_asset_runtime.cache_block_count
-        : static_cast<uint16_t>(SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY);
+    out_stats->capacity = g_file_asset_runtime.cache_block_count;     // 0: no cache memory was given
     out_stats->prefetch_pending = pending;
     out_stats->prefetch_capacity = SAT_ASSET_PREFETCH_CAPACITY;
     out_stats->hits = g_file_asset_runtime.cache_hits;

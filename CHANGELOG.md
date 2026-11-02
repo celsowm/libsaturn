@@ -9,6 +9,15 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+### Changed
+
+- The asset cache owns no memory. The built-in 4 x 64 KiB cache in Work RAM Low is gone (a program that used any
+  `sat_asset_*` call paid 256 KiB of Low WRAM for it). Until `sat_asset_cache_configure(memory, blocks)` is called,
+  `sat_asset_read_at` reads straight from the file backend (partial reads continued, bounds and EOF unchanged) and
+  `sat_asset_prefetch_submit` returns `SAT_ERR_UNSUPPORTED`. `sat_asset_cache_configure(NULL, 0)` switches the cache
+  off. `SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY` is removed; `sat_asset_cache_stats().capacity` reads 0 without a
+  cache. `examples/cd_streaming_jukebox` gives its prefetch path (`JUKEBOX_DISC_STREAM=0`) a cache of its own.
+
 ### Added
 
 - `sat_sound_ram_reserve` / `sat_sound_ram_release`: reserve a range of the resident sample area without creating a

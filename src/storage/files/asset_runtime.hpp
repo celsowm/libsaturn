@@ -57,7 +57,6 @@ struct FileAssetRuntime {
     AssetEntry assets[SAT_ASSET_CAPACITY];
     AssetCacheBlock cache[SAT_ASSET_CACHE_BLOCK_CAPACITY];
     uint16_t cache_block_count;
-    uint8_t cache_configured; /* 0: the first fill configures the built-in blocks */
     AssetPrefetchRequest prefetch[SAT_ASSET_PREFETCH_CAPACITY];
     uint32_t cache_clock;
     uint32_t cache_hits;

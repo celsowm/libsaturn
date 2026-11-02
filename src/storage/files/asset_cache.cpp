@@ -1,29 +1,14 @@
 #include "src/storage/files/asset_runtime.hpp"
-#include "src/core/memory/section.hpp"
 
 namespace saturn::core {
 
-namespace {
-
-/* The built-in cache blocks (~269 KB). Only this file references them, and
- * only assets.cpp references this file, so a program that never uses the
- * asset API does not link them. crt0 zeroes .wram_l. */
-uint8_t g_asset_cache_blocks[SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY][SAT_ASSET_CACHE_BLOCK_BYTES]
-    SATURN_WRAM_L __attribute__((aligned(4))) = {};
-
-}  // namespace
-
 void asset_cache_configure(FileAssetRuntime& runtime, uint8_t* memory, uint16_t blocks) {
-    const uint16_t count = blocks == 0u ? SAT_ASSET_CACHE_DEFAULT_BLOCK_CAPACITY : blocks;
+    /* The cache has no storage of its own: it is the caller's `blocks` blocks of memory, or nothing. */
+    const uint16_t count = memory == nullptr ? 0u : blocks;
     runtime.cache_block_count = count;
-    runtime.cache_configured = 1u;
     for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
         runtime.cache[i] = {};
-        if (i < count) {
-            runtime.cache[i].data = memory == nullptr
-                ? g_asset_cache_blocks[i]
-                : memory + static_cast<uint32_t>(i) * SAT_ASSET_CACHE_BLOCK_BYTES;
-        }
+        if (i < count) runtime.cache[i].data = memory + static_cast<uint32_t>(i) * SAT_ASSET_CACHE_BLOCK_BYTES;
     }
     runtime.cache_clock = 0u;
     runtime.cache_hits = 0u;
@@ -65,7 +50,7 @@ sat_result_t asset_cache_fill(
     uint32_t* out_valid_bytes
 ) {
     if (source_path == nullptr || out_valid_bytes == nullptr) return SAT_ERR_INVALID_ARG;
-    if (runtime.cache_configured == 0u) asset_cache_configure(runtime, nullptr, 0u);
+    if (runtime.cache_block_count == 0u) return SAT_ERR_UNSUPPORTED;      // no cache memory was given
     for (uint16_t i = 0u; i < runtime.cache_block_count; ++i) {
         AssetCacheBlock& block = runtime.cache[i];
         if (block.used != 0u && block.block_index == block_index &&
@@ -118,6 +103,36 @@ sat_result_t asset_cache_fill(
     return SAT_OK;
 }
 
+/* Reads straight from the backend: the path taken when the application gave the cache no memory. Partial reads
+ * from the backend are continued; a backend that returns nothing or more than asked is an I/O error. */
+static sat_result_t asset_direct_read_at(
+    const FileAssetRuntime& runtime,
+    const char* source_path,
+    uint32_t offset,
+    uint8_t* destination,
+    uint32_t bytes,
+    uint32_t* out_read
+) {
+    const uint16_t mount_slot = find_mount(runtime, source_path);
+    if (mount_slot == SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_NOT_FOUND;
+    const FileMount& mount = runtime.mounts[mount_slot];
+    if (offset > mount.size) return SAT_ERR_INVALID_ARG;
+    if (bytes > mount.size - offset) bytes = mount.size - offset;
+    while (*out_read < bytes) {
+        uint32_t read = 0u;
+        if (mount.read_at != nullptr) {
+            const sat_result_t status = mount.read_at(mount.context, offset + *out_read,
+                                                      destination + *out_read, bytes - *out_read, &read);
+            if (status != SAT_OK || read == 0u || read > bytes - *out_read) return SAT_ERR_IO;
+        } else {
+            read = bytes - *out_read;
+            for (uint32_t i = 0u; i < read; ++i) destination[*out_read + i] = mount.data[offset + *out_read + i];
+        }
+        *out_read += read;
+    }
+    return SAT_OK;
+}
+
 sat_result_t asset_cache_read_at(
     FileAssetRuntime& runtime,
     const char* source_path,
@@ -130,6 +145,9 @@ sat_result_t asset_cache_read_at(
         (destination == nullptr && bytes != 0u)) return SAT_ERR_INVALID_ARG;
     *out_read = 0u;
     if (bytes == 0u) return SAT_OK;
+    if (runtime.cache_block_count == 0u) {
+        return asset_direct_read_at(runtime, source_path, offset, static_cast<uint8_t*>(destination), bytes, out_read);
+    }
     uint8_t* output = static_cast<uint8_t*>(destination);
     uint32_t remaining = bytes;
     while (remaining != 0u) {

@@ -30,7 +30,6 @@ void file_asset_runtime_reset(FileAssetRuntime& runtime) {
     }
     for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) runtime.cache[i] = {};
     runtime.cache_block_count = 0u;
-    runtime.cache_configured = 0u; /* the first fill configures the built-in blocks */
     for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
         AssetPrefetchRequest& request = runtime.prefetch[i];
         const uint16_t generation = next_file_generation(request.generation);

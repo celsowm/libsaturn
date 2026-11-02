@@ -63,8 +63,10 @@ if (cache != NULL) {
 ```
 
 The cache supports up to 32 blocks and preserves the existing no-heap
-design. No cart means the default internal cache remains available.
-Reconfiguring clears cached data and refuses to run while any prefetch is
+design. The cache owns no memory: without a call to
+`sat_asset_cache_configure` (cart or otherwise) `sat_asset_read_at` reads
+straight from the file backend and `sat_asset_prefetch_submit` returns
+`SAT_ERR_UNSUPPORTED`. Reconfiguring clears cached data and refuses to run while any prefetch is
 pending; restore with `sat_asset_cache_configure(NULL, 0u)` before
 `sat_ram_cart_reset()`. The backing memory must outlive cache use.
 
