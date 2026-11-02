@@ -162,7 +162,9 @@ sat_result_t deliver(void* user, const uint8_t* data, uint32_t bytes,
                      uint32_t* consumed) {
     auto& p = *static_cast<sat_adx_player_t*>(user);
     if (consumed == nullptr || data == nullptr) return SAT_ERR_INVALID_ARG;
-    if (!p.wanted || p.pending_count == 0u || p.failed) {
+    // A paused player still accepts segments already in flight, preserving
+    // their contents and predictor continuity for a seamless resume.
+    if (p.pending_count == 0u || p.failed) {
         *consumed = bytes;
         return SAT_OK;
     }
