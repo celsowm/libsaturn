@@ -58,6 +58,13 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
     return SAT_OK;
 }
 
+extern "C" sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, uint32_t bytes) {
+    if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
+    if (data == nullptr || bytes == 0u || ((offset | bytes) & 1u) != 0u || offset < kSoundRamBase ||
+        offset > kResidentSoundRamEnd || bytes > kResidentSoundRamEnd - offset) return SAT_ERR_INVALID_ARG;
+    return saturn::hal::scsp::upload(offset, data, bytes) ? SAT_OK : SAT_ERR_INVALID_ARG;
+}
+
 extern "C" sat_result_t sat_sound_unload(sat_sound_t sound) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     SoundEntry* entry = g_sound_registry.resolve(sound);

@@ -160,6 +160,11 @@ sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats);
 
 sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound_desc_t* desc);
 sat_result_t sat_sound_unload(sat_sound_t sound);
+/* Writes `bytes` (even) at the even Sound RAM `offset`, for a program that places samples itself (a bank swapped
+ * in section by section while a 68000 score plays). The range must lie in the resident sample area, above the
+ * driver's 0x3000 and below the streaming rings; the caller owns it, normally by having reserved it with
+ * sat_sound_create. Nothing checks that no voice is still reading the range. SAT_ERR_INVALID_ARG outside it. */
+sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, uint32_t bytes);
 sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_params_t* params, sat_voice_t* out_voice);
 sat_result_t sat_sound_stop_all_instances(sat_sound_t sound);
 
