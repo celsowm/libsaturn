@@ -45,6 +45,50 @@ For S16 streaming:
 - steady-state code must never overwrite the half the SCSP is currently reading;
 - `underrun_count` should remain zero during normal music playback.
 
+### ADX music assets (experimental)
+
+LibSaturn supports CRI ADX *encoding 3* (18-byte frame / 32 samples / channel)
+through `sat_music` and the existing disc scheduler. Unlike PCM8, this is **not
+hardware decoding**: the SH-2 expands ADX to channel-planar signed S16BE,
+which the SCSP plays with its ordinary stereo stream slots. The 68000 driver
+is not involved in ADX decoding.
+
+Use `tools/convert_audio.py --format adx` rather than placing a raw `.adx`
+file in the disc image. The generated LibSaturn payload consists of two
+big-endian signed Q12 LPC coefficients (4 bytes) followed by normal CRI ADX
+18-byte frames, one per channel in each 32-sample group. The CRI container
+header and 18-byte EOF marker are removed. The emitted header declares
+`SAT_AUDIO_ADX_ADPCM`, sample rate, channel count, PCM frame count, and
+payload size. At 22050 Hz stereo the compressed rate is 24,806 bytes/s;
+it is not the same as the 32,768-frame-per-channel decoded ring budget.
+
+The predictor is continuous between ADX groups and reset when a track loops.
+The last group's padding is not played. Seeking to a nonzero frame is currently
+**unsupported** for ADX: safe random seek needs a stored predictor checkpoint
+or re-decoding history. Stopping/restarting at zero is supported. Like IMA,
+the current `sat_music` implementation retains its large Work RAM Low rings
+(~288 KiB of allocated music/runtime buffers); this implementation does
+**not** yet solve that memory cost.
+
+To prepare an asset (use a legally obtained input):
+
+```sh
+python3 tools/convert_audio.py --input source.wav \
+  --output-audio build/generated/theme.adxbin \
+  --output-header build/generated/theme_adx.h \
+  --name theme_adx --sample-rate 22050 --channels 2 --format adx
+```
+
+Register the emitted payload as a `SAT_ASSET_STREAM` with
+`format = SAT_AUDIO_ADX_ADPCM`, the generated `sample_count` and
+`sample_rate`, and either a memory pointer or a CD source path.
+Call `sat_music_use_disc_stream` before playback when using the asynchronous
+CD scheduler. The PCM16 and IMA paths remain unchanged.
+
+At this stage the reference decoder has host tests against FFmpeg-produced
+frames, but physical Saturn throughput, seeks and collision with combat SFX
+are not validated. An optimized 68000 ADX decoder remains a separate project.
+
 ### Seamless PCM8
 
 `SAT_AUDIO_PCM_S8` takes the same continuous path as S16. A half is still
