@@ -165,6 +165,11 @@ sat_result_t sat_sound_unload(sat_sound_t sound);
  * driver's 0x3000 and below the streaming rings; the caller owns it, normally by having reserved it with
  * sat_sound_create. Nothing checks that no voice is still reading the range. SAT_ERR_INVALID_ARG outside it. */
 sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, uint32_t bytes);
+/* Reserves `bytes` (even) of the resident sample area for a caller that places samples itself, without uploading or
+ * creating a sound: the range counts in sound_ram_used and the high water mark, and no later sat_sound_create gets
+ * it. Up to four reservations; SAT_ERR_CAPACITY when the pool cannot hold it. Released by its offset. */
+sat_result_t sat_sound_ram_reserve(uint32_t bytes, uint32_t* out_offset);
+sat_result_t sat_sound_ram_release(uint32_t offset);
 sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_params_t* params, sat_voice_t* out_voice);
 sat_result_t sat_sound_stop_all_instances(sat_sound_t sound);
 

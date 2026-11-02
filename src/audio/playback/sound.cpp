@@ -65,6 +65,32 @@ extern "C" sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, u
     return saturn::hal::scsp::upload(offset, data, bytes) ? SAT_OK : SAT_ERR_INVALID_ARG;
 }
 
+extern "C" sat_result_t sat_sound_ram_reserve(uint32_t bytes, uint32_t* out_offset) {
+    if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
+    if (out_offset == nullptr || bytes == 0u || (bytes & 1u) != 0u) return SAT_ERR_INVALID_ARG;
+    unsigned index = 0u;
+    while (index < kReservationCapacity && g_reservations[index].used != 0u) ++index;
+    if (index == kReservationCapacity) return SAT_ERR_CAPACITY;
+    uint16_t allocation_slot = 0u;
+    uint32_t offset = 0u;
+    if (!g_ram.allocate(kSoundRamBase,kResidentSoundRamEnd,bytes,2u,&allocation_slot,&offset)) return SAT_ERR_CAPACITY;
+    g_reservations[index] = Reservation{offset, allocation_slot, 1u};
+    *out_offset = offset;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_sound_ram_release(uint32_t offset) {
+    if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
+    for (Reservation& r : g_reservations) {
+        if (r.used != 0u && r.offset == offset) {
+            (void)g_ram.release(r.allocation_slot);
+            r = Reservation{0u, 0u, 0u};
+            return SAT_OK;
+        }
+    }
+    return SAT_ERR_INVALID_ARG;
+}
+
 extern "C" sat_result_t sat_sound_unload(sat_sound_t sound) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     SoundEntry* entry = g_sound_registry.resolve(sound);

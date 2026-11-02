@@ -63,6 +63,11 @@ typedef struct sat_sound_score_event {
 sat_result_t sat_sound_driver_start(void);
 
 /* Puts the idle stub back. Scheduled events not yet run are lost. */
+/* Keeps the SCSP slots in `slot_mask` (bit n: slot n) for a score the 68000 plays: resident voices
+ * (sat_sound_play) never take them, so effects and a long score share the chip. Released by
+ * sat_sound_driver_stop. SAT_ERR_BUSY when a slot is already claimed (the sampler's, or an earlier
+ * call). Claim before the score starts; a resident voice already sounding on a slot keeps it until it ends. */
+sat_result_t sat_sound_driver_claim_slots(uint32_t slot_mask);
 sat_result_t sat_sound_driver_stop(void);
 
 uint8_t sat_sound_driver_running(void);

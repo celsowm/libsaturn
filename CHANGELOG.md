@@ -11,6 +11,10 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- `sat_sound_ram_reserve` / `sat_sound_ram_release`: reserve a range of the resident sample area without creating a
+  sound or uploading, so a program that places samples itself shows its real occupancy in `sat_audio_get_stats`.
+- `sat_sound_driver_claim_slots`: keeps SCSP slots for a 68000 score; resident voices never take them, so effects
+  and a long score share the chip. Released by `sat_sound_driver_stop`.
 - `sat_sound_ram_write`: writes into a Sound RAM range the program reserved itself, for banks swapped in while a
   68000 score plays.
 - Sound driver version 3: a paged score. `sat_sound_driver_pages_start`, `_page_publish`, `_pages_info` and

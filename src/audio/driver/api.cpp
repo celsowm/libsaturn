@@ -1,3 +1,4 @@
+#include "src/audio/playback/claim.hpp"
 #include "saturn/sound_driver.h"
 
 #include "src/hal/scsp/driver.hpp"
@@ -20,8 +21,21 @@ extern "C" sat_result_t sat_sound_driver_start(void) {
     return hal::start() ? SAT_OK : SAT_ERR_TIMEOUT;
 }
 
+namespace { uint32_t g_driver_claimed_slots = 0u; }
+
+extern "C" sat_result_t sat_sound_driver_claim_slots(uint32_t slot_mask) {
+    namespace claim = saturn::core::audio::claim;
+    if (slot_mask == 0u) return SAT_ERR_INVALID_ARG;
+    if ((claim::g_claim.slots & slot_mask) != 0u) return SAT_ERR_BUSY;   /* the sampler's, or already claimed */
+    claim::g_claim.slots |= slot_mask;
+    g_driver_claimed_slots |= slot_mask;
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_sound_driver_stop(void) {
     hal::stop();
+    saturn::core::audio::claim::g_claim.slots &= ~g_driver_claimed_slots;
+    g_driver_claimed_slots = 0u;
     return SAT_OK;
 }
 

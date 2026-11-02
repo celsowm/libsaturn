@@ -29,6 +29,11 @@ using SoundEntry=saturn::core::audio::sound::Entry;
 using VoiceEntry=saturn::core::audio::voice::Entry;
 
 extern saturn::core::audio::ram::Pool<kAllocationCapacity> g_ram;
+
+/* Regions a caller placed itself (sat_sound_ram_reserve). */
+constexpr unsigned kReservationCapacity=4u;
+struct Reservation { uint32_t offset; uint16_t allocation_slot; uint8_t used; };
+extern Reservation g_reservations[kReservationCapacity];
 extern saturn::core::audio::sound::Registry<kSoundCapacity> g_sound_registry;
 extern saturn::core::audio::voice::Registry<kVoiceCapacity> g_voice_registry;
 extern uint32_t g_voice_steals;

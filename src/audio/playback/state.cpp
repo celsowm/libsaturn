@@ -4,6 +4,7 @@
 namespace saturn::core::audio::playback {
 
 saturn::core::audio::ram::Pool<kAllocationCapacity> g_ram = {};
+Reservation g_reservations[kReservationCapacity] = {};
 saturn::core::audio::sound::Registry<kSoundCapacity> g_sound_registry = {};
 saturn::core::audio::voice::Registry<kVoiceCapacity> g_voice_registry = {};
 uint32_t g_voice_steals = 0u;
@@ -37,6 +38,7 @@ int32_t choose_voice(uint16_t priority) {
 
 void reset_runtime_state() {
     g_ram.reset();
+    for (Reservation& r : g_reservations) r = Reservation{0u, 0u, 0u};
     g_sound_registry.reset();
     g_voice_registry.reset();
     g_voice_steals = 0u;
