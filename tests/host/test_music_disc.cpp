@@ -654,6 +654,13 @@ void test_ownership() {
     small.ring_frames = 12288u;
     CHECK(sat_music_open(&second, &small) == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
+    /* a disc track leaves out the read buffer: its workspace is the rings plus the split and carry scratch */
+    sat_music_desc_t exact{"music/s16-stereo", &g_disc, g_workspaces[0],
+                           SAT_MUSIC_DISC_WORKSPACE_BYTES(16384u, 2u), 16384u};
+    CHECK(sat_music_open(&second, &exact) == SAT_OK);
+    CHECK(sat_music_close(second) == SAT_OK);
+    exact.workspace_bytes -= 1u;
+    CHECK(sat_music_open(&second, &exact) == SAT_ERR_CAPACITY);
 }
 
 /* Data jobs share the drive: the music keeps its rings, the job completes. */

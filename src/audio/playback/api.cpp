@@ -8,8 +8,7 @@ namespace saturn::core {
 /* Weak: a program that never calls sat_music_* does not link src/audio/music/player.cpp and
  * its ~297 KB g_music (crt0 zeroes it, which is the reset state). */
 void music_runtime_reset() __attribute__((weak));
-/* Likewise for the stream registry (four 8-KiB staging buffers, defined with
- * the stream API): a program that never opens an audio stream does not link
+/* Likewise for the stream registry (defined with the stream API): a program that never opens an audio stream does not link
  * it, and plays sounds without its Work RAM. */
 void audio_streams_reset() __attribute__((weak));
 void audio_streams_service(uint32_t frame_now, uint32_t display_rate) __attribute__((weak));

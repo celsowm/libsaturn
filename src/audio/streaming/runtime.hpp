@@ -71,7 +71,6 @@ struct AudioStreamSlot {
     uint8_t refill_half;           /* which Sound RAM half it rewrites */
     uint8_t starting;              /* the two halves are being written before the first key-on */
     uint8_t reserved1;
-    uint8_t staging[kAudioStreamChunkBytes];
     uint16_t generation;
     uint8_t used;
     uint8_t reserved;

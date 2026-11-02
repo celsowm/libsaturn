@@ -17,6 +17,10 @@ extern "C" {
 #define SAT_MUSIC_SCRATCH_BYTES (2u * 8192u + 1032u)
 #define SAT_MUSIC_WORKSPACE_BYTES(frames,channels) \
     (2u * (frames) * (channels) + SAT_MUSIC_SCRATCH_BYTES)
+/* A track read through the disc scheduler (desc->disc) leaves out the 8 KiB read buffer. */
+#define SAT_MUSIC_DISC_SCRATCH_BYTES (8192u + 1032u)
+#define SAT_MUSIC_DISC_WORKSPACE_BYTES(frames,channels) \
+    (2u * (frames) * (channels) + SAT_MUSIC_DISC_SCRATCH_BYTES)
 typedef struct sat_music { uint16_t slot; uint16_t generation; } sat_music_t;
 typedef struct sat_music_desc {
     const char* asset;

@@ -9,6 +9,11 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- Audio streams: the Sound RAM upload reads the caller's ring directly (two pieces at a wrap); the 4 x 8 KiB staging
+  in `g_audio_streams` is gone (33 KB of Work RAM Low). A failed piece still consumes nothing.
+- `sat_music`: a disc-scheduler track needs `SAT_MUSIC_DISC_WORKSPACE_BYTES` (no 8 KiB read buffer). The music,
+  disc-scheduler and stream-API units build with `-Os`.
+
 ### Changed
 
 - `sat_music_open` refuses a track on the disc when `desc->disc` is NULL (`SAT_ERR_UNSUPPORTED`). With the asset cache

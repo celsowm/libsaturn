@@ -99,14 +99,37 @@ uint32_t half_offset(const AudioStreamSlot& slot, uint8_t half) {
 uint32_t transfer_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index,
                                uint32_t skip_frames, uint32_t frames,
                                uint32_t dest_frames = 0u) {
-    const uint32_t copied =
-        audio_stream_peek(slot.ring, skip_frames, slot.staging, frames);
-    if (copied == 0u) return 0u;
+    const AudioStreamRing& ring = slot.ring;
+    if (skip_frames >= ring.buffered_frames) return 0u;
+    if (frames > ring.buffered_frames - skip_frames) frames = ring.buffered_frames - skip_frames;
+    if (frames == 0u) return 0u;
+    /* The ring goes to Sound RAM from where it lies, in at most two pieces (it may wrap): there is no
+     * staging copy. Nothing is consumed here, so a piece that fails leaves the ring whole. */
     const uint32_t sample_bytes = bytes_per_sample(slot.format);
-    const uint32_t byte_count = copied * sample_bytes;
-    const uint32_t buffer_offset = half_offset(slot, buffer_index) + dest_frames * sample_bytes;
-    if (!saturn::hal::scsp::upload(buffer_offset, slot.staging, byte_count)) return 0u;
-    return copied;
+    const uint32_t start = (ring.read_frame + skip_frames) % ring.capacity_frames;
+    const uint32_t room = ring.capacity_frames - start;
+    const uint32_t first_frames = frames < room ? frames : room;
+    const uint32_t first_bytes = first_frames * ring.frame_bytes;
+    const uint32_t second_bytes = (frames - first_frames) * ring.frame_bytes;
+    const uint8_t* first = ring.buffer + start * ring.frame_bytes;
+    uint32_t offset = half_offset(slot, buffer_index) + dest_frames * sample_bytes;
+    if ((first_bytes & 1u) != 0u && second_bytes != 0u) {
+        /* An odd piece (PCM8) would leave the next piece at an odd Sound RAM address, which the SCSP
+         * is not written at: the byte before the wrap and the byte after it go as one halfword. */
+        const uint8_t seam[2] = {first[first_bytes - 1u], ring.buffer[0]};
+        if (first_bytes > 1u && !saturn::hal::scsp::upload(offset, first, first_bytes - 1u)) return 0u;
+        if (!saturn::hal::scsp::upload(offset + first_bytes - 1u, seam, 2u)) return 0u;
+        if (second_bytes > 1u &&
+            !saturn::hal::scsp::upload(offset + first_bytes + 1u, ring.buffer + 1u, second_bytes - 1u)) {
+            return 0u;
+        }
+        return frames;
+    }
+    if (!saturn::hal::scsp::upload(offset, first, first_bytes)) return 0u;
+    if (second_bytes != 0u && !saturn::hal::scsp::upload(offset + first_bytes, ring.buffer, second_bytes)) {
+        return 0u;
+    }
+    return frames;
 }
 
 void commit_stream_chunks(AudioStreamSlot& slot, uint32_t frames, uint32_t chunks) {

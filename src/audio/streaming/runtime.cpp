@@ -3,9 +3,8 @@
 
 namespace saturn::core {
 
-/* Four 8-KiB upload staging buffers dominate this registry. Preserve High
- * WRAM for code/active model data; crt0 and the audio reset both clear it.
- * SCSP Sound RAM addresses, refill slicing and ring ownership are unchanged. */
+/* Slot state only: the upload to Sound RAM reads the caller's ring directly, so there are no staging
+ * buffers. crt0 and the audio reset both clear it. */
 AudioStreamRegistry g_audio_streams SATURN_WRAM_L = {};
 
 }  // namespace saturn::core

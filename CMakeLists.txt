@@ -134,6 +134,12 @@ if(LIBSATURN_BUILD_RUNTIME)
     # reduces that cost without changing the rest of the runtime's code budget.
     set_source_files_properties(src/graphics/3d/scene/faces.cpp
         PROPERTIES COMPILE_OPTIONS "-O3")
+    # Music and disc scheduling are paced by the drive and the display frame, not by the CPU: size over speed
+    # (the Work RAM High they take is the fight's scarcest memory). The ADPCM decoders stay at -O2.
+    set_source_files_properties(
+        src/audio/music/open.cpp src/audio/music/player.cpp src/audio/music/disc_feed.cpp
+        src/storage/cd/disc_stream.cpp src/audio/streaming/api.cpp
+        PROPERTIES COMPILE_OPTIONS "-Os")
     # The compiler runtime (software division, 64-bit shifts, ...) must follow
     # libsaturn.a on every link line, so it is part of the Core link interface.
     target_link_libraries(libsaturn_core PUBLIC gcc)

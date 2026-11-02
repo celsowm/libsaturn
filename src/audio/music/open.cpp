@@ -31,8 +31,6 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
     if (info.kind != SAT_ASSET_STREAM ||
         (info.data == nullptr && info.source_path == nullptr) || info.sample_rate == 0u ||
         (info.channels != 1u && info.channels != 2u)) return SAT_ERR_UNSUPPORTED;
-    const uint32_t needed = SAT_MUSIC_WORKSPACE_BYTES(desc->ring_frames, info.channels);
-    if (desc->workspace_bytes < needed) return SAT_ERR_CAPACITY;
     const bool is_adx = info.format == SAT_AUDIO_ADX_ADPCM;
     const uint8_t compressed = (info.format == SAT_AUDIO_IMA_ADPCM || is_adx) ? 1u : 0u;
     const uint32_t sample_bytes = compressed != 0u ? 2u : bytes_per_sample(info.format);
@@ -77,6 +75,10 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
     // (32 frames of ADX, 1024 of IMA): hundreds of blocking CD reads a second. RAM tracks and non-disc readers
     // keep it.
     if (on_disc && desc->disc == nullptr) return SAT_ERR_UNSUPPORTED;
+    // The scheduler delivers the bytes: a disc track needs no read buffer of its own.
+    const uint32_t needed = on_disc ? SAT_MUSIC_DISC_WORKSPACE_BYTES(desc->ring_frames, info.channels)
+                                    : SAT_MUSIC_WORKSPACE_BYTES(desc->ring_frames, info.channels);
+    if (desc->workspace_bytes < needed) return SAT_ERR_CAPACITY;
     if (on_disc) {
         if (g_disc_primary != nullptr && g_disc_standby != nullptr) return SAT_ERR_BUSY;
         if (desc->ring_frames < async_min_ring_frames(info.format, static_cast<uint8_t>(info.channels)))
@@ -95,8 +97,8 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
         uint8_t* const memory = static_cast<uint8_t*>(desc->workspace);
         slot.buffer = memory;
         slot.buffer_r = memory + ring_bytes;
-        slot.staging = memory + ring_bytes * info.channels;
-        slot.staging_split = slot.staging + kMusicFeedBytes;
+        slot.staging = on_disc ? nullptr : memory + ring_bytes * info.channels;
+        slot.staging_split = memory + ring_bytes * info.channels + (on_disc ? 0u : kMusicFeedBytes);
         slot.encoded = slot.staging_split + kMusicFeedBytes;
         slot.workspace = desc->workspace;
         slot.workspace_bytes = desc->workspace_bytes;

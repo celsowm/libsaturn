@@ -314,6 +314,44 @@ int main() {
         scsp::g_current_sample_block = 0u;
     }
 
+    // The refill reads the ring where it lies, in two pieces when the half wraps: no staging copy. The
+    // samples reach Sound RAM unchanged, including an odd PCM8 piece (the seam goes as one halfword), and a
+    // piece that fails consumes nothing.
+    for (uint32_t format = 0u; format < 2u; ++format) {
+        const uint32_t sample_bytes = format == 0u ? 1u : 2u;
+        const uint32_t capacity = 10001u;                     // odd: the wrap leaves 1809 frames before the end
+        static uint8_t ring_storage[10001u * 2u];
+        static uint8_t head[8192u * 2u];
+        static uint8_t tail[4096u * 2u];
+        for (uint32_t i = 0u; i < sizeof(head); ++i) head[i] = static_cast<uint8_t>(i * 5u + 1u);
+        for (uint32_t i = 0u; i < sizeof(tail); ++i) tail[i] = static_cast<uint8_t>(0x40u + i * 3u);
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        std::memset(scsp::g_sound_ram, 0, sizeof(scsp::g_sound_ram));
+        sat_audio_spec_t wrap_spec = {11025u, capacity, 1u, static_cast<uint8_t>(format == 0u ? SAT_AUDIO_PCM_S8 : SAT_AUDIO_PCM_S16), 0u};
+        sat_audio_stream_t wrap{};
+        OK(sat_audio_stream_open(&wrap, &wrap_spec, ring_storage, capacity * sample_bytes) == SAT_OK);
+        OK(sat_audio_stream_write(wrap, head, 8192u) == SAT_OK);
+        scsp::g_current_sample_block = 0u;
+        service_until_playing(wrap, 0u);
+        OK(sat_audio_stream_write(wrap, tail, 4096u) == SAT_OK);   // starts at frame 8192: wraps at 10001
+        scsp::g_current_sample_block = 1u;
+        scsp::g_upload_fail_at = scsp::g_upload_count + 2u;        // the second piece fails
+        service(30u);
+        OK(sat_audio_stream_stats(wrap, &stats) == SAT_OK);
+        OK(stats.refill_count == 2u && sat_audio_stream_buffered(wrap) == 4096u);
+        scsp::g_upload_fail_at = 0u;
+        for (uint32_t f = 31u; stats.refill_count == 2u; ++f) {
+            OK(f < 80u);
+            service(f);
+            OK(sat_audio_stream_stats(wrap, &stats) == SAT_OK);
+        }
+        OK(sat_audio_stream_buffered(wrap) == 0u && stats.consumed_frames == 12288u);
+        const uint32_t ram = saturn::core::g_audio_streams.slots[0].sound_ram_offset;
+        OK(std::memcmp(scsp::g_sound_ram + ram, tail, 4096u * sample_bytes) == 0);
+        OK(sat_audio_stream_close(wrap) == SAT_OK);
+        scsp::g_current_sample_block = 0u;
+    }
+
     sat_audio_spec_t stereo = {22050u, 4u, 2u, SAT_AUDIO_PCM_S16, 0u};
     OK(sat_audio_stream_open(&overflow, &stereo, storage, sizeof(storage)) == SAT_ERR_INVALID_ARG);
     // Two streams started together (a stereo pair) key on with ONE KYONEX
