@@ -32,6 +32,7 @@ bool g_ready = false;
 // cannot be read-modified-written safely. Keep the programmed state here and
 // use it whenever a key transition needs KYONEX.
 uint16_t g_slot_control[kSlotCount] = {};
+uint32_t g_armed_slots = 0u;           // arm_key_on'd; KYONB is written by execute_key_transitions
 // Slot register 0x14 (send to the DSP) and the low byte of 0x16 (return of EFREG n
 // through slot n) sit beside fields the voice code writes, so they are shadowed and
 // merged into every write of those registers.
@@ -146,6 +147,7 @@ bool init() {
         g_slot_send[slot] = 0u;
         g_direct_bits[slot] = 0u;
     }
+    g_armed_slots = 0u;
     for (uint8_t i = 0u; i < 16u; ++i) g_effect_return[i] = 0u;
     g_default_send = 0u;
     clear_dsp_program();
@@ -365,15 +367,26 @@ void key_on(uint8_t slot) {
 
 void arm_key_on(uint8_t slot) {
     if (!g_ready || slot >= kSlotCount) return;
-    // KYONEX is latched and applied at the next sample: one still pending
-    // (e.g. configure_slot's own key-off) would key this slot on right now.
-    wait_one_sample();
-    g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit);
-    *slot_word(slot, 0x00u) = g_slot_control[slot];
+    // KYONB is not written yet. Any KYONEX applies every slot's KYONB, and configuring the next
+    // stream slot ends with its own key-off KYONEX: a KYONB already in the register would key this
+    // slot on there, several samples before the slots armed after it. execute_key_transitions()
+    // writes all of them and then one KYONEX.
+    g_armed_slots |= 1u << slot;
 }
 
 void execute_key_transitions() {
     if (!g_ready) return;
+    if (g_armed_slots != 0u) {
+        // KYONEX is latched and applied at the next sample: one still pending (e.g. configure_slot's
+        // own key-off) would key the first slot written below on right now.
+        wait_one_sample();
+        for (uint8_t slot = 0u; slot < kSlotCount; ++slot) {
+            if ((g_armed_slots & (1u << slot)) == 0u) continue;
+            g_slot_control[slot] = static_cast<uint16_t>(g_slot_control[slot] | kKeyOnBit);
+            *slot_word(slot, 0x00u) = g_slot_control[slot];
+        }
+        g_armed_slots = 0u;
+    }
     // KYONEX written through any slot applies every slot's KYONB.
     *slot_word(0u, 0x00u) = static_cast<uint16_t>(g_slot_control[0u] | kKeyOnExecute);
 }

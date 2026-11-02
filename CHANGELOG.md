@@ -798,6 +798,9 @@ The version is defined once, in the `VERSION` file.
 
 ### Fixed
 
+- Stereo streams (music, streaming audio) started with the right channel 2-3 samples after the left. Configuring the
+  second slot ends with a key-off KYONEX, which keyed the already armed first slot on early; `arm_key_on` now only
+  records the slot and `execute_key_transitions` writes every armed KYONB right before the one KYONEX.
 - A compiled instance with one corner past the off-screen bound spent a cold record on every face, because it left
   the fast path whole. With a bounded `cold_capacity` the last faces of the mesh were skipped, which left holes in it.
   A face whose own corners are safe now draws from its program, and only the faces touching that corner go cold.
