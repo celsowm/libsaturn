@@ -226,8 +226,9 @@ sat_result_t sat_audio_stream_stats(
 );
 
 /* Preconverted PCM, blocked IMA ADPCM or ADX payload from the logical asset registry.
- * ADPCM blocks contain 1024 frames; the runtime expands them to S16BE before
- * writing the SCSP stream rings. OGG/MP3 decoding remains a build step.
+ * IMA blocks contain 1024 frames and ADX frames 32 samples per channel;
+ * both decode on SH-2 to S16BE before reaching SCSP stream rings.
+ * OGG/MP3 decoding remains a build step.
  * Music loops the complete asset and uses a fixed internal pool of two
  * streams; use sat_music_capacity() to size content budgets. */
 sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path);
