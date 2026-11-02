@@ -24,14 +24,14 @@ sat_result_t register_mount(
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(path_for_lookup(path, normalized));
     using namespace saturn::core;
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
-        if (g_file_asset_runtime.mounts[i].used != 0u &&
-            __builtin_strcmp(g_file_asset_runtime.mounts[i].path, normalized) == 0) {
+    for (uint16_t i = 0u; i < saturn::core::mount_capacity(); ++i) {
+        if (g_file_asset_runtime.mounts()[i].used != 0u &&
+            __builtin_strcmp(g_file_asset_runtime.mounts()[i].path, normalized) == 0) {
             return SAT_ERR_INVALID_ARG;
         }
     }
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
-        FileMount& mount = g_file_asset_runtime.mounts[i];
+    for (uint16_t i = 0u; i < saturn::core::mount_capacity(); ++i) {
+        FileMount& mount = g_file_asset_runtime.mounts()[i];
         if (mount.used != 0u) continue;
         uint16_t j = 0u;
         while (normalized[j] != '\0') {
@@ -84,8 +84,8 @@ extern "C" sat_result_t sat_file_backend(
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(path_for_lookup(path, normalized));
     using namespace saturn::core;
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
-        const FileMount& mount = g_file_asset_runtime.mounts[i];
+    for (uint16_t i = 0u; i < saturn::core::mount_capacity(); ++i) {
+        const FileMount& mount = g_file_asset_runtime.mounts()[i];
         if (mount.used != 0u && __builtin_strcmp(mount.path, normalized) == 0) {
             *out_read_at = mount.read_at;
             *out_context = mount.context;
@@ -100,17 +100,17 @@ extern "C" sat_result_t sat_file_open(const char* path, sat_file_t* out_file) {
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(path_for_lookup(path, normalized));
     using namespace saturn::core;
-    uint16_t mount_slot = SAT_FILE_MOUNT_CAPACITY;
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
-        if (g_file_asset_runtime.mounts[i].used != 0u &&
-            __builtin_strcmp(g_file_asset_runtime.mounts[i].path, normalized) == 0) {
+    uint16_t mount_slot = saturn::core::mount_capacity();
+    for (uint16_t i = 0u; i < saturn::core::mount_capacity(); ++i) {
+        if (g_file_asset_runtime.mounts()[i].used != 0u &&
+            __builtin_strcmp(g_file_asset_runtime.mounts()[i].path, normalized) == 0) {
             mount_slot = i;
             break;
         }
     }
-    if (mount_slot == SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_NOT_FOUND;
-    for (uint16_t i = 0u; i < SAT_FILE_HANDLE_CAPACITY; ++i) {
-        FileHandle& handle = g_file_asset_runtime.handles[i];
+    if (mount_slot == saturn::core::mount_capacity()) return SAT_ERR_NOT_FOUND;
+    for (uint16_t i = 0u; i < saturn::core::handle_capacity(); ++i) {
+        FileHandle& handle = g_file_asset_runtime.handles()[i];
         if (handle.used != 0u) continue;
         if (handle.generation == 0u) handle.generation = 1u;
         handle.mount_slot = mount_slot;
@@ -132,8 +132,8 @@ extern "C" sat_result_t sat_file_read(
     using namespace saturn::core;
     if (out_read == nullptr || (destination == nullptr && bytes != 0u)) return SAT_ERR_INVALID_ARG;
     FileHandle* handle = resolve_file(g_file_asset_runtime, file);
-    if (handle == nullptr || handle->mount_slot >= SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_INVALID_ARG;
-    const FileMount& mount = g_file_asset_runtime.mounts[handle->mount_slot];
+    if (handle == nullptr || handle->mount_slot >= saturn::core::mount_capacity()) return SAT_ERR_INVALID_ARG;
+    const FileMount& mount = g_file_asset_runtime.mounts()[handle->mount_slot];
     const uint32_t available = mount.size - handle->position;
     const uint32_t count = bytes < available ? bytes : available;
     if (count == 0u) {
@@ -171,8 +171,8 @@ extern "C" sat_result_t sat_file_seek(
 ) {
     using namespace saturn::core;
     FileHandle* handle = resolve_file(g_file_asset_runtime, file);
-    if (handle == nullptr || handle->mount_slot >= SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_INVALID_ARG;
-    const FileMount& mount = g_file_asset_runtime.mounts[handle->mount_slot];
+    if (handle == nullptr || handle->mount_slot >= saturn::core::mount_capacity()) return SAT_ERR_INVALID_ARG;
+    const FileMount& mount = g_file_asset_runtime.mounts()[handle->mount_slot];
     int64_t target = 0;
     if (origin == SAT_FILE_SEEK_SET) target = offset;
     else if (origin == SAT_FILE_SEEK_CURRENT) target = static_cast<int64_t>(handle->position) + offset;
@@ -194,8 +194,8 @@ extern "C" sat_result_t sat_file_tell(sat_file_t file, uint32_t* out_position) {
 extern "C" sat_result_t sat_file_size(sat_file_t file, uint32_t* out_size) {
     if (out_size == nullptr) return SAT_ERR_INVALID_ARG;
     const saturn::core::FileHandle* handle = saturn::core::resolve_file(saturn::core::g_file_asset_runtime, file);
-    if (handle == nullptr || handle->mount_slot >= SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_INVALID_ARG;
-    *out_size = saturn::core::g_file_asset_runtime.mounts[handle->mount_slot].size;
+    if (handle == nullptr || handle->mount_slot >= saturn::core::mount_capacity()) return SAT_ERR_INVALID_ARG;
+    *out_size = saturn::core::g_file_asset_runtime.mounts()[handle->mount_slot].size;
     return SAT_OK;
 }
 
@@ -210,12 +210,12 @@ extern "C" sat_result_t sat_file_close(sat_file_t file) {
 
 extern "C" uint16_t sat_file_mount_count(void) {
     uint16_t count = 0u;
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
-        count += saturn::core::g_file_asset_runtime.mounts[i].used != 0u ? 1u : 0u;
+    for (uint16_t i = 0u; i < saturn::core::mount_capacity(); ++i) {
+        count += saturn::core::g_file_asset_runtime.mounts()[i].used != 0u ? 1u : 0u;
     }
     return count;
 }
 
 extern "C" uint16_t sat_file_handle_capacity(void) {
-    return SAT_FILE_HANDLE_CAPACITY;
+    return saturn::core::handle_capacity();
 }

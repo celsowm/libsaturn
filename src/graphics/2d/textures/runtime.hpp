@@ -5,38 +5,25 @@
 
 #include "saturn/texture.h"
 #include "saturn/vdp1.h"
+#include "saturn/texture_memory.h"
 
 namespace saturn::core {
 
-constexpr uint16_t kTextureCapacity = 64u;
-constexpr uint16_t kTextureRegionCapacity = 64u;
-constexpr uint16_t kTextureRegionBucketCount = 128u;
 constexpr uint16_t kInvalidTextureSlot = 0xFFFFu;
 constexpr uint16_t kInvalidTextureRegion = 0xFFFFu;
 
-struct TextureSlot {
-    sat_vdp1_texture_t native;
-    sat_surface_t source;
-    uint16_t generation;
-    uint16_t region_count;
-    uint8_t palette_bank;
-    uint8_t used;
-    sat_texture_backing_policy_t policy;
-};
+using TextureSlot = sat_texture_slot_t;
+using TextureRegionRecord = sat_texture_region_slot_t;
 
-struct TextureRegionRecord {
-    sat_vdp1_texture_t native;
-    sat_rect_t rect;
-    uint16_t owner_slot;
-    uint16_t owner_generation;
-    uint16_t next_hash;
-    uint8_t used;
-};
+/* The slots are the program's (saturn/texture_memory.h). */
+inline uint16_t texture_capacity() { return sat_texture_memory.slot_capacity; }
+inline uint16_t texture_region_capacity() { return sat_texture_memory.region_capacity; }
+inline uint16_t texture_bucket_count() { return sat_texture_memory.bucket_capacity; }
 
 struct TextureRegistry {
-    TextureSlot slots[kTextureCapacity];
-    TextureRegionRecord regions[kTextureRegionCapacity];
-    uint16_t region_buckets[kTextureRegionBucketCount];
+    TextureSlot* slots() const { return sat_texture_memory.slots; }
+    TextureRegionRecord* regions() const { return sat_texture_memory.regions; }
+    uint16_t* region_buckets() const { return sat_texture_memory.buckets; }
 };
 
 extern TextureRegistry g_texture_registry;
@@ -53,8 +40,8 @@ inline uint16_t next_texture_generation(uint16_t generation) {
 }
 
 inline void texture_registry_reset(TextureRegistry& registry) {
-    for (uint16_t i = 0; i < kTextureCapacity; ++i) {
-        TextureSlot& slot = registry.slots[i];
+    for (uint16_t i = 0; i < texture_capacity(); ++i) {
+        TextureSlot& slot = registry.slots()[i];
         slot.generation = next_texture_generation(slot.generation);
         slot.used = 0u;
         slot.region_count = 0u;
@@ -63,19 +50,19 @@ inline void texture_registry_reset(TextureRegistry& registry) {
         slot.source = {};
         slot.policy = SAT_TEXTURE_UPLOAD_ONLY;
     }
-    for (uint16_t i = 0; i < kTextureRegionCapacity; ++i) {
-        registry.regions[i] = {};
-        registry.regions[i].owner_slot = kInvalidTextureSlot;
-        registry.regions[i].next_hash = kInvalidTextureRegion;
+    for (uint16_t i = 0; i < texture_region_capacity(); ++i) {
+        registry.regions()[i] = {};
+        registry.regions()[i].owner_slot = kInvalidTextureSlot;
+        registry.regions()[i].next_hash = kInvalidTextureRegion;
     }
-    for (uint16_t i = 0; i < kTextureRegionBucketCount; ++i) {
-        registry.region_buckets[i] = kInvalidTextureRegion;
+    for (uint16_t i = 0; i < texture_bucket_count(); ++i) {
+        registry.region_buckets()[i] = kInvalidTextureRegion;
     }
 }
 
 inline TextureSlot* texture_resolve(TextureRegistry& registry, sat_texture_t texture) {
-    if (texture.slot >= kTextureCapacity) return nullptr;
-    TextureSlot& slot = registry.slots[texture.slot];
+    if (texture.slot >= texture_capacity()) return nullptr;
+    TextureSlot& slot = registry.slots()[texture.slot];
     if (slot.used == 0u || slot.generation != texture.generation || texture.generation == 0u) {
         return nullptr;
     }
@@ -83,8 +70,8 @@ inline TextureSlot* texture_resolve(TextureRegistry& registry, sat_texture_t tex
 }
 
 inline const TextureSlot* texture_resolve(const TextureRegistry& registry, sat_texture_t texture) {
-    if (texture.slot >= kTextureCapacity) return nullptr;
-    const TextureSlot& slot = registry.slots[texture.slot];
+    if (texture.slot >= texture_capacity()) return nullptr;
+    const TextureSlot& slot = registry.slots()[texture.slot];
     if (slot.used == 0u || slot.generation != texture.generation || texture.generation == 0u) {
         return nullptr;
     }
@@ -97,8 +84,8 @@ inline sat_result_t texture_allocate_slot(
     TextureSlot** out_slot
 ) {
     if (out_texture == nullptr || out_slot == nullptr) return SAT_ERR_INVALID_ARG;
-    for (uint16_t i = 0; i < kTextureCapacity; ++i) {
-        TextureSlot& slot = registry.slots[i];
+    for (uint16_t i = 0; i < texture_capacity(); ++i) {
+        TextureSlot& slot = registry.slots()[i];
         if (slot.used == 0u) {
             if (slot.generation == 0u) slot.generation = 1u;
             slot.used = 1u;
@@ -119,8 +106,8 @@ inline sat_result_t texture_allocate_slot(
 inline void texture_invalidate_regions(TextureRegistry& registry, sat_texture_t owner) {
     TextureSlot* slot = texture_resolve(registry, owner);
     if (slot == nullptr) return;
-    for (uint16_t i = 0; i < kTextureRegionCapacity; ++i) {
-        TextureRegionRecord& record = registry.regions[i];
+    for (uint16_t i = 0; i < texture_region_capacity(); ++i) {
+        TextureRegionRecord& record = registry.regions()[i];
         if (record.used != 0u && record.owner_slot == owner.slot &&
             record.owner_generation == owner.generation) {
             texture_unlink_region(registry, owner, record);
@@ -158,7 +145,7 @@ inline uint16_t texture_region_bucket(sat_texture_t owner, const sat_rect_t& rec
     h ^= static_cast<uint32_t>(rect.width) * 0x1656u;
     h ^= static_cast<uint32_t>(rect.height) * 0xA5A5u;
     h ^= h >> 16u;
-    return static_cast<uint16_t>(h & (kTextureRegionBucketCount - 1u));
+    return static_cast<uint16_t>(h & (texture_bucket_count() - 1u));
 }
 
 inline void texture_unlink_region(
@@ -167,10 +154,10 @@ inline void texture_unlink_region(
     TextureRegionRecord& region
 ) {
     const uint16_t bucket = texture_region_bucket(owner, region.rect);
-    uint16_t* link = &registry.region_buckets[bucket];
+    uint16_t* link = &registry.region_buckets()[bucket];
     while (*link != kInvalidTextureRegion) {
         const uint16_t i = *link;
-        TextureRegionRecord& current = registry.regions[i];
+        TextureRegionRecord& current = registry.regions()[i];
         if (&current == &region) {
             *link = current.next_hash;
             current.next_hash = kInvalidTextureRegion;
@@ -186,10 +173,10 @@ inline TextureRegionRecord* texture_find_region(
     const sat_rect_t& rect
 ) {
     const uint16_t bucket = texture_region_bucket(owner, rect);
-    for (uint16_t i = registry.region_buckets[bucket];
+    for (uint16_t i = registry.region_buckets()[bucket];
          i != kInvalidTextureRegion;
-         i = registry.regions[i].next_hash) {
-        TextureRegionRecord& record = registry.regions[i];
+         i = registry.regions()[i].next_hash) {
+        TextureRegionRecord& record = registry.regions()[i];
         if (record.used != 0u && record.owner_slot == owner.slot &&
             record.owner_generation == owner.generation && texture_rect_equal(record.rect, rect)) {
             return &record;
@@ -204,10 +191,10 @@ inline const TextureRegionRecord* texture_find_region(
     const sat_rect_t& rect
 ) {
     const uint16_t bucket = texture_region_bucket(owner, rect);
-    for (uint16_t i = registry.region_buckets[bucket];
+    for (uint16_t i = registry.region_buckets()[bucket];
          i != kInvalidTextureRegion;
-         i = registry.regions[i].next_hash) {
-        const TextureRegionRecord& record = registry.regions[i];
+         i = registry.regions()[i].next_hash) {
+        const TextureRegionRecord& record = registry.regions()[i];
         if (record.used != 0u && record.owner_slot == owner.slot &&
             record.owner_generation == owner.generation && texture_rect_equal(record.rect, rect)) {
             return &record;
@@ -229,8 +216,8 @@ inline sat_result_t texture_reserve_region(
         *out_region = existing;
         return SAT_OK;
     }
-    for (uint16_t i = 0; i < kTextureRegionCapacity; ++i) {
-        TextureRegionRecord& record = registry.regions[i];
+    for (uint16_t i = 0; i < texture_region_capacity(); ++i) {
+        TextureRegionRecord& record = registry.regions()[i];
         if (record.used == 0u) {
             record = {};
             record.used = 1u;
@@ -238,8 +225,8 @@ inline sat_result_t texture_reserve_region(
             record.owner_generation = owner.generation;
             record.rect = rect;
             const uint16_t bucket = texture_region_bucket(owner, rect);
-            record.next_hash = registry.region_buckets[bucket];
-            registry.region_buckets[bucket] = i;
+            record.next_hash = registry.region_buckets()[bucket];
+            registry.region_buckets()[bucket] = i;
             ++slot->region_count;
             *out_region = &record;
             return SAT_OK;
@@ -264,8 +251,8 @@ inline void texture_cancel_region(
 
 inline uint16_t texture_region_used(const TextureRegistry& registry) {
     uint16_t used = 0u;
-    for (uint16_t i = 0; i < kTextureRegionCapacity; ++i) {
-        if (registry.regions[i].used != 0u) ++used;
+    for (uint16_t i = 0; i < texture_region_capacity(); ++i) {
+        if (registry.regions()[i].used != 0u) ++used;
     }
     return used;
 }

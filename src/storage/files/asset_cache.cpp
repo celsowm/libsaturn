@@ -6,9 +6,9 @@ void asset_cache_configure(FileAssetRuntime& runtime, uint8_t* memory, uint16_t 
     /* The cache has no storage of its own: it is the caller's `blocks` blocks of memory, or nothing. */
     const uint16_t count = memory == nullptr ? 0u : blocks;
     runtime.cache_block_count = count;
-    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) {
-        runtime.cache[i] = {};
-        if (i < count) runtime.cache[i].data = memory + static_cast<uint32_t>(i) * SAT_ASSET_CACHE_BLOCK_BYTES;
+    for (uint16_t i = 0u; i < cache_capacity(); ++i) {
+        runtime.cache()[i] = {};
+        if (i < count) runtime.cache()[i].data = memory + static_cast<uint32_t>(i) * SAT_ASSET_CACHE_BLOCK_BYTES;
     }
     runtime.cache_clock = 0u;
     runtime.cache_hits = 0u;
@@ -21,20 +21,20 @@ namespace {
 using CopyWord = uint32_t __attribute__((may_alias));
 
 uint16_t find_mount(const FileAssetRuntime& runtime, const char* source_path) {
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) {
-        if (runtime.mounts[i].used != 0u &&
-            __builtin_strcmp(runtime.mounts[i].path, source_path) == 0) return i;
+    for (uint16_t i = 0u; i < mount_capacity(); ++i) {
+        if (runtime.mounts()[i].used != 0u &&
+            __builtin_strcmp(runtime.mounts()[i].path, source_path) == 0) return i;
     }
-    return SAT_FILE_MOUNT_CAPACITY;
+    return mount_capacity();
 }
 
 uint16_t choose_cache_slot(FileAssetRuntime& runtime) {
     uint16_t selected = runtime.cache_block_count;
     uint32_t oldest = 0xFFFFFFFFu;
     for (uint16_t i = 0u; i < runtime.cache_block_count; ++i) {
-        if (runtime.cache[i].used == 0u) return i;
-        if (runtime.cache[i].last_used < oldest) {
-            oldest = runtime.cache[i].last_used;
+        if (runtime.cache()[i].used == 0u) return i;
+        if (runtime.cache()[i].last_used < oldest) {
+            oldest = runtime.cache()[i].last_used;
             selected = i;
         }
     }
@@ -52,7 +52,7 @@ sat_result_t asset_cache_fill(
     if (source_path == nullptr || out_valid_bytes == nullptr) return SAT_ERR_INVALID_ARG;
     if (runtime.cache_block_count == 0u) return SAT_ERR_UNSUPPORTED;      // no cache memory was given
     for (uint16_t i = 0u; i < runtime.cache_block_count; ++i) {
-        AssetCacheBlock& block = runtime.cache[i];
+        AssetCacheBlock& block = runtime.cache()[i];
         if (block.used != 0u && block.block_index == block_index &&
             __builtin_strcmp(block.source_path, source_path) == 0) {
             block.last_used = ++runtime.cache_clock;
@@ -63,15 +63,15 @@ sat_result_t asset_cache_fill(
     }
     ++runtime.cache_misses;
     const uint16_t mount_slot = find_mount(runtime, source_path);
-    if (mount_slot == SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_NOT_FOUND;
-    const FileMount& mount = runtime.mounts[mount_slot];
+    if (mount_slot == mount_capacity()) return SAT_ERR_NOT_FOUND;
+    const FileMount& mount = runtime.mounts()[mount_slot];
     const uint32_t offset = block_index * SAT_ASSET_CACHE_BLOCK_BYTES;
     if (offset >= mount.size) return SAT_ERR_INVALID_ARG;
     const uint32_t valid_bytes = (mount.size - offset) < SAT_ASSET_CACHE_BLOCK_BYTES
         ? mount.size - offset : SAT_ASSET_CACHE_BLOCK_BYTES;
     const uint16_t cache_slot = choose_cache_slot(runtime);
     if (cache_slot >= runtime.cache_block_count) return SAT_ERR_CAPACITY;
-    AssetCacheBlock& block = runtime.cache[cache_slot];
+    AssetCacheBlock& block = runtime.cache()[cache_slot];
     uint32_t total = 0u;
     while (total < valid_bytes) {
         uint32_t read = 0u;
@@ -114,8 +114,8 @@ static sat_result_t asset_direct_read_at(
     uint32_t* out_read
 ) {
     const uint16_t mount_slot = find_mount(runtime, source_path);
-    if (mount_slot == SAT_FILE_MOUNT_CAPACITY) return SAT_ERR_NOT_FOUND;
-    const FileMount& mount = runtime.mounts[mount_slot];
+    if (mount_slot == mount_capacity()) return SAT_ERR_NOT_FOUND;
+    const FileMount& mount = runtime.mounts()[mount_slot];
     if (offset > mount.size) return SAT_ERR_INVALID_ARG;
     if (bytes > mount.size - offset) bytes = mount.size - offset;
     while (*out_read < bytes) {
@@ -160,7 +160,7 @@ sat_result_t asset_cache_read_at(
         if (count > remaining) count = remaining;
         const AssetCacheBlock* cached_block = nullptr;
         for (uint16_t slot = 0u; slot < runtime.cache_block_count; ++slot) {
-            const AssetCacheBlock& block = runtime.cache[slot];
+            const AssetCacheBlock& block = runtime.cache()[slot];
             if (block.used != 0u && block.block_index == block_index &&
                 __builtin_strcmp(block.source_path, source_path) == 0) {
                 cached_block = &block;

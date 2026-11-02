@@ -9,6 +9,11 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- Work RAM tables sized by the program: `saturn/video_memory.h` (VDP1 command list, Gouraud tables),
+  `saturn/asset_memory.h` (file mounts, handles, assets, cache blocks, prefetch) and `saturn/texture_memory.h`
+  (textures, regions). Each is a table the library defines with the old capacities (80 KiB, 13 KiB, 5 KiB); a program
+  that defines the table with storage of its own leaves the library's out of the link. Defaults and API unchanged.
+  Host test `test_asset_lean`.
 - Audio streams: the Sound RAM upload reads the caller's ring directly (two pieces at a wrap); the 4 x 8 KiB staging
   in `g_audio_streams` is gone (33 KB of Work RAM Low). A failed piece still consumes nothing.
 - `sat_music`: a disc-scheduler track needs `SAT_MUSIC_DISC_WORKSPACE_BYTES` (no 8 KiB read buffer). The music,

@@ -1,4 +1,5 @@
 #include "src/hal/vdp1/vdp1.hpp"
+#include "saturn/video_memory.h"
 #include "src/hal/vdp1/submit_copy.hpp"
 #include "src/hal/vdp1/texture_arena.hpp"
 #include "src/hal/scu/dma.hpp"
@@ -50,8 +51,9 @@ constexpr uint32_t kCommandAreaBytes = 64u * 1024u;
 /* Gouraud shading tables (VDP1 manual 5.3), 8 bytes each, right after the
  * command area. Like commands they are staged in work RAM during the frame
  * and copied to VRAM in submit(); textures start after both areas. */
+constexpr uint16_t kCommandTableLimit = static_cast<uint16_t>(kCommandAreaBytes / 32u);
 constexpr uint32_t kGouraudAreaBytes = 16u * 1024u;
-constexpr uint16_t kGouraudTableCapacity = static_cast<uint16_t>(kGouraudAreaBytes / 8u);
+constexpr uint16_t kGouraudTableLimit = static_cast<uint16_t>(kGouraudAreaBytes / 8u);
 constexpr uint32_t kTextureBase = kCommandAreaBytes + kGouraudAreaBytes;
 
 Command* g_cmd_buffer = nullptr;
@@ -59,10 +61,13 @@ uint16_t g_cmd_capacity = 0;
 uint16_t g_cmd_count = 0;
 uint16_t g_overlay_reserved = 0;
 bool g_overlay_pass = false;
-/* Low WRAM: few frames use Gouraud tables, and High WRAM is kept for data the
- * CPU touches every frame. Submit copies it with the CPU (SCU DMA cannot read
- * Low WRAM). */
-SATURN_WRAM_L alignas(4) uint16_t g_gouraud_words[kGouraudTableCapacity * 4u];
+/* The tables are staged in the program's storage (saturn/video_memory.h; Low WRAM by default: few frames use Gouraud
+ * tables, and High WRAM is kept for data the CPU touches every frame). Submit copies it with the CPU (SCU DMA cannot
+ * read Low WRAM). */
+inline uint16_t* gouraud_words() { return sat_video_memory.gouraud; }
+inline uint16_t gouraud_capacity() {
+    return sat_video_memory.gouraud_capacity < kGouraudTableLimit ? sat_video_memory.gouraud_capacity : kGouraudTableLimit;
+}
 uint16_t g_gouraud_count = 0;
 uint32_t g_frame_serial=0u;
 bool g_frame_submitted=true;
@@ -161,7 +166,7 @@ void capture_scene_commands() {
     }
     hash_command_word(hash,g_gouraud_count);
     for (uint32_t i = 0u; i < static_cast<uint32_t>(g_gouraud_count) * 4u; ++i)
-        hash_command_word(hash,g_gouraud_words[i]);
+        hash_command_word(hash,gouraud_words()[i]);
     g_test_scene_command_hash = hash;
 }
 #endif
@@ -294,7 +299,7 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     if(g_frame_serial==0u)g_frame_serial=1u;
     g_frame_submitted=false;
     g_cmd_buffer = command_buffer;
-    g_cmd_capacity = capacity;
+    g_cmd_capacity = capacity < kCommandTableLimit ? capacity : kCommandTableLimit;
     g_cmd_count = 0;
     g_overlay_reserved = 0u;
     g_overlay_pass = false;
@@ -1004,10 +1009,10 @@ inline sat_result_t stage_gouraud(const uint16_t* corners, int corner_count, uin
     if (corners == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (g_gouraud_count >= kGouraudTableCapacity) {
+    if (g_gouraud_count >= gouraud_capacity()) {
         return SAT_ERR_CAPACITY;
     }
-    uint16_t* table = &g_gouraud_words[static_cast<uint32_t>(g_gouraud_count) * 4u];
+    uint16_t* table = &gouraud_words()[static_cast<uint32_t>(g_gouraud_count) * 4u];
     for (int i = 0; i < 4; ++i) {
         table[i] = (i < corner_count) ? corners[i] : saturn::core::kGouraudNeutral;
     }
@@ -1314,21 +1319,21 @@ void submit() {
             copy_words_to_vram(g_cmd_buffer, g_cmd_count);
         }
         const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
-        const uint32_t gouraud_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
-        if (gouraud_words != 0u &&
+        const uint32_t gouraud_count_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
+        if (gouraud_count_words != 0u &&
             scu::dma::copy(const_cast<uint16_t*>(VDP1_VRAM_16) + gouraud_word_base,
-                           g_gouraud_words, gouraud_words * sizeof(uint16_t)) != SAT_OK) {
-            for (uint32_t i = 0; i < gouraud_words; ++i) {
-                VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
+                           gouraud_words(), gouraud_count_words * sizeof(uint16_t)) != SAT_OK) {
+            for (uint32_t i = 0; i < gouraud_count_words; ++i) {
+                VDP1_VRAM_16[gouraud_word_base + i] = gouraud_words()[i];
             }
         }
     } else {
         copy_words_to_vram(g_cmd_buffer, g_cmd_count);
 
         const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
-        const uint32_t gouraud_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
-        for (uint32_t i = 0; i < gouraud_words; ++i) {
-            VDP1_VRAM_16[gouraud_word_base + i] = g_gouraud_words[i];
+        const uint32_t gouraud_count_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
+        for (uint32_t i = 0; i < gouraud_count_words; ++i) {
+            VDP1_VRAM_16[gouraud_word_base + i] = gouraud_words()[i];
         }
     }
 

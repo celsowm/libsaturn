@@ -15,23 +15,23 @@ uint16_t next_file_generation(uint16_t generation) {
 }
 
 void file_asset_runtime_reset(FileAssetRuntime& runtime) {
-    for (uint16_t i = 0u; i < SAT_FILE_HANDLE_CAPACITY; ++i) {
-        FileHandle& handle = runtime.handles[i];
+    for (uint16_t i = 0u; i < handle_capacity(); ++i) {
+        FileHandle& handle = runtime.handles()[i];
         const uint16_t generation = next_file_generation(handle.generation);
         handle = {};
         handle.generation = generation;
     }
-    for (uint16_t i = 0u; i < SAT_FILE_MOUNT_CAPACITY; ++i) runtime.mounts[i] = {};
-    for (uint16_t i = 0u; i < SAT_ASSET_CAPACITY; ++i) {
-        AssetEntry& entry = runtime.assets[i];
+    for (uint16_t i = 0u; i < mount_capacity(); ++i) runtime.mounts()[i] = {};
+    for (uint16_t i = 0u; i < asset_capacity(); ++i) {
+        AssetEntry& entry = runtime.assets()[i];
         const uint16_t generation = next_file_generation(entry.generation);
         entry = {};
         entry.generation = generation;
     }
-    for (uint16_t i = 0u; i < SAT_ASSET_CACHE_BLOCK_CAPACITY; ++i) runtime.cache[i] = {};
+    for (uint16_t i = 0u; i < cache_capacity(); ++i) runtime.cache()[i] = {};
     runtime.cache_block_count = 0u;
-    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
-        AssetPrefetchRequest& request = runtime.prefetch[i];
+    for (uint16_t i = 0u; i < prefetch_capacity(); ++i) {
+        AssetPrefetchRequest& request = runtime.prefetch()[i];
         const uint16_t generation = next_file_generation(request.generation);
         request = {};
         request.generation = generation;

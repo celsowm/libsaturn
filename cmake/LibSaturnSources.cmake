@@ -26,6 +26,7 @@ set(LIBSATURN_CORE_SOURCES
     src/core/runtime/smpc.cpp
     src/core/runtime/state.cpp
     src/core/runtime/time.cpp
+    src/core/runtime/video_memory.cpp
     src/core/startup/early_init.c
     src/core/startup/newlib_stubs.c
     src/core/startup/slave_init.cpp
@@ -51,6 +52,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/2d/tate.cpp
     src/graphics/2d/textures/api.cpp
     src/graphics/2d/textures/runtime.cpp
+    src/graphics/2d/textures/texture_memory.cpp
     src/graphics/3d/animation/api.cpp
     src/graphics/3d/animation/character.cpp
     src/graphics/3d/animation/character_asset.cpp
@@ -196,6 +198,7 @@ set(LIBSATURN_STORAGE_SOURCES
     src/storage/compression/lz.cpp
     src/storage/files/api.cpp
     src/storage/files/asset_cache.cpp
+    src/storage/files/asset_memory.cpp
     src/storage/files/asset_runtime.cpp
     src/storage/save/api.cpp
     src/storage/save/schema.cpp

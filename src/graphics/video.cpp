@@ -1,3 +1,4 @@
+#include "saturn/video_memory.h"
 #include "saturn/video.h"
 
 #include "src/graphics/2d/palette/tint.hpp"
@@ -18,7 +19,8 @@ extern "C" sat_result_t sat_begin_frame(void) {
 #if SAT_NATIVE_SCENE_COMMANDS
     if(saturn::hal::vdp1::command_batch_pending())return SAT_ERR_BUSY;
 #endif
-    saturn::hal::vdp1::begin_frame(g_state.command_buffer, saturn::internal::kCmdCapacity);
+    saturn::hal::vdp1::begin_frame(reinterpret_cast<saturn::hal::vdp1::Command*>(sat_video_memory.commands),
+                                   sat_video_memory.command_capacity);
     saturn::hal::vdp2_color_calc::begin_frame();
     tint_cache_begin_frame(g_tint_cache);
     g_render2d_runtime.clip_dirty = g_render2d_runtime.current.clip_enabled;

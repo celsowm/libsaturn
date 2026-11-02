@@ -1,4 +1,5 @@
 #include "saturn/cdfs.h"
+#include "saturn/asset_memory.h"
 
 #include <stddef.h>
 
@@ -19,8 +20,8 @@ extern "C" sat_result_t sat_cdfs_register_source_manifest(
     const sat_cdfs_source_desc_t* descs, uint16_t count,
     sat_cdfs_file_source_t* out_sources) {
     if (!volume || !volume->mounted || !descs || !out_sources || count == 0u ||
-        count > SAT_FILE_MOUNT_CAPACITY ||
-        static_cast<uint32_t>(sat_file_mount_count()) + count > SAT_FILE_MOUNT_CAPACITY) {
+        count > sat_asset_memory.mount_capacity ||
+        static_cast<uint32_t>(sat_file_mount_count()) + count > sat_asset_memory.mount_capacity) {
         return SAT_ERR_INVALID_ARG;
     }
     /* Resolve and validate the complete manifest before changing VFS state. */

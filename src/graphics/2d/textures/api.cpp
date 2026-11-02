@@ -79,8 +79,8 @@ sat_result_t upload_native_from_surface(
 void texture_needs_recovery(sat_texture_t texture, TextureSlot& slot) {
     using namespace saturn::core;
     slot.native.valid = 0u;
-    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
-        TextureRegionRecord& record = g_texture_registry.regions[i];
+    for (uint16_t i = 0u; i < texture_region_capacity(); ++i) {
+        TextureRegionRecord& record = g_texture_registry.regions()[i];
         if (record.used != 0u && record.owner_slot == texture.slot &&
             record.owner_generation == texture.generation)
             record.native.valid = 0u;
@@ -96,8 +96,8 @@ sat_result_t refresh_intersecting_regions(
     const uint32_t uy0 = static_cast<uint16_t>(updated.y);
     const uint32_t ux1 = ux0 + updated.width;
     const uint32_t uy1 = uy0 + updated.height;
-    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
-        TextureRegionRecord& record = g_texture_registry.regions[i];
+    for (uint16_t i = 0u; i < texture_region_capacity(); ++i) {
+        TextureRegionRecord& record = g_texture_registry.regions()[i];
         if (record.used == 0u || record.owner_slot != texture.slot ||
             record.owner_generation != texture.generation) continue;
         const uint32_t rx0 = static_cast<uint16_t>(record.rect.x);
@@ -130,8 +130,8 @@ sat_result_t refresh_intersecting_regions(
 sat_result_t preflight_regions(sat_texture_t texture, uint16_t pitch,
                                const sat_rect_t* updated) {
     using namespace saturn::core;
-    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
-        const TextureRegionRecord& record = g_texture_registry.regions[i];
+    for (uint16_t i = 0u; i < texture_region_capacity(); ++i) {
+        const TextureRegionRecord& record = g_texture_registry.regions()[i];
         if (record.used == 0u || record.owner_slot != texture.slot ||
             record.owner_generation != texture.generation) continue;
         if (updated != nullptr) {
@@ -155,8 +155,8 @@ sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) 
     if (slot.region_count == 0u) return SAT_OK;
     if (slot.source.pixels == nullptr) return SAT_ERR_INVALID_ARG;
 
-    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
-        TextureRegionRecord& record = g_texture_registry.regions[i];
+    for (uint16_t i = 0u; i < texture_region_capacity(); ++i) {
+        TextureRegionRecord& record = g_texture_registry.regions()[i];
         if (record.used == 0u || record.owner_slot != texture.slot ||
             record.owner_generation != texture.generation) {
             continue;
@@ -180,11 +180,11 @@ sat_result_t refresh_prepared_regions(sat_texture_t texture, TextureSlot& slot) 
 }  // namespace
 
 extern "C" uint16_t sat_texture_capacity(void) {
-    return saturn::core::kTextureCapacity;
+    return saturn::core::texture_capacity();
 }
 
 extern "C" uint16_t sat_texture_region_capacity(void) {
-    return saturn::core::kTextureRegionCapacity;
+    return saturn::core::texture_region_capacity();
 }
 
 extern "C" sat_result_t sat_texture_create_from_surface(
@@ -253,8 +253,8 @@ extern "C" sat_result_t sat_texture_destroy(sat_texture_t texture) {
     const sat_vdp1_texture_t native = slot->native;
     /* Prepared regions own VRAM of their own (sat_texture_prepare_region); the
      * release below clears their records, so free their spans first. */
-    for (uint16_t i = 0u; i < kTextureRegionCapacity; ++i) {
-        const TextureRegionRecord& record = g_texture_registry.regions[i];
+    for (uint16_t i = 0u; i < texture_region_capacity(); ++i) {
+        const TextureRegionRecord& record = g_texture_registry.regions()[i];
         if (record.used != 0u && record.owner_slot == texture.slot &&
             record.owner_generation == texture.generation && record.native.srca != 0u) {
             saturn::hal::vdp1::release_texture_indexed8(
@@ -466,6 +466,6 @@ extern "C" sat_result_t sat_texture_region_stats(
     const TextureSlot* slot = texture_resolve(g_texture_registry, texture);
     if (slot == nullptr) return SAT_ERR_INVALID_ARG;
     out_stats->used = slot->region_count;
-    out_stats->capacity = kTextureRegionCapacity;
+    out_stats->capacity = texture_region_capacity();
     return SAT_OK;
 }

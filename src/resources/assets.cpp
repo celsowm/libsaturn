@@ -18,8 +18,8 @@ sat_result_t normalize_source_path(const char* source_path, char* normalized) {
 
 saturn::core::AssetPrefetchRequest* resolve_prefetch(sat_asset_prefetch_t request) {
     using namespace saturn::core;
-    if (request.slot >= SAT_ASSET_PREFETCH_CAPACITY || request.generation == 0u) return nullptr;
-    AssetPrefetchRequest& entry = g_file_asset_runtime.prefetch[request.slot];
+    if (request.slot >= saturn::core::prefetch_capacity() || request.generation == 0u) return nullptr;
+    AssetPrefetchRequest& entry = g_file_asset_runtime.prefetch()[request.slot];
     if (entry.used == 0u || entry.generation != request.generation) return nullptr;
     return &entry;
 }
@@ -41,17 +41,17 @@ extern "C" sat_result_t sat_asset_register(
     using namespace saturn::core;
     // Check the complete registry before reusing a hole: a later live slot
     // may already own the same normalized logical path.
-    uint16_t free_slot = SAT_ASSET_CAPACITY;
-    for (uint16_t i = 0u; i < SAT_ASSET_CAPACITY; ++i) {
-        const AssetEntry& candidate = g_file_asset_runtime.assets[i];
+    uint16_t free_slot = saturn::core::asset_capacity();
+    for (uint16_t i = 0u; i < saturn::core::asset_capacity(); ++i) {
+        const AssetEntry& candidate = g_file_asset_runtime.assets()[i];
         if (candidate.used != 0u) {
             if (__builtin_strcmp(candidate.path, normalized) == 0) return SAT_ERR_INVALID_ARG;
-        } else if (free_slot == SAT_ASSET_CAPACITY) {
+        } else if (free_slot == saturn::core::asset_capacity()) {
             free_slot = i;
         }
     }
-    if (free_slot == SAT_ASSET_CAPACITY) return SAT_ERR_CAPACITY;
-    AssetEntry& entry = g_file_asset_runtime.assets[free_slot];
+    if (free_slot == saturn::core::asset_capacity()) return SAT_ERR_CAPACITY;
+    AssetEntry& entry = g_file_asset_runtime.assets()[free_slot];
     if (entry.generation == 0u) entry.generation = 1u;
     uint16_t j = 0u;
     while (normalized[j] != '\0') {
@@ -97,9 +97,9 @@ extern "C" sat_result_t sat_asset_register_manifest(
         if (!asset_descriptor_valid(&descs[i])) return SAT_ERR_INVALID_ARG;
         SAT_TRY(saturn::core::normalize_path(
             descs[i].logical_path, normalized, SAT_FILE_PATH_MAX));
-        for (uint16_t slot = 0u; slot < SAT_ASSET_CAPACITY; ++slot) {
+        for (uint16_t slot = 0u; slot < saturn::core::asset_capacity(); ++slot) {
             const saturn::core::AssetEntry& entry =
-                saturn::core::g_file_asset_runtime.assets[slot];
+                saturn::core::g_file_asset_runtime.assets()[slot];
             if (entry.used != 0u && __builtin_strcmp(entry.path, normalized) == 0)
                 return SAT_ERR_INVALID_ARG;
         }
@@ -120,8 +120,8 @@ extern "C" sat_result_t sat_asset_open(const char* logical_path, sat_asset_t* ou
     if (logical_path == nullptr || out_asset == nullptr) return SAT_ERR_INVALID_ARG;
     char normalized[SAT_FILE_PATH_MAX] = {};
     SAT_TRY(saturn::core::normalize_path(logical_path, normalized, SAT_FILE_PATH_MAX));
-    for (uint16_t i = 0u; i < SAT_ASSET_CAPACITY; ++i) {
-        const saturn::core::AssetEntry& entry = saturn::core::g_file_asset_runtime.assets[i];
+    for (uint16_t i = 0u; i < saturn::core::asset_capacity(); ++i) {
+        const saturn::core::AssetEntry& entry = saturn::core::g_file_asset_runtime.assets()[i];
         if (entry.used != 0u && __builtin_strcmp(entry.path, normalized) == 0) {
             out_asset->slot = i;
             out_asset->generation = entry.generation;
@@ -153,14 +153,14 @@ extern "C" sat_result_t sat_asset_close(sat_asset_t asset) {
 
 extern "C" uint16_t sat_asset_count(void) {
     uint16_t count = 0u;
-    for (uint16_t i = 0u; i < SAT_ASSET_CAPACITY; ++i) {
-        count += saturn::core::g_file_asset_runtime.assets[i].used != 0u ? 1u : 0u;
+    for (uint16_t i = 0u; i < saturn::core::asset_capacity(); ++i) {
+        count += saturn::core::g_file_asset_runtime.assets()[i].used != 0u ? 1u : 0u;
     }
     return count;
 }
 
 extern "C" uint16_t sat_asset_capacity(void) {
-    return SAT_ASSET_CAPACITY;
+    return saturn::core::asset_capacity();
 }
 
 extern "C" sat_result_t sat_asset_prefetch_submit(
@@ -183,8 +183,8 @@ extern "C" sat_result_t sat_asset_prefetch_submit(
     const uint32_t end_block = end == offset
         ? first_block : (end - 1u) / SAT_ASSET_CACHE_BLOCK_BYTES;
     using namespace saturn::core;
-    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
-        AssetPrefetchRequest& request = g_file_asset_runtime.prefetch[i];
+    for (uint16_t i = 0u; i < saturn::core::prefetch_capacity(); ++i) {
+        AssetPrefetchRequest& request = g_file_asset_runtime.prefetch()[i];
         if (request.used != 0u) continue;
         if (request.generation == 0u) request.generation = 1u;
         uint16_t j = 0u;
@@ -208,8 +208,8 @@ extern "C" sat_result_t sat_asset_prefetch_submit(
 
 extern "C" sat_result_t sat_asset_prefetch_update(void) {
     using namespace saturn::core;
-    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
-        AssetPrefetchRequest& request = g_file_asset_runtime.prefetch[i];
+    for (uint16_t i = 0u; i < saturn::core::prefetch_capacity(); ++i) {
+        AssetPrefetchRequest& request = g_file_asset_runtime.prefetch()[i];
         if (request.used == 0u || request.state != SAT_ASSET_PREFETCH_PENDING) continue;
         uint32_t valid_bytes = 0u;
         const sat_result_t status = asset_cache_fill(
@@ -260,10 +260,11 @@ extern "C" sat_result_t sat_asset_prefetch_cancel(sat_asset_prefetch_t request) 
 extern "C" sat_result_t sat_asset_cache_configure(void* memory, uint16_t blocks) {
     using namespace saturn::core;
     if ((memory == nullptr && blocks != 0u) ||
-        (memory != nullptr && (blocks == 0u || blocks > SAT_ASSET_CACHE_BLOCK_CAPACITY))) {
+        (memory != nullptr && (blocks == 0u || blocks > saturn::core::cache_capacity()))) {
         return SAT_ERR_INVALID_ARG;
     }
-    for (const auto& request : g_file_asset_runtime.prefetch) {
+    for (uint16_t i = 0u; i < saturn::core::prefetch_capacity(); ++i) {
+        const auto& request = g_file_asset_runtime.prefetch()[i];
         if (request.used != 0u && request.state == SAT_ASSET_PREFETCH_PENDING) {
             return SAT_ERR_BUSY;
         }
@@ -278,16 +279,16 @@ extern "C" sat_result_t sat_asset_cache_stats(sat_asset_cache_stats_t* out_stats
     uint16_t used = 0u;
     uint16_t pending = 0u;
     for (uint16_t i = 0u; i < g_file_asset_runtime.cache_block_count; ++i) {
-        used += g_file_asset_runtime.cache[i].used != 0u ? 1u : 0u;
+        used += g_file_asset_runtime.cache()[i].used != 0u ? 1u : 0u;
     }
-    for (uint16_t i = 0u; i < SAT_ASSET_PREFETCH_CAPACITY; ++i) {
-        pending += g_file_asset_runtime.prefetch[i].used != 0u &&
-                   g_file_asset_runtime.prefetch[i].state == SAT_ASSET_PREFETCH_PENDING ? 1u : 0u;
+    for (uint16_t i = 0u; i < saturn::core::prefetch_capacity(); ++i) {
+        pending += g_file_asset_runtime.prefetch()[i].used != 0u &&
+                   g_file_asset_runtime.prefetch()[i].state == SAT_ASSET_PREFETCH_PENDING ? 1u : 0u;
     }
     out_stats->used = used;
     out_stats->capacity = g_file_asset_runtime.cache_block_count;     // 0: no cache memory was given
     out_stats->prefetch_pending = pending;
-    out_stats->prefetch_capacity = SAT_ASSET_PREFETCH_CAPACITY;
+    out_stats->prefetch_capacity = saturn::core::prefetch_capacity();
     out_stats->hits = g_file_asset_runtime.cache_hits;
     out_stats->misses = g_file_asset_runtime.cache_misses;
     out_stats->fills = g_file_asset_runtime.cache_fills;

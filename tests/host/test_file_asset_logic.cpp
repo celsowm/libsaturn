@@ -55,6 +55,21 @@ extern "C" sat_result_t sat_font_init(
     return SAT_ERR_UNSUPPORTED;
 }
 
+#ifdef SAT_TEST_SMALL_ASSET_MEMORY
+#include "saturn/asset_memory.h"
+static sat_file_mount_slot_t g_small_mounts[2];
+static sat_file_handle_slot_t g_small_handles[1];
+static sat_asset_slot_t g_small_assets[1];
+static sat_asset_cache_slot_t g_small_cache[1];
+static sat_asset_prefetch_slot_t g_small_prefetch[1];
+#include "saturn/texture_memory.h"
+static sat_texture_slot_t g_small_textures[3];
+static sat_texture_region_slot_t g_small_regions[2];
+static uint16_t g_small_buckets[4];
+SAT_TEXTURE_MEMORY(g_small_textures, g_small_regions, g_small_buckets);
+SAT_ASSET_MEMORY(g_small_mounts, g_small_handles, g_small_assets, g_small_cache, g_small_prefetch);
+#endif
+
 namespace {
 
 struct BackendBlob {
@@ -83,6 +98,25 @@ sat_result_t backend_read_at(
 }  // namespace
 
 int main() {
+#ifdef SAT_TEST_SMALL_ASSET_MEMORY
+    saturn::core::file_asset_runtime_reset(saturn::core::g_file_asset_runtime);
+    const uint8_t small[] = {1u, 2u, 3u};
+    OK(sat_file_register_blob("a.bin", small, sizeof(small)) == SAT_OK);
+    OK(sat_file_register_blob("b.bin", small, sizeof(small)) == SAT_OK);
+    OK(sat_file_register_blob("c.bin", small, sizeof(small)) == SAT_ERR_CAPACITY);
+    sat_file_t first{}, second{};
+    OK(sat_file_open("a.bin", &first) == SAT_OK);
+    OK(sat_file_open("b.bin", &second) == SAT_ERR_CAPACITY);
+    OK(sat_file_close(first) == SAT_OK);
+    OK(sat_file_open("b.bin", &second) == SAT_OK);
+    uint8_t one[2] = {};
+    uint32_t got = 0u;
+    OK(sat_file_read(second, one, 2u, &got) == SAT_OK && got == 2u && one[1] == 2u);
+    OK(sat_asset_cache_configure(one, 2u) == SAT_ERR_INVALID_ARG);   /* two blocks, one cache slot */
+    OK(sat_texture_capacity() == 3u && sat_texture_region_capacity() == 2u);
+    std::puts("test_asset_lean: OK");
+    return 0;
+#endif
     char normalized[SAT_FILE_PATH_MAX] = {};
     OK(saturn::core::normalize_path("./assets\\player//sprite.bin", normalized, sizeof(normalized)) == SAT_OK);
     OK(std::strcmp(normalized, "assets/player/sprite.bin") == 0);

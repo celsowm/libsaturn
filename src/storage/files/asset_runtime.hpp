@@ -4,60 +4,31 @@
 #include <stdint.h>
 
 #include "saturn/asset.h"
+#include "saturn/asset_memory.h"
 #include "saturn/file.h"
 
 namespace saturn::core {
 
-struct FileMount {
-    char path[SAT_FILE_PATH_MAX];
-    const uint8_t* data;
-    uint32_t size;
-    sat_file_read_at_fn read_at;
-    void* context;
-    uint8_t used;
-};
+using FileMount = sat_file_mount_slot_t;
+using FileHandle = sat_file_handle_slot_t;
+using AssetEntry = sat_asset_slot_t;
+using AssetCacheBlock = sat_asset_cache_slot_t;
+using AssetPrefetchRequest = sat_asset_prefetch_slot_t;
 
-struct FileHandle {
-    uint16_t mount_slot;
-    uint16_t generation;
-    uint32_t position;
-    uint8_t used;
-};
-
-struct AssetEntry {
-    char path[SAT_FILE_PATH_MAX];
-    sat_asset_info_t info;
-    uint16_t generation;
-    uint8_t used;
-};
-
-struct AssetCacheBlock {
-    char source_path[SAT_FILE_PATH_MAX];
-    uint32_t block_index;
-    uint32_t valid_bytes;
-    uint32_t last_used;
-    uint8_t* data;
-    uint8_t used;
-};
-
-struct AssetPrefetchRequest {
-    char source_path[SAT_FILE_PATH_MAX];
-    uint32_t next_block;
-    uint32_t end_block;
-    uint32_t cached_bytes;
-    sat_result_t result;
-    uint16_t generation;
-    uint8_t state;
-    uint8_t used;
-};
+/* The slots are the program's (saturn/asset_memory.h); only the counters live here. */
+inline uint16_t mount_capacity() { return sat_asset_memory.mount_capacity; }
+inline uint16_t handle_capacity() { return sat_asset_memory.handle_capacity; }
+inline uint16_t asset_capacity() { return sat_asset_memory.asset_capacity; }
+inline uint16_t prefetch_capacity() { return sat_asset_memory.prefetch_capacity; }
+inline uint16_t cache_capacity() { return sat_asset_memory.cache_capacity; }
 
 struct FileAssetRuntime {
-    FileMount mounts[SAT_FILE_MOUNT_CAPACITY];
-    FileHandle handles[SAT_FILE_HANDLE_CAPACITY];
-    AssetEntry assets[SAT_ASSET_CAPACITY];
-    AssetCacheBlock cache[SAT_ASSET_CACHE_BLOCK_CAPACITY];
+    FileMount* mounts() const { return sat_asset_memory.mounts; }
+    FileHandle* handles() const { return sat_asset_memory.handles; }
+    AssetEntry* assets() const { return sat_asset_memory.assets; }
+    AssetCacheBlock* cache() const { return sat_asset_memory.cache; }
+    AssetPrefetchRequest* prefetch() const { return sat_asset_memory.prefetch; }
     uint16_t cache_block_count;
-    AssetPrefetchRequest prefetch[SAT_ASSET_PREFETCH_CAPACITY];
     uint32_t cache_clock;
     uint32_t cache_hits;
     uint32_t cache_misses;
@@ -88,29 +59,29 @@ sat_result_t asset_cache_fill(
 );
 
 inline FileHandle* resolve_file(FileAssetRuntime& runtime, sat_file_t file) {
-    if (file.slot >= SAT_FILE_HANDLE_CAPACITY || file.generation == 0u) return nullptr;
-    FileHandle& handle = runtime.handles[file.slot];
+    if (file.slot >= handle_capacity() || file.generation == 0u) return nullptr;
+    FileHandle& handle = runtime.handles()[file.slot];
     if (handle.used == 0u || handle.generation != file.generation) return nullptr;
     return &handle;
 }
 
 inline const FileHandle* resolve_file(const FileAssetRuntime& runtime, sat_file_t file) {
-    if (file.slot >= SAT_FILE_HANDLE_CAPACITY || file.generation == 0u) return nullptr;
-    const FileHandle& handle = runtime.handles[file.slot];
+    if (file.slot >= handle_capacity() || file.generation == 0u) return nullptr;
+    const FileHandle& handle = runtime.handles()[file.slot];
     if (handle.used == 0u || handle.generation != file.generation) return nullptr;
     return &handle;
 }
 
 inline AssetEntry* resolve_asset(FileAssetRuntime& runtime, sat_asset_t asset) {
-    if (asset.slot >= SAT_ASSET_CAPACITY || asset.generation == 0u) return nullptr;
-    AssetEntry& entry = runtime.assets[asset.slot];
+    if (asset.slot >= asset_capacity() || asset.generation == 0u) return nullptr;
+    AssetEntry& entry = runtime.assets()[asset.slot];
     if (entry.used == 0u || entry.generation != asset.generation) return nullptr;
     return &entry;
 }
 
 inline const AssetEntry* resolve_asset(const FileAssetRuntime& runtime, sat_asset_t asset) {
-    if (asset.slot >= SAT_ASSET_CAPACITY || asset.generation == 0u) return nullptr;
-    const AssetEntry& entry = runtime.assets[asset.slot];
+    if (asset.slot >= asset_capacity() || asset.generation == 0u) return nullptr;
+    const AssetEntry& entry = runtime.assets()[asset.slot];
     if (entry.used == 0u || entry.generation != asset.generation) return nullptr;
     return &entry;
 }
