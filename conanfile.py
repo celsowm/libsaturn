@@ -57,6 +57,7 @@ class LibSaturnConan(ConanFile):
         "tools/check_ip_bin.py",
         "tools/check_iso.py",
         "tools/satlz.py",
+        "tools/satmovie.py",
         "tools/boot_image.py",
         "tools/inspect_boot_image.py",
         "tools/build_native_ip.py",
@@ -72,6 +73,7 @@ class LibSaturnConan(ConanFile):
         "tools/stage2d/*.py",
         "assets/boot/ip_yaul_template.bin",
         "assets/boot/ip_sbl_template.bin",
+        "assets/movies/libsaturn_intro.mov",
     )
 
     def set_version(self):
