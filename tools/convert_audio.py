@@ -4,12 +4,15 @@
 S16BE keeps the original PCM path. S8 supplies small resident SCSP samples;
 optional clipping and loop crossfade prepare seamless sample banks. IMA ADPCM
 stores independently decodable 1024-frame blocks, then sat_music expands each
-block to S16BE in RAM.
+block to S16BE in RAM. ADX stores native 18-byte CRI ADX frames with four
+bytes of LPC coefficients; its predictor state is continuous across frames.
+ADX playback currently decodes on the SH-2, not on the sound CPU.
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import struct
 import subprocess
@@ -124,6 +127,45 @@ def loop_crossfade(pcm: bytes, channels: int, frames_to_blend: int) -> bytes:
     return output.tobytes()
 
 
+
+def encode_adx_payload(pcm: bytes, rate: int, channels: int, ffmpeg: str) -> bytes:
+    """Encode real CRI ADX encoding-3 frames and strip only the container/EOF.
+
+    The first four output bytes are the signed fixed-point LPC coefficients
+    derived from the same header cutoff as the encoder. This explicit header
+    lets the Saturn decode arbitrary sample rates without libm.
+    """
+    command = [
+        ffmpeg, "-v", "error", "-f", "s16be", "-ar", str(rate),
+        "-ac", str(channels), "-i", "pipe:0", "-c:a", "adpcm_adx",
+        "-f", "adx", "pipe:1",
+    ]
+    encoded = subprocess.run(command, input=pcm, check=True,
+                             stdout=subprocess.PIPE).stdout
+    if len(encoded) < 36 or encoded[:2] != b"\\x80\\x00" or (
+        encoded[4:8] != bytes((3, 18, 4, channels))
+    ):
+        raise ValueError("FFmpeg did not generate CRI ADX encoding 3")
+    data_offset = int.from_bytes(encoded[2:4], "big") + 4
+    if (data_offset < 24 or encoded[data_offset-6:data_offset] != b"(c)CRI"
+            or int.from_bytes(encoded[8:12], "big") != rate):
+        raise ValueError("unexpected ADX header")
+    frames = len(pcm) // (channels * 2)
+    data_bytes = ((frames + 31) // 32) * 18 * channels
+    if len(encoded) < data_offset + data_bytes:
+        raise ValueError("truncated ADX output")
+    cutoff = int.from_bytes(encoded[16:18], "big")
+    if cutoff <= 0 or rate <= 2 * cutoff:
+        raise ValueError("invalid ADX cutoff")
+    a = math.sqrt(2.0) - math.cos(2.0 * math.pi * cutoff / rate)
+    b = math.sqrt(2.0) - 1.0
+    c = (a - math.sqrt((a + b) * (a - b))) / b
+    coeffs = (round(c * 2.0 * 4096), round(-c * c * 4096))
+    if not all(-32768 <= x <= 32767 for x in coeffs):
+        raise ValueError("ADX LPC coefficient overflow")
+    return struct.pack(">hh", *coeffs) + encoded[data_offset:data_offset + data_bytes]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
@@ -132,7 +174,7 @@ def main() -> int:
     parser.add_argument("--name", required=True)
     parser.add_argument("--sample-rate", required=True, type=int)
     parser.add_argument("--channels", required=True, type=int)
-    parser.add_argument("--format", choices=("s16be", "s8", "ima_adpcm"), default="s16be")
+    parser.add_argument("--format", choices=("s16be", "s8", "ima_adpcm", "adx"), default="s16be")
     parser.add_argument("--start-ms", type=int, default=0)
     parser.add_argument("--duration-ms", type=int, default=0)
     parser.add_argument("--loop-crossfade-ms", type=int, default=0)
@@ -176,12 +218,17 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
     sample_count = len(pcm) // frame_bytes
-    encoded = (encode_adpcm(pcm, args.channels) if args.format == "ima_adpcm"
-               else pcm[0::2] if args.format == "s8" else pcm)
+    try:
+        encoded = (encode_adpcm(pcm, args.channels) if args.format == "ima_adpcm"
+                   else encode_adx_payload(pcm, args.sample_rate, args.channels, args.ffmpeg)
+                   if args.format == "adx"
+                   else pcm[0::2] if args.format == "s8" else pcm)
+    except (ValueError, subprocess.CalledProcessError) as exc:
+        parser.error(f"ADX encoding failed: {exc}")
     args.output_audio.write_bytes(encoded)
     prefix = "SAT_AUDIO_" + re.sub(r"[^A-Za-z0-9]+", "_", args.name).strip("_").upper()
     guard = prefix + "_H"
-    format_macro = {"ima_adpcm": "SAT_AUDIO_IMA_ADPCM",
+    format_macro = {"adx": "SAT_AUDIO_ADX_ADPCM", "ima_adpcm": "SAT_AUDIO_IMA_ADPCM",
                     "s8": "SAT_AUDIO_PCM_S8", "s16be": "SAT_AUDIO_PCM_S16"}[args.format]
     args.output_header.write_text(
         "\n".join([
