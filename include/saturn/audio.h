@@ -19,7 +19,10 @@ typedef enum sat_audio_format {
     SAT_AUDIO_PCM_S8 = 0,
     SAT_AUDIO_PCM_S16 = 1,
     /* Blocked 4-bit IMA ADPCM source for sat_music; decoded to S16 streams. */
-    SAT_AUDIO_IMA_ADPCM = 2
+    SAT_AUDIO_IMA_ADPCM = 2,
+    /* CRI ADX encoding 3 payload: LPC header + native 18-byte frames,
+     * decoded by sat_music into S16 streams on the SH-2. */
+    SAT_AUDIO_ADX_ADPCM = 3
 } sat_audio_format_t;
 
 typedef struct sat_sound {
@@ -140,6 +143,20 @@ typedef struct sat_audio_stats {
  * SAT_ERR_INVALID_ARG for a null pointer, another channel count or a step index above 88. */
 sat_result_t sat_audio_ima_decode_block(const void* block, uint8_t channels, void* out_planar_s16be);
 
+
+/* LibSaturn ADX payload format for SAT_AUDIO_ADX_ADPCM assets:
+ *   int16_be LPC coefficient[2] (4 bytes), followed by
+ *   ceil(sample_count / 32) groups of 18 * channels bytes.
+ * Each group holds one standard CRI ADX encoding-3 frame per channel;
+ * the CRI file header and end marker are stripped by convert_audio.py.
+ * Prediction carries across groups and is reset when the music loops.
+ * sat_music_seek currently supports frame 0 only for ADX.
+ * Decoder runs on the SH-2; this is not an SCSP 68000 offload.
+ */
+#define SAT_AUDIO_ADX_BLOCK_FRAMES 32u
+#define SAT_AUDIO_ADX_BLOCK_BYTES(channels) (18u * (channels))
+#define SAT_AUDIO_ADX_COEFFICIENT_BYTES 4u
+
 sat_result_t sat_audio_init(void);
 sat_result_t sat_audio_shutdown(void);
 sat_result_t sat_audio_update(void);
@@ -208,7 +225,7 @@ sat_result_t sat_audio_stream_stats(
     sat_audio_stream_stats_t* out_stats
 );
 
-/* Preconverted PCM or blocked IMA ADPCM from the logical asset registry.
+/* Preconverted PCM, blocked IMA ADPCM or ADX payload from the logical asset registry.
  * ADPCM blocks contain 1024 frames; the runtime expands them to S16BE before
  * writing the SCSP stream rings. OGG/MP3 decoding remains a build step.
  * Music loops the complete asset and uses a fixed internal pool of two
