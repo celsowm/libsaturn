@@ -432,50 +432,68 @@ sat_result_t async_deliver_adpcm(MusicSlot& slot, const uint8_t* data, uint32_t 
 }
 
 
-/* A native ADX frame may straddle CD segments, so preserve at most 35
- * compressed bytes in carry. Each successful call writes 32 PCM frames
- * and advances the per-channel predictor exactly once. */
+/* The disc scheduler delivers only one slice per service visit. A single
+ * ADX group contains just 32 frames: delivering one group per display frame
+ * would cap playback at ~1920 frames/s. Decode up to 1024 frames in a visit,
+ * then issue a single write per channel, preserving both ring lockstep and
+ * predictor history. The 128-byte block buffer lives on the SH-2 stack. */
 sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
                                uint32_t bytes, uint32_t* consumed) {
     namespace codec = saturn::core::audio::adx_adpcm;
     const uint32_t block_bytes = codec::block_bytes(slot.channels);
-    const uint8_t* source;
-    uint32_t used;
-    if (slot.carry_have != 0u) {
-        used = block_bytes - slot.carry_have;
-        if (used > bytes) used = bytes;
-        for (uint32_t i = 0u; i < used; ++i)
-            slot.encoded[slot.carry_have + i] = data[i];
-        slot.carry_have += used;
-        *consumed = used;
-        if (slot.carry_have < block_bytes) return SAT_OK;
-        slot.carry_have = 0u;
-        source = slot.encoded;
-    } else if (bytes >= block_bytes) {
-        used = block_bytes;
-        source = data;
-    } else {
-        slot.carry_have = bytes;
-        for (uint32_t i = 0u; i < bytes; ++i) slot.encoded[i] = data[i];
-        *consumed = bytes;
-        return SAT_OK;
+    uint32_t room = writable_frames(slot);
+    if (room > 1024u) room = 1024u;
+    uint32_t frames_out = 0u;
+    uint32_t used = 0u;
+    uint8_t pcm_block[2u * codec::kChannelBytes] = {};
+    const uint32_t right_offset = kMusicFeedFrames * 2u;
+
+    while (used < bytes && frames_out + codec::kBlockFrames <= room) {
+        const uint8_t* source = nullptr;
+        if (slot.carry_have != 0u) {
+            uint32_t copy = block_bytes - slot.carry_have;
+            if (copy > bytes - used) copy = bytes - used;
+            for (uint32_t i = 0u; i < copy; ++i)
+                slot.encoded[slot.carry_have + i] = data[used + i];
+            slot.carry_have += copy;
+            used += copy;
+            if (slot.carry_have < block_bytes) break;
+            slot.carry_have = 0u;
+            source = slot.encoded;
+        } else if (bytes - used >= block_bytes) {
+            source = data + used;
+            used += block_bytes;
+        } else {
+            slot.carry_have = bytes - used;
+            for (uint32_t i = 0u; i < slot.carry_have; ++i)
+                slot.encoded[i] = data[used + i];
+            used = bytes;
+            break;
+        }
+        if (!codec::decode_block(source, slot.channels, slot.adx_state,
+                                 pcm_block)) return SAT_ERR_IO;
+        uint32_t take = codec::kBlockFrames;
+        if (take > slot.sample_count - slot.position_frame)
+            take = slot.sample_count - slot.position_frame;
+        for (uint32_t i = 0u; i < take * 2u; ++i)
+            slot.staging_split[frames_out * 2u + i] = pcm_block[i];
+        if (slot.channels == 2u)
+            for (uint32_t i = 0u; i < take * 2u; ++i)
+                slot.staging_split[right_offset + frames_out * 2u + i] =
+                    pcm_block[codec::kChannelBytes + i];
+        slot.position_frame += take;
+        frames_out += take;
+        if (slot.position_frame == slot.sample_count) {
+            slot.position_frame = 0u;
+            codec::reset_history(slot.adx_state);
+        }
     }
     *consumed = used;
-    if (!codec::decode_block(source, slot.channels, slot.adx_state,
-                             slot.staging_split)) return SAT_ERR_IO;
-    uint32_t take = codec::kBlockFrames;
-    if (take > slot.sample_count - slot.position_frame)
-        take = slot.sample_count - slot.position_frame;
-    SAT_TRY(write_channel(slot, 0u, slot.staging_split, take));
+    if (frames_out == 0u) return SAT_OK;
+    SAT_TRY(write_channel(slot, 0u, slot.staging_split, frames_out));
     if (slot.channels == 2u)
-        SAT_TRY(write_channel(slot, 1u,
-            slot.staging_split + codec::kChannelBytes, take));
-    slot.position_frame += take;
-    if (slot.position_frame == slot.sample_count) {
-        slot.position_frame = 0u;
-        codec::reset_history(slot.adx_state);
-    }
-    async_wrote(slot, take);
+        SAT_TRY(write_channel(slot, 1u, slot.staging_split + right_offset, frames_out));
+    async_wrote(slot, frames_out);
     return SAT_OK;
 }
 
