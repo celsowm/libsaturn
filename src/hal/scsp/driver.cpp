@@ -33,6 +33,15 @@ uint32_t read_tick() {
     }
 }
 
+/* Lets one driver tick go by (the heartbeat moves once per tick the 68000 saw), bounded by the startup limit. */
+void wait_ticks_free() {
+    const uint32_t before = read_tick();
+    const uint32_t per_frame = saturn::hal::scu::ticks_per_frame();
+    const uint64_t begin = saturn::hal::scu::elapsed_ticks();
+    const uint64_t limit = static_cast<uint64_t>(per_frame != 0u ? per_frame : 1000u) * 2u;
+    while (read_tick() == before && saturn::hal::scu::elapsed_ticks() - begin <= limit) {}
+}
+
 bool wait_running() {
     const uint32_t per_frame = saturn::hal::scu::ticks_per_frame();
     const uint64_t begin = saturn::hal::scu::elapsed_ticks();
@@ -136,6 +145,7 @@ void clear_counters() {
 }
 
 bool score_load(const ScoreEvent* events, uint16_t count, uint32_t loop_ticks) {
+    if (g_running) set_word(logic::kPageOnOffset, 0u);     /* the two modes share the score area */
     if (!g_running || events == nullptr || count == 0u ||
         count > logic::kScoreMaxEvents || loop_ticks == 0u) return false;
     uint32_t previous = 0u;
@@ -167,6 +177,116 @@ bool score_load(const ScoreEvent* events, uint16_t count, uint32_t loop_ticks) {
 
 void score_stop() {
     if (g_running) set_word(logic::kScoreOnOffset, 0u);
+}
+
+namespace {
+
+uint16_t g_next_page = 0u;       /* number of the next page to publish */
+uint16_t g_published = 0u;
+uint16_t g_refused = 0u;
+uint16_t g_tick_samples = 256u;
+
+volatile uint16_t* reg(uint32_t offset) {
+    return reinterpret_cast<volatile uint16_t*>(0x25B00000u + offset);
+}
+
+void set_long(uint32_t offset, uint32_t value) {
+    set_word(offset, static_cast<uint16_t>(value >> 16u));
+    set_word(offset + 2u, static_cast<uint16_t>(value));
+}
+
+uint32_t long_at(uint32_t offset) {
+    return logic::combine_tick(word(offset), word(offset + 2u));
+}
+
+}  // namespace
+
+bool pages_start(uint16_t tick_samples, uint32_t lead_ticks) {
+    if (!g_running || (tick_samples != 128u && tick_samples != 256u)) return false;
+    set_word(logic::kScoreOnOffset, 0u);
+    set_word(logic::kPageOnOffset, 0u);
+    for (uint32_t offset = logic::kPageStatusOffset; offset < logic::kPageMetaOffset + 2u * logic::kPageMetaBytes;
+         offset += 2u) set_word(offset, 0u);
+    g_next_page = 0u;
+    g_published = 0u;
+    g_refused = 0u;
+    g_tick_samples = tick_samples;
+    /* The timers wrap to 0 and free-run at 256 samples, so a shorter period cannot come from a preload. Timer B
+     * joins timer A, started 128 samples after it: two interrupts per 256 samples, a tick each, no reloads. */
+    const uint16_t both = tick_samples == 128u ? 0x00C0u : 0x0040u;
+    *reg(logic::kInterruptLevel2Offset) = both;
+    *reg(logic::kInterruptEnableOffset) = both;
+    *reg(logic::kInterruptResetOffset) = 0x00C0u;
+    *reg(logic::kTimerBOffset) = 0x0080u;      /* first overflow 128 samples from now */
+    *reg(logic::kTimerAOffset) = 0x0000u;      /* first overflow 256 samples from now */
+    for (uint32_t i = 0u; i < 3u; ++i) wait_ticks_free();
+    set_long(logic::kPageBaseOffset, read_tick() + lead_ticks);
+    set_word(logic::kPageOnOffset, 1u);
+    return true;
+}
+
+PageResult page_publish(const ScoreEvent* events, uint16_t count, uint32_t time_base, uint32_t end, bool last) {
+    if (!g_running || events == nullptr || count == 0u || count > logic::kPageEvents) return PageResult::Invalid;
+    uint32_t previous = 0u;
+    for (uint16_t i = 0u; i < count; ++i) {
+        if (!logic::register_ok(events[i].register_offset) || events[i].tick < previous) return PageResult::Invalid;
+        previous = events[i].tick;
+    }
+    const uint32_t meta = logic::kPageMetaOffset + (g_next_page & 1u) * logic::kPageMetaBytes;
+    if (word(meta) != 0u) {            /* the 68000 has not finished with it */
+        ++g_refused;
+        return PageResult::Busy;
+    }
+    const uint32_t data = logic::kScoreOffset + (g_next_page & 1u) * logic::kPageBytes;
+    for (uint16_t i = 0u; i < count; ++i) {
+        const uint32_t entry = data + static_cast<uint32_t>(i) * 8u;
+        set_long(entry, events[i].tick);
+        set_word(entry + 4u, events[i].register_offset);
+        set_word(entry + 6u, events[i].value);
+    }
+    set_word(meta + 2u, static_cast<uint16_t>(count | (last ? logic::kPageLastBit : 0u)));
+    set_long(meta + 4u, time_base);
+    set_long(meta + 8u, end);
+    set_word(meta, static_cast<uint16_t>(g_next_page + 1u));     /* publish last */
+    ++g_next_page;
+    ++g_published;
+    return PageResult::Ok;
+}
+
+bool pages_info(PageInfo* out) {
+    if (out == nullptr) return false;
+    *out = {};
+    if (!g_running) return true;
+    out->on = word(logic::kPageOnOffset) != 0u;
+    const uint16_t status = word(logic::kPageStatusOffset);
+    out->done = (status & 1u) != 0u;
+    out->underrun_seen = (status & 2u) != 0u;
+    out->tick_samples = g_tick_samples;
+    out->pages_played = word(logic::kPagePagesOffset);
+    out->pages_published = g_published;
+    uint16_t free_pages = 0u;
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        if (word(logic::kPageMetaOffset + i * logic::kPageMetaBytes) == 0u) ++free_pages;
+    }
+    out->pages_free = free_pages;
+    out->underrun_ticks = word(logic::kPageUnderrunOffset);
+    out->late_events = word(logic::kPageLateOffset);
+    out->max_lateness = word(logic::kPageMaxLateOffset);
+    out->bad_sequence = word(logic::kPageBadSeqOffset);
+    out->max_burst = word(logic::kPageBurstOffset);
+    out->refused = g_refused;
+    out->executed = long_at(logic::kPageExecutedOffset);
+    out->base_tick = long_at(logic::kPageBaseOffset);
+    return true;
+}
+
+void pages_stop() {
+    if (!g_running) return;
+    set_word(logic::kPageOnOffset, 0u);
+    *reg(logic::kInterruptLevel2Offset) = 0x0040u;     /* timer A only: back to 256 samples */
+    *reg(logic::kInterruptEnableOffset) = 0x0040u;
+    *reg(logic::kInterruptResetOffset) = 0x0080u;
+    g_tick_samples = 256u;
 }
 
 }  // namespace saturn::hal::scsp::driver

@@ -99,6 +99,48 @@ sat_result_t sat_sound_driver_score_load(
     const sat_sound_score_event_t* events, uint16_t count, uint32_t loop_ticks);
 sat_result_t sat_sound_driver_score_stop(void);
 
+/* Paged score (experimental, driver version 3). The score area (8 KiB, the same one a 1024-event score uses)
+ * holds two pages of SAT_SOUND_DRIVER_PAGE_EVENTS events. The SH-2 publishes a page when one is free; the
+ * 68000 alone consumes them, in number order, and goes on to the next page within the same tick, so a long
+ * score plays without the SH-2 touching any single note. Event ticks are absolute stream time: the time of an
+ * event is the stream base + the page's time_base + event.tick, so nothing accumulates. A page is published by
+ * one word write after its data, count and times; a published page is never rewritten until the 68000 frees it.
+ * The mode and the 1024-event score share the score area: starting one stops the other.
+ *
+ * tick_samples is 256 (5.805 ms, the default) or 128 (2.902 ms: timers A and B, 128 samples apart, both
+ * free-running, so the grid cannot drift). It applies to every tick based call while the paged score runs (and
+ * until sat_sound_driver_pages_stop): with 128 the driver tick counts twice as fast. */
+#define SAT_SOUND_DRIVER_PAGE_EVENTS 512u
+
+typedef struct sat_sound_pages_info {
+    uint8_t on;                 /* the 68000 is playing pages */
+    uint8_t done;               /* the last page has been played */
+    uint8_t underrun_seen;
+    uint8_t reserved;
+    uint16_t tick_samples;
+    uint16_t pages_played;
+    uint16_t pages_published;
+    uint16_t pages_free;        /* 0..2: pages the SH-2 may publish into right now */
+    uint16_t underrun_ticks;    /* ticks the next page was missing after the previous one's end time */
+    uint16_t late_events;       /* events run after their tick */
+    uint16_t max_lateness_ticks;
+    uint16_t bad_sequence;      /* pages seen out of number order (a broken protocol) */
+    uint16_t max_burst;         /* most events run in a single tick */
+    uint16_t refused;           /* publishes refused because the page was still in use */
+    uint32_t executed;
+    uint32_t base_tick;         /* driver tick of stream time 0 */
+} sat_sound_pages_info_t;
+
+/* Stream time 0 is the driver tick `now + lead_ticks`. SAT_ERR_INVALID_ARG for another tick_samples. */
+sat_result_t sat_sound_driver_pages_start(uint16_t tick_samples, uint32_t lead_ticks);
+/* Events sorted by tick (relative to time_base), count 1..512, registers even and below 0x1000. end_time is
+ * the stream time (relative to time_base) up to which no later page holds an event: the first event of the
+ * next page, or the end of the song. last ends the stream. SAT_ERR_BUSY while the page is still in use. */
+sat_result_t sat_sound_driver_page_publish(
+    const sat_sound_score_event_t* events, uint16_t count, uint32_t time_base, uint32_t end_time, uint8_t last);
+sat_result_t sat_sound_driver_pages_info(sat_sound_pages_info_t* out_info);
+sat_result_t sat_sound_driver_pages_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -56,6 +56,32 @@ bool read_log(uint32_t index, uint16_t* out_tick, uint16_t* out_lateness);
 void clear_counters();
 
 bool score_load(const ScoreEvent* events, uint16_t count, uint32_t loop_ticks);
+
+struct PageInfo {
+    bool on;
+    bool done;
+    bool underrun_seen;
+    uint16_t tick_samples;
+    uint16_t pages_played;
+    uint16_t pages_published;
+    uint16_t pages_free;
+    uint16_t underrun_ticks;
+    uint16_t late_events;
+    uint16_t max_lateness;
+    uint16_t bad_sequence;
+    uint16_t max_burst;
+    uint16_t refused;          /* publishes refused because the page was still in use */
+    uint32_t executed;
+    uint32_t base_tick;
+};
+
+enum class PageResult : uint8_t { Ok, Busy, Invalid };
+
+/* Paged score: starts playing at the driver tick `now + lead_ticks`; stream time 0 is that tick. */
+bool pages_start(uint16_t tick_samples, uint32_t lead_ticks);
+PageResult page_publish(const ScoreEvent* events, uint16_t count, uint32_t time_base, uint32_t end, bool last);
+bool pages_info(PageInfo* out);
+void pages_stop();
 void score_stop();
 
 }  // namespace saturn::hal::scsp::driver

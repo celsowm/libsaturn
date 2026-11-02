@@ -114,3 +114,53 @@ extern "C" sat_result_t sat_sound_driver_score_stop(void) {
     hal::score_stop();
     return SAT_OK;
 }
+
+extern "C" sat_result_t sat_sound_driver_pages_start(uint16_t tick_samples, uint32_t lead_ticks) {
+    if (!hal::running()) return SAT_ERR_NOT_INITIALIZED;
+    return hal::pages_start(tick_samples, lead_ticks) ? SAT_OK : SAT_ERR_INVALID_ARG;
+}
+
+extern "C" sat_result_t sat_sound_driver_page_publish(
+    const sat_sound_score_event_t* events, uint16_t count, uint32_t time_base, uint32_t end_time, uint8_t last) {
+    if (!hal::running()) return SAT_ERR_NOT_INITIALIZED;
+    static_assert(sizeof(sat_sound_score_event_t) == sizeof(hal::ScoreEvent));
+    switch (hal::page_publish(reinterpret_cast<const hal::ScoreEvent*>(events), count, time_base, end_time,
+                              last != 0u)) {
+        case hal::PageResult::Ok: return SAT_OK;
+        case hal::PageResult::Busy: return SAT_ERR_BUSY;
+        default: return SAT_ERR_INVALID_ARG;
+    }
+}
+
+extern "C" sat_result_t sat_sound_driver_pages_info(sat_sound_pages_info_t* out_info) {
+    if (out_info == nullptr) return SAT_ERR_INVALID_ARG;
+    hal::PageInfo info;
+    if (!hal::running()) {
+        *out_info = {};
+        return SAT_ERR_NOT_INITIALIZED;
+    }
+    hal::pages_info(&info);
+    *out_info = {};
+    out_info->on = info.on ? 1u : 0u;
+    out_info->done = info.done ? 1u : 0u;
+    out_info->underrun_seen = info.underrun_seen ? 1u : 0u;
+    out_info->tick_samples = info.tick_samples;
+    out_info->pages_played = info.pages_played;
+    out_info->pages_published = info.pages_published;
+    out_info->pages_free = info.pages_free;
+    out_info->underrun_ticks = info.underrun_ticks;
+    out_info->late_events = info.late_events;
+    out_info->max_lateness_ticks = info.max_lateness;
+    out_info->bad_sequence = info.bad_sequence;
+    out_info->max_burst = info.max_burst;
+    out_info->refused = info.refused;
+    out_info->executed = info.executed;
+    out_info->base_tick = info.base_tick;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_sound_driver_pages_stop(void) {
+    if (!hal::running()) return SAT_ERR_NOT_INITIALIZED;
+    hal::pages_stop();
+    return SAT_OK;
+}

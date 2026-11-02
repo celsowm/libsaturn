@@ -38,13 +38,21 @@ class SoundDriverLayoutTests(unittest.TestCase):
                  "M_SCORE_INDEX": "kScoreIndexOffset", "M_SCORE_BASE": "kScoreBaseOffset",
                  "M_SCORE_LOOP": "kScoreLoopOffset", "M_SCORE_LOOPS": "kScoreLoopsOffset",
                  "M_SCORE_EXEC": "kScoreExecutedOffset", "M_RING": "kRingOffset",
-                 "M_LOG": "kLogOffset"}
+                 "M_LOG": "kLogOffset",
+                 "M_PG_ON": "kPageOnOffset", "M_PG_STATUS": "kPageStatusOffset", "M_PG_BASE": "kPageBaseOffset",
+                 "M_PG_SEQ": "kPageSeqOffset", "M_PG_INDEX": "kPageIndexOffset", "M_PG_EXEC": "kPageExecutedOffset",
+                 "M_PG_PAGES": "kPagePagesOffset", "M_PG_UNDER": "kPageUnderrunOffset", "M_PG_LATE": "kPageLateOffset",
+                 "M_PG_MAXLATE": "kPageMaxLateOffset", "M_PG_BADSEQ": "kPageBadSeqOffset",
+                 "M_PG_ACTIVE": "kPageActiveOffset", "M_PG_BURST": "kPageBurstOffset", "M_PG_CUR": "kPageCurrentOffset",
+                 "M_PG_PREVEND": "kPagePrevEndOffset", "M_PG_META0": "kPageMetaOffset"}
         for asm_name, cpp_name in pairs.items():
             found = re.search(r"%s = kMailbox \+ (0x[0-9A-Fa-f]+)u" % cpp_name, logic)
             self.assertIsNotNone(found, cpp_name)
             self.assertEqual(eq[asm_name], int(found.group(1), 16), asm_name)
         with open(SOURCE, encoding="utf-8") as stream:
             source = stream.read()
+        self.assertEqual(eq["M_PG_META1"], eq["M_PG_META0"] + 16)
+        self.assertLess(eq["M_PG_META1"] + 16, eq["M_LOG"])
         self.assertIn("RING_MASK,   63", source)
         self.assertIn("kRingEntries = 64u", logic)
         stack = int(re.search(r"\.equ\s+STACK_TOP,\s+(0x[0-9A-Fa-f]+)", source).group(1), 16)

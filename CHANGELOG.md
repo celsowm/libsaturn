@@ -11,6 +11,11 @@ The version is defined once, in the `VERSION` file.
 
 ### Added
 
+- Sound driver version 3: a paged score. `sat_sound_driver_pages_start`, `_page_publish`, `_pages_info` and
+  `_pages_stop` play scores of any length from two 4 KiB pages in the existing score area, with a 256- or
+  128-sample tick, absolute stream time, late/underrun/out-of-order counters and a free-page check before the SH-2
+  publishes. The 1024-event score and every other driver call behave as before. Example:
+  `examples/sound_driver_pages_demo`.
 - `sat_video_set_display_mode`: a VDP2-only display mode change, for a screen made
   of VDP2 layers alone. VDP1 and `sat_video_width`/`height` keep the `sat_init` mode.
 - `sat_exec_keep_display`: `sat_exec` that keeps a VDP2 picture up while the next

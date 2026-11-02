@@ -284,6 +284,23 @@ loops and writes performed. This path has no steady-state CD traffic or PCM
 decoding. The SCSP still renders the short resident PCM waveforms; the 68000
 controls their timing, pitch and level.
 
+### Paged scores (driver version 3)
+
+A score longer than 1024 writes uses the same 8 KiB score area as two pages of 512 events.
+`sat_sound_driver_pages_start` begins a stream; the SH-2 calls `sat_sound_driver_page_publish` whenever
+`sat_sound_driver_pages_info` shows a free page, and only the 68000 consumes: it plays the pages in number order
+and moves to the next in the same tick, so a note-dense score runs while the SH-2 does nothing but copy pages.
+Event times are absolute stream time (stream base + page time base + event tick), so nothing drifts. A page is
+published by one word write after its data, count and times and is never rewritten until the 68000 frees it
+(`SAT_ERR_BUSY` otherwise). The driver counts late events, underruns (the next page missing after the previous
+one's end time) and out-of-order pages. The 1024-event score and the paged score exclude each other.
+
+`tick_samples` 128 halves the tick (2.902 ms): timers A and B free-run at 256 samples, started 128 apart, and
+each interrupt is a tick, because the timers wrap to 0 rather than reload, so a preload cannot shorten the
+period. Measured on Ymir, the 68000 runs about 30 events per millisecond: 176 events in a 256-sample tick and 80
+in a 128-sample tick are clean; 192 and 96 start to run late and lose ticks. `examples/sound_driver_pages_demo`
+plays 1,600 generated events in 4 pages with no late event.
+
 The dino demo can select this path with
 `DINO_MUSIC_CDDA=0 DINO_MUSIC_68K=1` and keeps its complete ADPCM recording as
 another alternate build (`DINO_MUSIC_CDDA=0 DINO_MUSIC_68K=0`). Its resident timbres are short clips

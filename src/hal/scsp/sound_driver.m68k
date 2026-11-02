@@ -13,7 +13,16 @@
  *   0x0100  code
  *   0x0800  mailbox (below); SCSP registers are at 0x100000 for the 68000.
  *   0x0C00  stack, growing down from 0x1000 (the interrupt handler needs a few dozen bytes)
- *   0x1000  score, up to 0x3000: the driver uses nothing above (scsp.hpp kSystemReservedBytes)
+ *   0x1000  score, up to 0x3000: the driver uses nothing above (scsp.hpp kSystemReservedBytes).
+ *           Either one 1024-event looping score, or two 4 KiB pages of 512 events played in turn.
+ *
+ * A 128-sample tick: timer A and timer B both free-run at 256 samples, started 128 apart by the SH-2, and each
+ * interrupt is one tick. Neither timer is ever reloaded, so the tick grid cannot drift.
+ *
+ * Paged score: the SH-2 fills a free page (tag 0), writes its count, time base and end, and the tag last
+ * (page number + 1; a single word write publishes it). The 68000 plays pages in number order, page n in
+ * slot n & 1, clears the tag when it has read the last event, and goes straight on to the next page in the
+ * same interrupt. Event time = stream base + page time base + event tick, all absolute: no drift builds up.
  */
         .equ    STACK_TOP,   0x01000
 
@@ -45,6 +54,24 @@
         .equ    M_SCORE_LOOP,MBOX+0x28           /* long  ticks per pass */
         .equ    M_SCORE_LOOPS,MBOX+0x2C          /* word  completed passes */
         .equ    M_SCORE_EXEC, MBOX+0x2E          /* word  score writes performed */
+        /* paged score (version 3): two 4 KiB pages at 0x1000 and 0x2000, 512 events each */
+        .equ    M_PG_ON,     MBOX+0x240         /* word  paged playback enabled */
+        .equ    M_PG_STATUS, MBOX+0x242         /* word  bit 0 done, bit 1 underrun seen */
+        .equ    M_PG_BASE,   MBOX+0x244         /* long  driver tick of stream time 0 */
+        .equ    M_PG_SEQ,    MBOX+0x248         /* word  next page number to play */
+        .equ    M_PG_INDEX,  MBOX+0x24A         /* word  next event in that page */
+        .equ    M_PG_EXEC,   MBOX+0x24C         /* long  events run */
+        .equ    M_PG_PAGES,  MBOX+0x250         /* word  pages finished */
+        .equ    M_PG_UNDER,  MBOX+0x252         /* word  ticks the next page was missing past the last one's end */
+        .equ    M_PG_LATE,   MBOX+0x254         /* word  events run after their tick */
+        .equ    M_PG_MAXLATE,MBOX+0x256         /* word  worst lateness in ticks */
+        .equ    M_PG_BADSEQ, MBOX+0x258         /* word  pages seen with the wrong number */
+        .equ    M_PG_ACTIVE, MBOX+0x25A         /* word  page being played + 1, 0 when none */
+        .equ    M_PG_BURST,  MBOX+0x25C         /* word  most events run in one tick */
+        .equ    M_PG_CUR,    MBOX+0x25E         /* word  events run in this tick */
+        .equ    M_PG_PREVEND,MBOX+0x260         /* long  stream time the finished pages cover */
+        .equ    M_PG_META0,  MBOX+0x270         /* page 0: tag w, count w (bit 15 last), tbase l, end l */
+        .equ    M_PG_META1,  MBOX+0x280         /* page 1, same layout; tag 0 = free for the SH-2 */
         .equ    M_RING,      MBOX+0x40          /* 64 events of 8 bytes */
         .equ    M_LOG,       MBOX+0x300         /* 64 records of 4 bytes: tick, lateness */
         .equ    SCORE,       0x1000             /* up to 1024 events of 8 bytes */
@@ -68,7 +95,7 @@ fault:  bra.s   fault
 
 start:  move.w  #0x2700,%sr
         move.l  #0x53445256,M_MAGIC     /* 'SDRV' */
-        move.w  #2,M_VERSION
+        move.w  #3,M_VERSION
         move.w  #0,M_HEARTBEAT
         move.l  #0,M_TICK
         move.w  #0,M_EXECUTED
@@ -101,7 +128,7 @@ main:   move.w  M_TICK+2,%d0            /* a new tick since the last pass? (no S
 /* Timer A: one tick. Runs every event that has come due, in ring order. */
 timer_isr:
         movem.l %d0-%d3/%a0-%a1,-(%sp)
-        move.w  #0x0040,R_SCIRE         /* acknowledge */
+        move.w  #0x00C0,R_SCIRE         /* acknowledge timers A and B (B only runs in the 128-sample paged mode) */
         addq.w  #1,M_TICK+2             /* 32-bit tick as two words: carry into the high word */
         bcc.s   1f
         addq.w  #1,M_TICK
@@ -141,7 +168,7 @@ logged: move.w  M_EXECUTED,%d0
         move.w  %d3,M_TAIL
         bra.s   next
 done:   tst.w   M_SCORE_ON
-        beq.s   finish
+        beq.s   pg_call
 score_next:
         move.w  M_SCORE_INDEX,%d0
         cmp.w   M_SCORE_COUNT,%d0
@@ -171,5 +198,101 @@ score_wrap:
         clr.w   M_SCORE_INDEX
         addq.w  #1,M_SCORE_LOOPS
         bra.s   score_next
+pg_call:
+        tst.w   M_PG_ON
+        beq.s   finish
+        bsr     paged
 finish: movem.l (%sp)+,%d0-%d3/%a0-%a1
         rte
+
+/* Paged score. d4 event index, d5 page 0/1, d6 expected tag, a0 event, a1 SCSP, a2 page meta. */
+paged:  movem.l %d4-%d6/%a2,-(%sp)
+        clr.w   M_PG_CUR
+pg_next:
+        move.w  M_PG_SEQ,%d6
+        move.w  %d6,%d5
+        andi.w  #1,%d5
+        move.w  %d5,%d0
+        lsl.w   #4,%d0
+        lea     M_PG_META0,%a2
+        adda.w  %d0,%a2
+        addq.w  #1,%d6
+        move.w  (%a2),%d1
+        cmp.w   %d6,%d1
+        beq.s   pg_have
+        tst.w   %d1
+        beq.s   pg_wait
+        addq.w  #1,M_PG_BADSEQ          /* a page with another number: the order was broken */
+pg_wait:
+        move.l  M_PG_BASE,%d2           /* no page: is the last one's coverage over? */
+        add.l   M_PG_PREVEND,%d2
+        cmp.l   M_TICK,%d2
+        bhi     pg_exit
+        addq.w  #1,M_PG_UNDER
+        ori.w   #2,M_PG_STATUS
+        bra     pg_exit
+pg_have:
+        move.w  %d5,%d0
+        addq.w  #1,%d0
+        move.w  %d0,M_PG_ACTIVE
+        move.w  M_PG_INDEX,%d4
+        movea.w #0x1000,%a0
+        tst.w   %d5
+        beq.s   1f
+        adda.w  #0x1000,%a0
+1:      move.w  %d4,%d0
+        lsl.w   #3,%d0
+        adda.w  %d0,%a0
+        lea     SCSP,%a1
+pg_event:
+        move.w  2(%a2),%d0
+        andi.w  #0x0FFF,%d0
+        cmp.w   %d0,%d4
+        bcc.s   pg_done
+        move.l  (%a0),%d1
+        add.l   4(%a2),%d1
+        add.l   M_PG_BASE,%d1
+        move.l  M_TICK,%d2
+        cmp.l   %d1,%d2
+        bcs     pg_save                 /* not due yet */
+        sub.l   %d1,%d2                 /* lateness in ticks */
+        move.w  4(%a0),%d0
+        btst    #15,%d0
+        bne.s   1f
+        andi.w  #0x0FFE,%d0
+        move.w  6(%a0),(%a1,%d0.w)
+1:      tst.l   %d2
+        beq.s   2f
+        addq.w  #1,M_PG_LATE
+        cmp.w   M_PG_MAXLATE,%d2
+        bls.s   2f
+        move.w  %d2,M_PG_MAXLATE
+2:      addq.l  #1,M_PG_EXEC
+        addq.w  #1,M_PG_CUR
+        addq.w  #1,%d4
+        addq.l  #8,%a0
+        bra.s   pg_event
+pg_save:
+        move.w  %d4,M_PG_INDEX
+        bra.s   pg_exit
+pg_done:
+        move.w  2(%a2),%d0
+        move.l  4(%a2),%d1
+        add.l   8(%a2),%d1
+        move.l  %d1,M_PG_PREVEND
+        clr.w   (%a2)                   /* free the page for the SH-2 */
+        clr.w   M_PG_ACTIVE
+        clr.w   M_PG_INDEX
+        addq.w  #1,M_PG_SEQ
+        addq.w  #1,M_PG_PAGES
+        tst.w   %d0
+        bpl     pg_next                 /* more pages: carry on within this tick */
+        ori.w   #1,M_PG_STATUS
+        clr.w   M_PG_ON
+pg_exit:
+        move.w  M_PG_CUR,%d0
+        cmp.w   M_PG_BURST,%d0
+        bls.s   1f
+        move.w  %d0,M_PG_BURST
+1:      movem.l (%sp)+,%d4-%d6/%a2
+        rts

@@ -30,6 +30,32 @@ constexpr uint32_t kScoreLoopOffset = kMailbox + 0x28u;
 constexpr uint32_t kScoreLoopsOffset = kMailbox + 0x2Cu;
 constexpr uint32_t kScoreExecutedOffset = kMailbox + 0x2Eu;
 constexpr uint32_t kRingOffset = kMailbox + 0x40u;
+/* Paged score (version 3): two pages of kPageEvents events in the score area, played in turn. */
+constexpr uint32_t kPageOnOffset = kMailbox + 0x240u;
+constexpr uint32_t kPageStatusOffset = kMailbox + 0x242u;   /* bit 0 done, bit 1 underrun seen */
+constexpr uint32_t kPageBaseOffset = kMailbox + 0x244u;     /* long */
+constexpr uint32_t kPageSeqOffset = kMailbox + 0x248u;
+constexpr uint32_t kPageIndexOffset = kMailbox + 0x24Au;
+constexpr uint32_t kPageExecutedOffset = kMailbox + 0x24Cu; /* long */
+constexpr uint32_t kPagePagesOffset = kMailbox + 0x250u;
+constexpr uint32_t kPageUnderrunOffset = kMailbox + 0x252u;
+constexpr uint32_t kPageLateOffset = kMailbox + 0x254u;
+constexpr uint32_t kPageMaxLateOffset = kMailbox + 0x256u;
+constexpr uint32_t kPageBadSeqOffset = kMailbox + 0x258u;
+constexpr uint32_t kPageActiveOffset = kMailbox + 0x25Au;
+constexpr uint32_t kPageBurstOffset = kMailbox + 0x25Cu;
+constexpr uint32_t kPageCurrentOffset = kMailbox + 0x25Eu;
+constexpr uint32_t kPagePrevEndOffset = kMailbox + 0x260u;  /* long */
+constexpr uint32_t kPageMetaOffset = kMailbox + 0x270u;     /* two records of 16 bytes */
+constexpr uint32_t kPageMetaBytes = 16u;
+constexpr uint32_t kPageBytes = 0x1000u;
+constexpr uint32_t kPageEvents = kPageBytes / 8u;
+constexpr uint16_t kPageLastBit = 0x8000u;
+constexpr uint32_t kTimerAOffset = 0x418u;                  /* SCSP register: TACTL[10:8] TIMA[7:0] */
+constexpr uint32_t kTimerBOffset = 0x41Au;                  /* TBCTL[10:8] TIMB[7:0] */
+constexpr uint32_t kInterruptEnableOffset = 0x41Eu;         /* SCIEB: bit 6 timer A, bit 7 timer B */
+constexpr uint32_t kInterruptResetOffset = 0x422u;          /* SCIRE */
+constexpr uint32_t kInterruptLevel2Offset = 0x428u;         /* SCILV2: level 4 = bit set here only */
 constexpr uint32_t kLogOffset = kMailbox + 0x300u;
 constexpr uint32_t kMailboxBytes = 0x400u;               /* cleared before the driver starts */
 constexpr uint32_t kStackTop = 0x1000u;                  /* the stack grows down to the mailbox */
@@ -41,11 +67,12 @@ constexpr uint32_t kRingMask = kRingEntries - 1u;
 constexpr uint32_t kEntryBytes = 8u;
 /* The end of everything the driver uses: Sound RAM above it is free for samples. */
 constexpr uint32_t kDriverEnd = kScoreOffset + kScoreMaxEvents * kEntryBytes;
+static_assert(2u * kPageBytes == kScoreMaxEvents * 8u, "two pages fill the score area");
 static_assert(kStackTop >= kMailbox + kMailboxBytes + 0x100u && kStackTop <= kScoreOffset,
               "the stack needs room between the mailbox and the score");
 constexpr uint32_t kLogEntries = 64u;
 constexpr uint32_t kMagic = 0x53445256u;                 /* 'SDRV' */
-constexpr uint16_t kVersion = 2u;
+constexpr uint16_t kVersion = 3u;
 
 constexpr uint16_t kMarkerBit = 0x8000u;                 /* an event that only takes a timestamp */
 
