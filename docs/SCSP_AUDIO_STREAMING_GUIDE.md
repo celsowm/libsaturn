@@ -389,3 +389,10 @@ Use the symptom to narrow the layer before changing code:
 
 Keep fixes at the layer that owns the violated invariant. Do not compensate for
 a scheduler bug by lowering volume, changing pitch, or re-encoding the asset.
+
+### PCM8 music from the CD
+
+`examples/pcm8_cd_music` plays a 22.05 kHz signed 8-bit stereo track that exists only in the ISO: the disc
+scheduler feeds `sat_music`, which drives the two seamless PCM8 streams, while a resident effect plays over it.
+Measured in Mednafen over 34 s (one loop wrap): 0 underruns, 206 refills, at least 20992 frames buffered,
+recording correlated 0.998 with the source at every 1 s probe after start. Real hardware is not validated.
