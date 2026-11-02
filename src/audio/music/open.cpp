@@ -79,6 +79,8 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
     if (on_disc && desc->disc == nullptr) return SAT_ERR_UNSUPPORTED;
     if (on_disc) {
         if (g_disc_primary != nullptr && g_disc_standby != nullptr) return SAT_ERR_BUSY;
+        if (desc->ring_frames < async_min_ring_frames(info.format, static_cast<uint8_t>(info.channels)))
+            return SAT_ERR_INVALID_ARG;   // would never fill both SCSP halves: silent
         src_bytes = compressed != 0u ? info.size : sample_count * frame_bytes;
         if (disc_file->size < src_bytes) return SAT_ERR_INVALID_ARG;
     } else {

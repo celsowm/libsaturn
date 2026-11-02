@@ -17,38 +17,57 @@ constexpr uint32_t kSectorBytes = 2048u;
 constexpr uint32_t kAsyncSliceBytes = 4096u;      // payload moved by one PCM `deliver` call
 constexpr uint32_t kAdpcmSegmentBlocks = 8u;      // ADPCM reads stay near 8k frames: two must fit a ring
 
-/* Bytes of the next segment: a whole one, or what is left of the file. ADPCM expands 4:1, so a
- * 16 KiB read would be most of a ring; its segments are cut to whole sectors near 8 blocks. */
-uint32_t async_segment_bytes(const MusicSlot& slot) {
+/* The most one read can be: ADPCM expands 4:1, so a 16 KiB read would be most of a ring; its segments are cut to
+ * whole sectors near 8 blocks (IMA) or to 4 KiB (ADX). */
+uint32_t async_segment_cap(uint8_t format, uint8_t channels) {
     uint32_t cap = SAT_DISC_STREAM_SEGMENT_BYTES;
-    if (slot.format == SAT_AUDIO_ADX_ADPCM) {
+    if (format == SAT_AUDIO_ADX_ADPCM) {
         if (cap > 4096u) cap = 4096u; // bound both in-flight reads to ~8k decoded frames
-    } else if (slot.format == SAT_AUDIO_IMA_ADPCM) {
+    } else if (format == SAT_AUDIO_IMA_ADPCM) {
         namespace codec = saturn::core::audio::ima_adpcm;
-        uint32_t sectors = kAdpcmSegmentBlocks * codec::block_bytes(slot.channels) / kSectorBytes;
+        uint32_t sectors = kAdpcmSegmentBlocks * codec::block_bytes(channels) / kSectorBytes;
         if (sectors == 0u) sectors = 1u;
         if (sectors * kSectorBytes < cap) cap = sectors * kSectorBytes;
     }
+    return cap;
+}
+
+/* Bytes of the next segment: a whole one, or what is left of the file. */
+uint32_t async_segment_bytes(const MusicSlot& slot) {
+    const uint32_t cap = async_segment_cap(slot.format, slot.channels);
     const uint32_t left = slot.src_bytes - slot.file_pos;
     return left < cap ? left : cap;
+}
+
+/* Frames a segment of `payload` bytes can add to the rings at most. */
+uint32_t async_payload_frames(uint8_t format, uint8_t channels, uint32_t payload) {
+    if (format == SAT_AUDIO_ADX_ADPCM) {
+        namespace codec = saturn::core::audio::adx_adpcm;
+        const uint32_t n = codec::block_bytes(channels);
+        return (payload + n - 1u) / n * codec::kBlockFrames;
+    }
+    if (format == SAT_AUDIO_IMA_ADPCM) {
+        namespace codec = saturn::core::audio::ima_adpcm;
+        // A block may be completed by this segment's first bytes: whole blocks in (carry + payload).
+        const uint32_t block_bytes = codec::block_bytes(channels);
+        return (payload + block_bytes - 1u) / block_bytes * codec::kBlockFrames;
+    }
+    const uint32_t frame_bytes = bytes_per_sample(format) * channels;
+    return frame_bytes == 0u ? 0u : payload / frame_bytes;
 }
 
 /* Frames the next segment can add to the rings at most. */
 uint32_t async_segment_bound(const MusicSlot& slot, uint32_t segment) {
     const uint32_t payload = segment > slot.skip_bytes ? segment - slot.skip_bytes : 0u;
-    if (slot.format == SAT_AUDIO_ADX_ADPCM) {
-        namespace codec = saturn::core::audio::adx_adpcm;
-        const uint32_t n = codec::block_bytes(slot.channels);
-        return (payload + n - 1u) / n * codec::kBlockFrames;
-    }
-    if (slot.format == SAT_AUDIO_IMA_ADPCM) {
-        namespace codec = saturn::core::audio::ima_adpcm;
-        // A block may be completed by this segment's first bytes: whole blocks in (carry + payload).
-        const uint32_t block_bytes = codec::block_bytes(slot.channels);
-        return (payload + block_bytes - 1u) / block_bytes * codec::kBlockFrames;
-    }
-    const uint32_t frame_bytes = bytes_per_sample(slot.format) * slot.channels;
-    return frame_bytes == 0u ? 0u : payload / frame_bytes;
+    return async_payload_frames(slot.format, slot.channels, payload);
+}
+
+/* The smallest ring a disc track can start in. The SCSP stream starts when both its Sound RAM halves are written
+ * (2 chunks of frames), and the feed starts it when no further whole segment fits the ring: a ring under
+ * 2 chunks + one segment never reaches both, and the track stays silent. */
+uint32_t async_min_ring_frames(uint8_t format, uint8_t channels) {
+    return 2u * saturn::core::kAudioStreamChunkFrames +
+           async_payload_frames(format, channels, async_segment_cap(format, channels));
 }
 
 uint8_t async_next(void* user, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {

@@ -5,6 +5,7 @@
 #include "saturn/asset.h"
 #include "saturn/cdfs.h"
 #include "saturn/disc_stream.h"
+#include "src/audio/streaming/runtime.hpp"
 #include "src/audio/music/codecs/ima.hpp"
 #include "src/audio/music/codecs/adx.hpp"
 
@@ -74,6 +75,7 @@ sat_result_t feed(MusicSlot& slot);
 
 extern const sat_disc_music_feed_ops_t kAsyncFeed;
 bool async_primed(const MusicSlot& slot);
+uint32_t async_min_ring_frames(uint8_t format, uint8_t channels);
 uint32_t ring_buffered(const MusicSlot& slot);
 bool prefetch_ready(const MusicSlot& slot);
 void start_streams(MusicSlot& slot);

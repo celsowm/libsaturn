@@ -648,6 +648,12 @@ void test_ownership() {
     CHECK(open_test_music(&second, "music/s16-stereo", false) == SAT_ERR_UNSUPPORTED);
     CHECK(open_test_music(&second, "music/s16-stereo") == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
+    /* a ring under two SCSP halves plus one segment never starts: refused at open, not silent */
+    sat_music_desc_t small{"music/s16-stereo", &g_disc, g_workspaces[0], sizeof(g_workspaces[0]), 8192u};
+    CHECK(sat_music_open(&second, &small) == SAT_ERR_INVALID_ARG);
+    small.ring_frames = 12288u;
+    CHECK(sat_music_open(&second, &small) == SAT_OK);
+    CHECK(sat_music_close(second) == SAT_OK);
 }
 
 /* Data jobs share the drive: the music keeps its rings, the job completes. */
