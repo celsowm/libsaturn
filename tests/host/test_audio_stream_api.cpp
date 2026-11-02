@@ -447,6 +447,121 @@ int main() {
 
         scsp::g_current_sample_block = 0u;
     }
+
+    // ---- PCM8 seamless loop: the halves are 4096 bytes apart (not 8192), the SCSP is told PCM8, and a
+    // half is only ever rewritten while the other one plays. Rates and stereo (two mono streams in lock-step).
+    {
+        struct Case { uint32_t rate; uint32_t streams; };
+        static const Case cases[] = {{22050u, 1u}, {22050u, 2u}, {32000u, 2u}, {44100u, 2u}};
+        static uint8_t ring[2][16384u];
+        for (const Case& c : cases) {
+            saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+            std::memset(scsp::g_sound_ram, 0xEE, sizeof(scsp::g_sound_ram));
+            sat_audio_spec_t spec = {c.rate, 16384u, 1u, SAT_AUDIO_PCM_S8, 0u};
+            sat_audio_stream_t stream[2] = {};
+            uint32_t next_write[2] = {0u, 0u};     // next sample index to hand to the ring
+            for (uint32_t k = 0u; k < c.streams; ++k) {
+                OK(sat_audio_stream_open(&stream[k], &spec, ring[k], sizeof(ring[k])) == SAT_OK);
+            }
+            // sample n of stream k: distinguishes neighbours, 256-sample repeats and the two channels
+            auto gen = [](uint32_t k, uint32_t n) {
+                return static_cast<uint8_t>(n + 37u * (n >> 8) + 11u * (n >> 12) + 101u * k);
+            };
+            auto feed = [&](uint32_t k, uint32_t frames) {
+                static uint8_t tmp[8192u];
+                OK(frames <= sizeof(tmp));
+                for (uint32_t i = 0u; i < frames; ++i) tmp[i] = gen(k, next_write[k] + i);
+                OK(sat_audio_stream_write(stream[k], tmp, frames) == SAT_OK);
+                next_write[k] += frames;
+            };
+            for (uint32_t k = 0u; k < c.streams; ++k) feed(k, 8192u);
+            scsp::g_current_sample_block = 0u;
+            scsp::g_key_on_count = 0u;
+            scsp::g_key_off_count = 0u;
+            uint32_t frame = service_until_playing(stream[0], 0u);
+            for (uint32_t k = 1u; k < c.streams; ++k) {
+                sat_audio_stream_stats_t st{};
+                OK(sat_audio_stream_stats(stream[k], &st) == SAT_OK && st.playing == 1u);
+            }
+            OK(scsp::g_key_on_count == c.streams);
+            OK(scsp::g_last_config.pcm8 == 1u && scsp::g_last_config.loop == 1u);
+            OK(scsp::g_last_config.sample_count == 8192u && scsp::g_last_config.loop_start == 0u &&
+               scsp::g_last_config.loop_end == 8191u);
+            OK(scsp::g_last_config.sample_rate == c.rate);
+            uint32_t base[2];
+            for (uint32_t k = 0u; k < c.streams; ++k) {
+                const auto& slot = saturn::core::g_audio_streams.slots[k];
+                base[k] = slot.sound_ram_offset;
+                for (uint32_t n = 0u; n < 8192u; ++n) OK(scsp::g_sound_ram[base[k] + n] == gen(k, n));
+                OK(scsp::g_sound_ram[base[k] + 8192u] == 0xEEu);          // nothing past the loop
+                if (k != 0u) OK(base[k] - base[k - 1u] >= 8192u);       // allocations do not overlap
+            }
+            OK(scsp::g_last_config.start_address == base[c.streams - 1u]);
+
+            uint32_t refills = 2u;                 // refill_count so far: the opening is two halves
+            uint32_t half = 0u;                    // the half being rewritten next
+            uint32_t next_sample = 8192u;          // first sample index it will receive
+            for (uint32_t transition = 0u; transition < 12u; ++transition) {
+                for (uint32_t k = 0u; k < c.streams; ++k) feed(k, 4096u);
+                const uint8_t playing_half = static_cast<uint8_t>(half ^ 1u);
+                scsp::g_current_sample_block = playing_half;
+                uint8_t held[2][4096u];
+                for (uint32_t k = 0u; k < c.streams; ++k) {
+                    std::memcpy(held[k], scsp::g_sound_ram + base[k] + playing_half * 4096u, 4096u);
+                }
+                // a late service every third transition: the budget leaves slack for it
+                if (transition % 3u == 2u) frame += 3u;
+                sat_audio_stream_stats_t st{};
+                const uint32_t want = refills + 1u;
+                for (uint32_t spent = 0u;; ++spent) {
+                    OK(spent < 30u);
+                    service(++frame, 60u);
+                    OK(sat_audio_stream_stats(stream[0], &st) == SAT_OK);
+                    for (uint32_t k = 0u; k < c.streams; ++k) {   // the playing half is never touched
+                        OK(std::memcmp(held[k], scsp::g_sound_ram + base[k] + playing_half * 4096u, 4096u) == 0);
+                    }
+                    if (st.refill_count == want) break;
+                }
+                for (uint32_t k = 0u; k < c.streams; ++k) {
+                    sat_audio_stream_stats_t sk{};
+                    OK(sat_audio_stream_stats(stream[k], &sk) == SAT_OK && sk.refill_count == want);
+                    OK(sk.underrun_count == 0u);
+                    for (uint32_t n = 0u; n < 4096u; ++n) {
+                        OK(scsp::g_sound_ram[base[k] + half * 4096u + n] == gen(k, next_sample + n));
+                    }
+                }
+                half ^= 1u;
+                next_sample += 4096u;
+                ++refills;
+                if (transition == 5u) {            // pause stops the voice; resume reopens the loop from the ring
+                    for (uint32_t k = 0u; k < c.streams; ++k) OK(sat_audio_stream_pause(stream[k]) == SAT_OK);
+                    OK(scsp::g_key_off_count == c.streams);
+                    const uint32_t uploads = scsp::g_upload_count;
+                    service(++frame, 60u);
+                    OK(scsp::g_upload_count == uploads);
+                    for (uint32_t k = 0u; k < c.streams; ++k) {
+                        OK(sat_audio_stream_resume(stream[k]) == SAT_OK);
+                        feed(k, 8192u);                  // the refill drained the ring: a new opening needs two halves
+                    }
+                    scsp::g_key_off_count = 0u;
+                    scsp::g_current_sample_block = 0u;
+                    frame = service_until_playing(stream[0], frame + 1u);
+                    for (uint32_t k = 0u; k < c.streams; ++k) {   // the new loop starts at the ring head
+                        for (uint32_t n = 0u; n < 8192u; ++n) {
+                            OK(scsp::g_sound_ram[base[k] + n] == gen(k, next_sample + n));
+                        }
+                    }
+                    half = 0u;
+                    next_sample += 8192u;
+                    refills += 2u;
+                }
+            }
+            OK(scsp::g_key_off_count == 0u);       // the voices stayed keyed on across every boundary
+            for (uint32_t k = 0u; k < c.streams; ++k) OK(sat_audio_stream_close(stream[k]) == SAT_OK);
+            OK(scsp::g_key_off_count == c.streams);
+        }
+        scsp::g_current_sample_block = 0u;
+    }
     std::puts("audio stream api: OK");
     return 0;
 }

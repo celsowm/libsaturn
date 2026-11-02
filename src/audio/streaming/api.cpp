@@ -75,7 +75,7 @@ constexpr uint32_t kRefillGranuleFrames = 256u;
 constexpr uint32_t kStartSliceFrames = 1024u;
 
 bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_rate) {
-    if (display_rate == 0u || slot.format != SAT_AUDIO_PCM_S16) return false;
+    if (display_rate == 0u || bytes_per_sample(slot.format) == 0u) return false;
     if (slot.ring.capacity_frames < 2u * kAudioStreamChunkFrames) return false;
     // CA is sampled at most once per display-service frame. Keep each half
     // at least two frames long so a delayed service still cannot skip across
@@ -83,6 +83,14 @@ bool stream_can_loop_seamlessly(const AudioStreamSlot& slot, uint32_t display_ra
     // usual 22.05/44.1/48 kHz music rates with ample margin.
     return slot.sample_rate <=
         (static_cast<uint64_t>(kAudioStreamChunkFrames) * display_rate) / 2u;
+}
+
+/* Sound RAM address of a half. The halves are contiguous (the loop is 2 * kAudioStreamChunkFrames
+ * samples), so the stride is the half's size in bytes: 8192 for PCM16, 4096 for PCM8. The slot's
+ * reservation stays 2 * kAudioStreamChunkBytes either way; PCM8 leaves its upper half unused. */
+uint32_t half_offset(const AudioStreamSlot& slot, uint8_t half) {
+    return slot.sound_ram_offset +
+        static_cast<uint32_t>(half) * kAudioStreamChunkFrames * bytes_per_sample(slot.format);
 }
 
 /* Copies frames from skip_frames past the read cursor into one Sound RAM
@@ -94,11 +102,9 @@ uint32_t transfer_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index,
     const uint32_t copied =
         audio_stream_peek(slot.ring, skip_frames, slot.staging, frames);
     if (copied == 0u) return 0u;
-    const uint32_t bytes_per_sample = slot.format == SAT_AUDIO_PCM_S16 ? 2u : 1u;
-    const uint32_t byte_count = copied * bytes_per_sample;
-    const uint32_t buffer_offset = slot.sound_ram_offset +
-        static_cast<uint32_t>(buffer_index) * kAudioStreamChunkBytes +
-        dest_frames * bytes_per_sample;
+    const uint32_t sample_bytes = bytes_per_sample(slot.format);
+    const uint32_t byte_count = copied * sample_bytes;
+    const uint32_t buffer_offset = half_offset(slot, buffer_index) + dest_frames * sample_bytes;
     if (!saturn::hal::scsp::upload(buffer_offset, slot.staging, byte_count)) return 0u;
     return copied;
 }
@@ -320,8 +326,7 @@ void audio_stream_service(
             ? slot.ring.capacity_frames : kAudioStreamChunkFrames;
         const uint32_t frames = upload_stream_chunk(slot, slot.playback_buffer, requested_frames);
         if (frames == 0u) continue;
-        const uint32_t buffer_offset = slot.sound_ram_offset +
-            static_cast<uint32_t>(slot.playback_buffer) * kAudioStreamChunkBytes;
+        const uint32_t buffer_offset = half_offset(slot, slot.playback_buffer);
 
         saturn::hal::scsp::SlotConfig config{};
         config.start_address = buffer_offset;

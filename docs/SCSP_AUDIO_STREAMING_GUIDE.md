@@ -45,6 +45,60 @@ For S16 streaming:
 - steady-state code must never overwrite the half the SCSP is currently reading;
 - `underrun_count` should remain zero during normal music playback.
 
+### Seamless PCM8
+
+`SAT_AUDIO_PCM_S8` takes the same continuous path as S16. A half is still
+4096 *samples*, so the byte size depends on the format; the halves stay
+contiguous because the loop (`LSA=0`, `LEA=8191`, 8192 samples) is one run of
+samples:
+
+| Format | PCM8B | Bytes per half | Half 1 starts at | Loop bytes |
+| --- | --- | --- | --- | --- |
+| S16 | 0 | 8192 | `SA + 8192` | 16384 |
+| S8 | 1 | 4096 | `SA + 4096` | 8192 |
+
+The stride is the logical one (`half * 4096 * bytes_per_sample`). The slot's
+Sound RAM *reservation* is unchanged, `2 * 8192` bytes at the top of sound
+RAM, so allocations never overlap and S16 and S8 streams can be mixed. A PCM8
+stream simply leaves the upper half of its reservation unused. CA still counts
+samples, so the half detection is the same for both formats.
+
+- Supported rates: any rate up to `4096 * display_rate / 2` (122.88 kHz at
+  60 Hz, 51.2 kHz at 25 Hz); 22.05, 32 and 44.1 kHz are covered in the host test.
+- Stereo is two mono S8 streams, hard-panned and keyed on by one KYONEX, as
+  for S16. Feed both with the same number of frames.
+- Work RAM: no new static memory. The caller owns each ring (1 byte per
+  frame, so 16 KiB for 16384 frames, half of S16); the library keeps its
+  existing 8 KiB staging buffer per slot. Sound RAM used per stream: 8 KiB.
+- Refill safety is unchanged: only the half CA is not in is written, a slice
+  per service call, and the ring is consumed once the half is whole.
+  `pause` keys the voice off and `resume` reopens the loop from the ring, which
+  must again hold two halves.
+- A 4096-sample half at 22.05 kHz lasts 186 ms (about 11 frames at 60 Hz). The
+  rate of 8-bit audio is 1 byte per sample per channel (44.1 KB/s stereo at
+  22.05 kHz).
+- Limits: 8-bit PCM has about 48 dB of dynamic range (audible hiss on quiet
+  passages). The service must still run at least once per two frames of
+  the half's duration; synchronous CD reads longer than that stall it.
+  Host tests simulate the SCSP; behaviour on a physical Saturn is not verified.
+
+Example, 22.05 kHz signed PCM8 stereo from two mono streams:
+
+```c
+sat_audio_spec_t spec = {22050u, 16384u, 1u, SAT_AUDIO_PCM_S8, 0u};
+static int8_t left_ring[16384], right_ring[16384];
+sat_audio_stream_t left, right;
+sat_audio_stream_open(&left,  &spec, left_ring,  sizeof left_ring);
+sat_audio_stream_open(&right, &spec, right_ring, sizeof right_ring);
+sat_audio_stream_set_pan(left,  SAT_AUDIO_PAN_LEFT);
+sat_audio_stream_set_pan(right, SAT_AUDIO_PAN_RIGHT);
+/* prime two halves (8192 frames) on both before the first service call */
+sat_audio_stream_write(left,  left_pcm,  8192u);
+sat_audio_stream_write(right, right_pcm, 8192u);
+/* each frame: top the rings up with whatever the producer has, then the
+ * library's per-frame audio service runs the refill */
+```
+
 Stereo music is implemented as two synchronized mono streams. The interleaved
 source is deinterleaved without changing the two bytes of each S16 sample, then
 the left and right streams are hard-panned to separate DAC sides.
