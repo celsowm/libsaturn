@@ -20,7 +20,6 @@
 #include "example_util.h"
 #include "adx_compact_cd/audio_adx_compact_cd.h"
 
-#define MUSIC_LOGICAL "music/adx"
 #define MUSIC_DISC "audio/music.adxbin"
 #define MUSIC_SOURCE "disc/audio/music.adxbin"
 #define EFFECT_RATE 22050u
@@ -97,7 +96,6 @@ int main(void) {
     sat_example_must(sat_sound_create(&effect, &desc));
 
     sat_example_must(register_music());
-    sat_example_must(sat_music_open(&g_music, MUSIC_LOGICAL));
     sat_example_must(sat_adx_player_play(&g_player));
 
     uint8_t playing = 1u;
@@ -119,7 +117,7 @@ int main(void) {
             sat_example_must(playing != 0u ? sat_adx_player_pause(&g_player) : sat_adx_player_play(&g_player));
             playing = (uint8_t)!playing;
         }
-        if (playing != 0u) {
+        {
             const uint64_t t0 = sat_time_ticks();
             sat_example_must(sat_adx_player_update(&g_player));
             const uint32_t us = ticks_to_us((uint32_t)(sat_time_ticks() - t0));
