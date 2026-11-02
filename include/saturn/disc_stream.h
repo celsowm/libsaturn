@@ -140,6 +140,10 @@ typedef struct sat_disc_music_feed_ops {
     /* Optional. Called at the end of every sat_disc_stream_service, whatever it did: the place for
      * the feed to notice that its rings are full and start playing. */
     void (*tick)(void* user);
+    /* Optional, pipelined feeds only. A `deliver` call may succeed and consume nothing: the segment
+     * waits in its buffer (its ring has no room yet) and `deliver` is called again on a later service
+     * call. Without it such a call drops the rest of the segment. */
+    uint8_t waits;
 } sat_disc_music_feed_ops_t;
 
 /* Rings for the two music channels, SAT_DISC_MUSIC_RING_FRAMES frames each (S16 fills them, S8 half). */

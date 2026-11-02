@@ -114,7 +114,7 @@ uint32_t builtin_buffered(void* user) {
  * together (they were opened paused). */
 void builtin_tick(void* user);
 
-const sat_disc_music_feed_ops_t kBuiltinFeed = {builtin_next, nullptr, builtin_deliver, builtin_buffered, 0u, builtin_tick};
+const sat_disc_music_feed_ops_t kBuiltinFeed = {builtin_next, nullptr, builtin_deliver, builtin_buffered, 0u, builtin_tick, 0u};
 
 enum MusicBegin { kMusicStarted, kMusicNotWanted, kMusicBlocked, kMusicNoBuffer };
 
@@ -182,10 +182,12 @@ sat_result_t deliver_slice(sat_disc_stream_t* s) {
     const uint16_t t0 = sat_time_frc();
     const uint32_t left = s->deliv_bytes - s->deliv_off;
     uint32_t used = 0u;
-    const sat_result_t r = feed_ops(s, s->deliv_owner)->deliver(feed_user(s, s->deliv_owner),
-                                                                segment_buffer(s, s->deliv_buf) + s->deliv_off, left, &used);
+    const sat_disc_music_feed_ops_t* ops = feed_ops(s, s->deliv_owner);
+    const sat_result_t r = ops->deliver(feed_user(s, s->deliv_owner),
+                                        segment_buffer(s, s->deliv_buf) + s->deliv_off, left, &used);
     note(s, r);
-    if (r != SAT_OK || used == 0u || used > left) used = left;     /* a failed or stuck segment is dropped */
+    /* A failed segment is dropped; so is one that consumes nothing, unless the feed waits for room. */
+    if (r != SAT_OK || used > left || (used == 0u && ops->waits == 0u)) used = left;
     s->deliv_off += used;
     if (s->deliv_off >= s->deliv_bytes) {
         s->stats.music_segments++;
@@ -208,7 +210,8 @@ sat_result_t deliver_slice(sat_disc_stream_t* s) {
 /* Runs the deliveries to the end. */
 sat_result_t drain_deliveries(sat_disc_stream_t* s) {
     sat_result_t first = SAT_OK;
-    while (s->deliv_active != 0u) {
+    /* A waiting feed consumes nothing until the service visits that drain its ring: never loop on it here. */
+    while (s->deliv_active != 0u && feed_ops(s, s->deliv_owner)->waits == 0u) {
         const sat_result_t r = deliver_slice(s);
         if (first == SAT_OK) first = r;
     }

@@ -531,6 +531,45 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(g_disc.music_ops == nullptr && g_disc.music_wanted == 0u);
 }
 
+/* An ADX track in the smallest ring it may start in (2 SCSP halves and one block). Its segments wait compressed in
+ * the drive buffers and decode a block at a time as the ring drains: nothing may be dropped, overrun or reordered,
+ * across loops. */
+void test_adx_minimum_ring(const char* path, uint32_t fields) {
+    fresh();
+    Track* t = find_track(path);
+    const uint32_t min_ring = 3u * 4096u;      /* two halves and one block, rounded to the 4096-frame multiple */
+    sat_music_desc_t desc{path, &g_disc, g_workspaces[0], sizeof(g_workspaces[0]), 2u * 4096u};
+    CHECK(sat_music_open(&g_music, &desc) == SAT_ERR_INVALID_ARG);     /* below the minimum */
+    desc.ring_frames = min_ring;
+    CHECK(sat_music_open(&g_music, &desc) == SAT_OK);
+    CHECK(sat_music_play(g_music) == SAT_OK);
+    sat_music_info_t info{};
+    uint32_t start_fields = 0u;
+    CHECK(sat_music_info(g_music, &info) == SAT_OK && info.starting == 1u);
+    while (info.starting != 0u) {
+        CHECK(start_fields++ < 400u);
+        CHECK(field(*t) == SAT_OK);
+        CHECK(sat_music_info(g_music, &info) == SAT_OK);
+    }
+    /* Every fourth stretch the SCSP is not drained for a while (a late game frame): the ring fills, and the segment
+     * being delivered must wait for room rather than drop what is left of it. */
+    for (uint32_t i = 0; i < fields; ++i) {
+        if (i % 40u < 15u) {
+            CHECK(sat_music_update(g_music) == SAT_OK);
+        } else {
+            CHECK(field(*t) == SAT_OK);
+        }
+    }
+    const uint64_t played = g_played.ch[0].size() / 2u;
+    CHECK(played > 2u * t->sample_count);                    /* ran through at least two loops */
+    CHECK(g_played.underruns == 0u);
+    sat_audio_stream_stats_t st{};
+    CHECK(sat_music_stats(g_music, &st) == SAT_OK && st.underrun_count == 0u && st.rejected_write_count == 0u);
+    check_played(*t, 0u);
+    CHECK(sat_music_close(g_music) == SAT_OK);
+    CHECK(g_disc.music_ops == nullptr && g_disc.music_wanted == 0u);
+}
+
 void test_seek(const char* path, uint32_t frame) {
     fresh();
     Track* t = find_track(path);
@@ -1100,6 +1139,7 @@ int main() {
     steady_state("music/adpcm-stereo", 1500);
     steady_state("music/adpcm-mono", 1500);
     steady_state("music/adx-stereo", 1500);
+    test_adx_minimum_ring("music/adx-stereo", 400u);
 
     test_seek("music/s16-stereo", 1000u);
     test_seek("music/s8-mono", 12345u);

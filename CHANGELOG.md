@@ -13,6 +13,10 @@ The version is defined once, in the `VERSION` file.
   in `g_audio_streams` is gone (33 KB of Work RAM Low). A failed piece still consumes nothing.
 - `sat_music`: a disc-scheduler track needs `SAT_MUSIC_DISC_WORKSPACE_BYTES` (no 8 KiB read buffer). The music,
   disc-scheduler and stream-API units build with `-Os`.
+- `sat_music` ADX from the disc: segments are whole 16 KiB reads that wait in the drive buffer, reserve no ring
+  room, and decode into the ring as it drains (they were cut to 4 KiB and reserved). The smallest ring stays 12288
+  frames. The new last field `sat_disc_music_feed_ops_t.waits` (0 for other feeds) lets the scheduler keep a segment
+  when `deliver` consumes nothing, instead of dropping it.
 
 ### Changed
 

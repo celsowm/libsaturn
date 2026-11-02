@@ -17,13 +17,12 @@ constexpr uint32_t kSectorBytes = 2048u;
 constexpr uint32_t kAsyncSliceBytes = 4096u;      // payload moved by one PCM `deliver` call
 constexpr uint32_t kAdpcmSegmentBlocks = 8u;      // ADPCM reads stay near 8k frames: two must fit a ring
 
-/* The most one read can be: ADPCM expands 4:1, so a 16 KiB read would be most of a ring; its segments are cut to
- * whole sectors near 8 blocks (IMA) or to 4 KiB (ADX). */
+/* The most one read can be. IMA segments are cut to whole sectors near 8 blocks, since ADPCM expands 4:1 and a
+ * 16 KiB read would be most of a ring. ADX segments keep the full 16 KiB: they wait compressed in their buffer
+ * until the ring has room for their blocks, so the ring never has to hold them decoded. */
 uint32_t async_segment_cap(uint8_t format, uint8_t channels) {
     uint32_t cap = SAT_DISC_STREAM_SEGMENT_BYTES;
-    if (format == SAT_AUDIO_ADX_ADPCM) {
-        if (cap > 4096u) cap = 4096u; // bound both in-flight reads to ~8k decoded frames
-    } else if (format == SAT_AUDIO_IMA_ADPCM) {
+    if (format == SAT_AUDIO_IMA_ADPCM) {
         namespace codec = saturn::core::audio::ima_adpcm;
         uint32_t sectors = kAdpcmSegmentBlocks * codec::block_bytes(channels) / kSectorBytes;
         if (sectors == 0u) sectors = 1u;
@@ -58,6 +57,8 @@ uint32_t async_payload_frames(uint8_t format, uint8_t channels, uint32_t payload
 
 /* Frames the next segment can add to the rings at most. */
 uint32_t async_segment_bound(const MusicSlot& slot, uint32_t segment) {
+    // ADX reserves nothing: its segment waits in the drive buffer and decodes into the ring as room appears.
+    if (slot.format == SAT_AUDIO_ADX_ADPCM) return 0u;
     const uint32_t payload = segment > slot.skip_bytes ? segment - slot.skip_bytes : 0u;
     return async_payload_frames(slot.format, slot.channels, payload);
 }
@@ -66,6 +67,11 @@ uint32_t async_segment_bound(const MusicSlot& slot, uint32_t segment) {
  * (2 chunks of frames), and the feed starts it when no further whole segment fits the ring: a ring under
  * 2 chunks + one segment never reaches both, and the track stays silent. */
 uint32_t async_min_ring_frames(uint8_t format, uint8_t channels) {
+    if (format == SAT_AUDIO_ADX_ADPCM) {
+        // A compressed segment decodes one block at a time: the ring needs room for one block, not the segment.
+        namespace codec = saturn::core::audio::adx_adpcm;
+        return 2u * saturn::core::kAudioStreamChunkFrames + codec::kBlockFrames;
+    }
     return 2u * saturn::core::kAudioStreamChunkFrames +
            async_payload_frames(format, channels, async_segment_cap(format, channels));
 }
@@ -274,6 +280,10 @@ uint32_t async_buffered(void* user) {
 
 /* The rings are full: nothing is on its way and the next segment would not fit. */
 bool async_primed(const MusicSlot& slot) {
+    if (slot.format == SAT_AUDIO_ADX_ADPCM) {
+        namespace codec = saturn::core::audio::adx_adpcm;
+        return writable_frames(slot) < codec::kBlockFrames;     // the ring cannot take another block
+    }
     if (slot.pend_count != 0u) return false;
     return writable_frames(slot) < async_segment_bound(slot, async_segment_bytes(slot));
 }
@@ -314,7 +324,7 @@ void async_tick(void* user) {
     if (slot.starting != 0u && async_primed(slot)) start_streams(slot);
 }
 
-const sat_disc_music_feed_ops_t kAsyncFeed = {async_next, async_started, async_deliver, async_buffered, 1u, async_tick};
+const sat_disc_music_feed_ops_t kAsyncFeed = {async_next, async_started, async_deliver, async_buffered, 1u, async_tick, 1u};
 
 /* Where frame `frame` lies in the file: the sector the read starts at and the bytes to drop.
  * The scheduler has dropped the segments read for the old position (sat_disc_stream_music_abort). */
