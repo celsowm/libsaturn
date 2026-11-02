@@ -228,6 +228,13 @@ def main() -> int:
     args.output_audio.write_bytes(encoded)
     prefix = "SAT_AUDIO_" + re.sub(r"[^A-Za-z0-9]+", "_", args.name).strip("_").upper()
     guard = prefix + "_H"
+    adx_coeff_lines = []
+    if args.format == "adx":
+        coeff1, coeff2 = struct.unpack(">hh", encoded[:4])
+        adx_coeff_lines = [
+            f"#define {prefix}_COEFF_1 {coeff1}",
+            f"#define {prefix}_COEFF_2 {coeff2}",
+        ]
     format_macro = {"adx": "SAT_AUDIO_ADX_ADPCM", "ima_adpcm": "SAT_AUDIO_IMA_ADPCM",
                     "s8": "SAT_AUDIO_PCM_S8", "s16be": "SAT_AUDIO_PCM_S16"}[args.format]
     args.output_header.write_text(
@@ -238,6 +245,7 @@ def main() -> int:
             f"#define {prefix}_SAMPLE_COUNT {sample_count}u",
             f"#define {prefix}_BYTES {len(encoded)}u",
             f"#define {prefix}_FORMAT {format_macro}",
+            *adx_coeff_lines,
             "", f"#endif /* {guard} */", "",
         ]),
         encoding="ascii",
