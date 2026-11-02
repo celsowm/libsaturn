@@ -10,6 +10,7 @@
 #include "saturn/app.h"
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
@@ -37,6 +38,7 @@ static sat_cdfs_source_desc_t g_source_desc;
 static sat_asset_desc_t g_asset_desc;
 static sat_asset_t g_asset;
 static sat_music_t g_music;
+static uint8_t g_music_workspace[SAT_MUSIC_WORKSPACE_BYTES(16384u,2u)] __attribute__((section(".wram_l"),aligned(4)));
 static sat_hud_t g_hud;
 static int16_t g_effect[EFFECT_FRAMES];
 static uint32_t g_worst_hook_us;
@@ -69,7 +71,6 @@ static void make_effect(void) {
 static sat_result_t register_music(void) {
     SAT_TRY(sat_cd_mount_default(&g_cd_block, service_cd_audio, 0, &g_cd_device, 0u, &g_volume));
     SAT_TRY(sat_disc_stream_init(&g_disc, &g_cd_block));
-    SAT_TRY(sat_music_use_disc_stream(&g_disc));
     g_source_desc = (sat_cdfs_source_desc_t){MUSIC_DISC, MUSIC_SOURCE, SAT_AUDIO_ADX_CD_MUSIC_BYTES};
     SAT_TRY(sat_cdfs_register_source_manifest(&g_volume, &g_source_desc, 1u, &g_source));
     g_asset_desc = (sat_asset_desc_t){0};
@@ -101,7 +102,7 @@ int main(void) {
     sat_example_must(sat_sound_create(&effect, &desc));
 
     sat_example_must(register_music());
-    sat_example_must(sat_music_open(&g_music, MUSIC_LOGICAL));
+    sat_example_must(sat_music_open(&g_music, &(sat_music_desc_t){MUSIC_LOGICAL, &g_disc, g_music_workspace, sizeof(g_music_workspace), 16384u}));
     sat_example_must(sat_music_play(g_music));
 
     uint8_t playing = 1u;

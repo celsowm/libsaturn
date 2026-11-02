@@ -18,6 +18,7 @@
 #include "saturn/app.h"
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/cd_block.h"
 #include "saturn/cd_mount.h"
 #include "saturn/cdfs.h"
@@ -72,6 +73,9 @@ static sat_cdfs_source_desc_t g_source_manifest[TRACK_COUNT];
 static sat_asset_desc_t g_asset_manifest[TRACK_COUNT];
 static sat_asset_t g_asset_handles[TRACK_COUNT];
 static sat_music_t g_music;
+static uint8_t g_music_workspace[2][SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] __attribute__((section(".wram_l"),aligned(4)));
+static uint8_t g_current_workspace = 0u;
+static uint8_t g_next_workspace = 1u;
 #if JUKEBOX_DISC_STREAM
 /* The track after the playing one waits as the standby: it fills its rings once the playing track
  * runs, so Y swaps to it without a refill (sat_music_prefetch / sat_music_play). */
@@ -119,7 +123,6 @@ static sat_result_t register_cd_tracks(void) {
     if (status != SAT_OK) return status;
 #if JUKEBOX_DISC_STREAM
     status = sat_disc_stream_init(&g_disc, &g_cd_block);
-    if (status == SAT_OK) status = sat_music_use_disc_stream(&g_disc);
     if (status != SAT_OK) return status;
     /* The next track fills behind the playing one (row 15 of the hardware checklist asks whether a
      * real drive glitches while it does); without this it fills only while the music is paused. */
@@ -185,7 +188,7 @@ static void close_next_track(void) {
 static sat_result_t open_next_track(void) {
     g_next_index = (uint8_t)((g_track_index + 1u) % TRACK_COUNT);
     g_next_requested = 0u;
-    return sat_music_open(&g_next, g_tracks[g_next_index].logical_path);
+    return sat_music_open(&g_next, &(sat_music_desc_t){g_tracks[g_next_index].logical_path, &g_disc, g_music_workspace[g_next_workspace], sizeof(g_music_workspace[0]), 32768u});
 }
 #endif
 
@@ -200,7 +203,13 @@ static sat_result_t open_selected_track(void) {
     }
     sat_result_t status = warm_selected_track();
     if (status != SAT_OK) return status;
-    status = sat_music_open(&g_music, g_tracks[g_track_index].logical_path);
+    status = sat_music_open(&g_music, &(sat_music_desc_t){g_tracks[g_track_index].logical_path,
+#if JUKEBOX_DISC_STREAM
+       &g_disc,
+#else
+       0,
+#endif
+       g_music_workspace[g_current_workspace], sizeof(g_music_workspace[0]), 32768u});
     if (status != SAT_OK) return status;
     status = sat_music_play(g_music);
     if (status == SAT_OK) g_playing = 1u;
@@ -222,6 +231,9 @@ static sat_result_t select_track(int8_t delta) {
         const sat_music_t previous = g_music;
         g_music = g_next;
         g_next = previous;
+        const uint8_t previous_workspace = g_current_workspace;
+        g_current_workspace = g_next_workspace;
+        g_next_workspace = previous_workspace;
         g_track_index = (uint8_t)selected;
         g_playing = 1u;
         g_start_frames = 0u;

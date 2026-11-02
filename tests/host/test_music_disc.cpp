@@ -17,6 +17,7 @@
 
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/disc_stream.h"
 #include "src/audio/playback/ima_adpcm.hpp"
 #include "src/audio/playback/adx_adpcm.hpp"
@@ -406,19 +407,26 @@ bool g_overlap = false;                 /* a segment was read while another was 
 
 sat_disc_stream_t g_disc;
 sat_music_t g_music;
+uint32_t g_open_workspace = 0u;
+static uint8_t g_workspaces[2][SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
+sat_result_t open_test_music(sat_music_t* out, const char* name) {
+    uint8_t* workspace = g_workspaces[(g_open_workspace++) % 2u];
+    sat_music_desc_t desc{name, &g_disc, workspace, sizeof(g_workspaces[0]), 32768u};
+    return sat_music_open(out, &desc);
+}
 
 void fresh(uint32_t latency = 3u) {
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     saturn::core::music_runtime_reset();
     g_drive = Drive{};
     g_fields = 0u;
+    g_open_workspace = 0u;
     g_drive.latency = latency;
     g_max_update_frames = 0;
     g_overlap = false;
     g_asset_reads = 0;
     g_played = Played{};
     CHECK(sat_disc_stream_init(&g_disc, reinterpret_cast<sat_cd_block_t*>(&g_disc)) == SAT_OK);
-    CHECK(sat_music_use_disc_stream(&g_disc) == SAT_OK);
     /* most tests prefetch behind a playing track, which the library only does when asked to */
     sat_music_set_prefetch_while_playing(1u);
 }
@@ -460,7 +468,7 @@ uint32_t stream_buffered(uint32_t c) {
 void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     fresh(latency);
     Track* t = find_track(path);
-    CHECK(sat_music_open(&g_music, path) == SAT_OK);
+    CHECK(open_test_music(&g_music, path) == SAT_OK);
     sat_music_info_t info{};
     CHECK(sat_music_info(g_music, &info) == SAT_OK && info.disc_streamed == 1u);
     CHECK(sat_music_play(g_music) == SAT_OK);
@@ -512,7 +520,7 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
 void test_seek(const char* path, uint32_t frame) {
     fresh();
     Track* t = find_track(path);
-    CHECK(sat_music_open(&g_music, path) == SAT_OK);
+    CHECK(open_test_music(&g_music, path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
     for (int i = 0; i < 30; ++i) CHECK(field(*t) == SAT_OK);
     /* mid-delivery: a segment is half in the rings, the next in flight or waiting */
@@ -548,7 +556,7 @@ void test_seek(const char* path, uint32_t frame) {
 void test_seek_aborts_flight() {
     fresh(1000u);                                     /* a drive too slow to ever finish by polling */
     Track* t = find_track("music/s16-stereo");
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
     for (int i = 0; i < 400; ++i) CHECK(field(*t) == SAT_OK);   /* drains the rings, one segment in flight */
     CHECK(g_disc.in_flight == 2u);
@@ -564,7 +572,7 @@ void test_seek_aborts_flight() {
 void test_pause_resume() {
     fresh();
     Track* t = find_track("music/s16-stereo");
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
     sat_music_info_t info{};
     for (int i = 0; i < 400 && (info.starting != 0u || i == 0); ++i) {
@@ -587,11 +595,11 @@ void test_pause_resume() {
 
 void test_ownership() {
     fresh();
-    CHECK(sat_music_open(&g_music, "music/s16-stereo") == SAT_OK);
+    CHECK(open_test_music(&g_music, "music/s16-stereo") == SAT_OK);
     sat_music_t second{};
     /* a track the scheduler cannot read keeps the old path, beside the disc one */
     sat_music_t ram{};
-    CHECK(sat_music_open(&ram, "music/ram") == SAT_OK);
+    CHECK(open_test_music(&ram, "music/ram") == SAT_OK);
     sat_music_info_t info{};
     CHECK(sat_music_info(ram, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_play(ram) == SAT_OK);
@@ -600,28 +608,28 @@ void test_ownership() {
     CHECK(g_asset_reads > 0u);
     CHECK(sat_music_close(ram) == SAT_OK);
     sat_music_t other{};
-    CHECK(sat_music_open(&other, "music/other-reader") == SAT_OK);          /* UNSUPPORTED source: legacy */
+    CHECK(open_test_music(&other, "music/other-reader") == SAT_OK);          /* UNSUPPORTED source: legacy */
     CHECK(sat_music_info(other, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_close(other) == SAT_OK);
     CHECK(sat_music_use_disc_stream(nullptr) == SAT_ERR_BUSY);              /* a disc track is open */
     /* a second disc track waits behind the first as the standby; a third has no feed */
-    CHECK(sat_music_open(&second, "music/s8-stereo") == SAT_OK);
+    CHECK(open_test_music(&second, "music/s8-stereo") == SAT_OK);
     CHECK(sat_music_info(g_music, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 0u);
     CHECK(sat_music_info(second, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 1u);
     sat_music_t third{};
-    CHECK(sat_music_open(&third, "music/s16-mono") == SAT_ERR_BUSY);
+    CHECK(open_test_music(&third, "music/s16-mono") == SAT_ERR_BUSY);
     CHECK(sat_music_use_disc_stream(nullptr) == SAT_ERR_BUSY);
     /* the first one closing leaves the standby in place; a new disc track then plays the drive */
     CHECK(sat_music_close(g_music) == SAT_OK);
-    CHECK(sat_music_open(&third, "music/s16-mono") == SAT_OK);
+    CHECK(open_test_music(&third, "music/s16-mono") == SAT_OK);
     CHECK(sat_music_info(third, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 0u);
     CHECK(sat_music_close(third) == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
     /* the slots are free again, and so is the feed */
-    CHECK(sat_music_open(&second, "music/s8-stereo") == SAT_OK);
+    CHECK(open_test_music(&second, "music/s8-stereo") == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
     CHECK(sat_music_use_disc_stream(nullptr) == SAT_OK);
-    CHECK(sat_music_open(&second, "music/s16-stereo") == SAT_OK);          /* unbound: old path */
+    CHECK(open_test_music(&second, "music/s16-stereo") == SAT_OK);          /* unbound: old path */
     CHECK(sat_music_info(second, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_close(second) == SAT_OK);
 }
@@ -651,7 +659,7 @@ void test_data_job_beside_music() {
     data.lba = 4000u;
     for (uint32_t i = 0; i < g_job.file.size; ++i) data.image.push_back(pattern(i + 99u));
     g_tracks.push_back(data);
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
     sat_disc_job_t job{};
     job.ops = &kJobOps;
@@ -671,7 +679,7 @@ void test_data_job_beside_music() {
 void test_transport_error() {
     fresh();
     Track* t = find_track("music/s16-stereo");
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
     for (int i = 0; i < 20; ++i) CHECK(field(*t) == SAT_OK);
     g_drive.fail_poll_at = static_cast<int>(g_drive.polls) + 3;
@@ -691,7 +699,7 @@ void test_transport_error() {
 void test_start_through_scheduler_service() {
     fresh();
     Track* t = find_track("music/s16-stereo");
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_play(g_music) == SAT_OK);
     sat_music_info_t info{};
     int polls = 0;
@@ -719,7 +727,7 @@ void test_stopped_music_does_not_hold_data() {
     data.lba = 4000u;
     for (uint32_t i = 0; i < g_job.file.size; ++i) data.image.push_back(pattern(i + 99u));
     g_tracks.push_back(data);
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);        /* open, never played: rings empty */
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);        /* open, never played: rings empty */
     sat_disc_job_t job{};
     job.ops = &kJobOps;
     job.extent = sat_disc_extent_t{&g_job.file, 0u, 0u};
@@ -764,8 +772,8 @@ void test_standby_handoff() {
     Track* a = find_track("music/s16-stereo");
     Track* b = find_track("music/s8-stereo");
     sat_music_t ma{}, mb{};
-    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
-    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    CHECK(open_test_music(&ma, a->path) == SAT_OK);
+    CHECK(open_test_music(&mb, b->path) == SAT_OK);
     sat_music_info_t ia{}, ib{};
     CHECK(info_of(mb, &ib) && ib.standby == 1u && ib.prefetched == 0u);
     g_music = ma;
@@ -842,8 +850,8 @@ void test_handoff_mid_segment() {
     Track* a = find_track("music/s16-stereo");
     Track* b = find_track("music/s16-mono");
     sat_music_t ma{}, mb{};
-    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
-    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    CHECK(open_test_music(&ma, a->path) == SAT_OK);
+    CHECK(open_test_music(&mb, b->path) == SAT_OK);
     g_music = ma;
     CHECK(sat_music_play(ma) == SAT_OK);
     sat_music_info_t ia{}, ib{};
@@ -883,8 +891,8 @@ SeekRun prefetch_with_seek_cost(uint32_t switch_fields, uint32_t fields) {
     Track* a = find_track("music/s16-stereo");
     Track* b = find_track("music/s8-stereo");
     sat_music_t ma{}, mb{};
-    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
-    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    CHECK(open_test_music(&ma, a->path) == SAT_OK);
+    CHECK(open_test_music(&mb, b->path) == SAT_OK);
     sat_music_info_t ia{}, ib{};
     g_music = ma;
     CHECK(sat_music_play(ma) == SAT_OK);
@@ -946,8 +954,8 @@ void test_prefetch_seek_cost() {
     Track* a = find_track("music/s16-stereo");
     Track* b = find_track("music/s8-stereo");
     sat_music_t ma{}, mb{};
-    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
-    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    CHECK(open_test_music(&ma, a->path) == SAT_OK);
+    CHECK(open_test_music(&mb, b->path) == SAT_OK);
     sat_music_info_t ia{}, ib{};
     g_music = ma;
     CHECK(sat_music_play(ma) == SAT_OK);
@@ -980,8 +988,8 @@ void test_standby_seek() {
     Track* a = find_track("music/s16-stereo");
     Track* b = find_track("music/s8-stereo");
     sat_music_t ma{}, mb{};
-    CHECK(sat_music_open(&ma, a->path) == SAT_OK);
-    CHECK(sat_music_open(&mb, b->path) == SAT_OK);
+    CHECK(open_test_music(&ma, a->path) == SAT_OK);
+    CHECK(open_test_music(&mb, b->path) == SAT_OK);
     g_music = ma;
     CHECK(sat_music_play(ma) == SAT_OK);
     sat_music_info_t ia{}, ib{};
@@ -1014,7 +1022,7 @@ void test_standby_seek() {
 void test_prefetch_single() {
     fresh();
     Track* t = find_track("music/s16-stereo");
-    CHECK(sat_music_open(&g_music, t->path) == SAT_OK);
+    CHECK(open_test_music(&g_music, t->path) == SAT_OK);
     CHECK(sat_music_prefetch(g_music) == SAT_OK);
     sat_music_info_t info{};
     run_until(*t, 800, [&] { return info_of(g_music, &info) && info.prefetched != 0u; });
@@ -1028,7 +1036,7 @@ void test_prefetch_single() {
     /* a track read by the old path fills its rings from update as well */
     Track* ram = find_track("music/ram");
     sat_music_t r{};
-    CHECK(sat_music_open(&r, ram->path) == SAT_OK);
+    CHECK(open_test_music(&r, ram->path) == SAT_OK);
     CHECK(sat_music_prefetch(r) == SAT_OK);
     for (int i = 0; i < 20; ++i) CHECK(sat_music_update(r) == SAT_OK);
     CHECK(info_of(r, &info) && info.disc_streamed == 0u && info.prefetched == 1u);

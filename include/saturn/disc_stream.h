@@ -27,7 +27,7 @@
  * reads the disc and would finish a stream in progress.
  *
  * The music side is a pluggable feed (sat_disc_music_feed_ops_t). sat_disc_stream_music_start
- * installs the built-in one (a raw stereo loop). sat_music_use_disc_stream installs sat_music's, so
+ * installs the built-in one (a raw stereo loop). sat_music_open with disc in sat_music_desc_t installs sat_music's, so
  * the library's own music API (any track on the disc: S8/S16, mono/stereo, IMA ADPCM, seek, pause,
  * loop) streams without waiting for the drive (saturn/audio.h). sat_music's feed is pipelined: the
  * drive reads the next segment while the last one is delivered to the rings a slice at a time.
@@ -284,7 +284,6 @@ void sat_disc_stream_music_set_starting(sat_disc_stream_t* s, uint8_t starting);
  * flight (waiting at most one segment of drive time). Look every file up before the music plays: a
  * lookup or a file read finishes the segment in flight. sat_cd_block progress hooks must not call
  * sat_music_update. */
-sat_result_t sat_music_use_disc_stream(sat_disc_stream_t* stream);
 /* Underruns (the worse channel), refills and the lowest ring fill (frames) of the music. */
 void sat_disc_stream_music_stats(const sat_disc_stream_t* s, uint32_t* underruns, uint32_t* refills,
                                  uint32_t* buffered);

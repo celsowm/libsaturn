@@ -12,8 +12,6 @@ extern "C" {
 #define SAT_AUDIO_PAN_LEFT   (-15)
 #define SAT_AUDIO_PAN_CENTER 0
 #define SAT_AUDIO_PAN_RIGHT  15
-#define SAT_MUSIC_CAPACITY 2u
-#define SAT_MUSIC_BUFFER_FRAMES 32768u
 
 typedef enum sat_audio_format {
     SAT_AUDIO_PCM_S8 = 0,
@@ -47,34 +45,6 @@ typedef struct sat_audio_stream {
     uint16_t slot;
     uint16_t generation;
 } sat_audio_stream_t;
-
-typedef struct sat_music {
-    uint16_t slot;
-    uint16_t generation;
-} sat_music_t;
-
-typedef struct sat_music_info {
-    uint32_t sample_rate;
-    uint32_t sample_count;
-    uint8_t channels;
-    uint8_t format;
-    uint8_t looping;
-    /* 1 from sat_music_play until sat_music_pause / stop / seek: the track is wanted. It is audible
-     * once `starting` is 0. */
-    uint8_t playing;
-    /* 1: the track streams through the disc scheduler (sat_music_use_disc_stream), so
-     * sat_music_update never waits for the drive. */
-    uint8_t disc_streamed;
-    /* 1: sat_music_play was called and the rings are still filling; the streams start, together,
-     * in the sat_music_update (or sat_disc_stream_service) that finds them full. */
-    uint8_t starting;
-    /* 1: a disc track waiting behind the one the drive plays (the second one opened). It fills its
-     * rings only after sat_music_prefetch; sat_music_play on it swaps the two. */
-    uint8_t standby;
-    /* 1: sat_music_prefetch was called, the track is not playing and its rings hold enough (16384
-     * frames for a disc track, full for any other), so sat_music_play starts it at once. */
-    uint8_t prefetched;
-} sat_music_info_t;
 
 typedef struct sat_audio_stream_stats {
     uint32_t buffered_frames;
@@ -224,67 +194,6 @@ sat_result_t sat_audio_stream_stats(
     sat_audio_stream_t stream,
     sat_audio_stream_stats_t* out_stats
 );
-
-/* Preconverted PCM, blocked IMA ADPCM or ADX payload from the logical asset registry.
- * IMA blocks contain 1024 frames and ADX frames 32 samples per channel;
- * both decode on SH-2 to S16BE before reaching SCSP stream rings.
- * OGG/MP3 decoding remains a build step.
- * Music loops the complete asset and uses a fixed internal pool of two
- * streams; use sat_music_capacity() to size content budgets. */
-sat_result_t sat_music_open(sat_music_t* out_music, const char* logical_path);
-/* Never waits: it marks the track wanted and returns. The rings fill over the following
- * sat_music_update calls (a RAM track in a few, a disc track at the drive's pace through the
- * scheduler: 87 display frames for the jukebox's 1.5 s of 22.05 kHz stereo S16 on Mednafen) and the two channel
- * streams start together once they are full; until then sat_music_info reports `starting`.
- * A program that calls play and never updates hears nothing. Also resumes a paused track. */
-sat_result_t sat_music_play(sat_music_t music);
-/* Fills the track's rings now, silent, so a later sat_music_play starts it at once instead of after
- * the refill. A disc track is read by the scheduler over the following sat_music_update calls, in
- * bursts while the playing track's rings are nearly full (saturn/disc_stream.h, standby_high /
- * standby_floor): sat_music_info reports `prefetched` once the rings hold 16384 frames, and the rest
- * fills at normal priority. A drive with little spare throughput needs time for that: prefetch as
- * early as the game knows what comes next (on Mednafen, which leaves a few percent beyond a 22.05
- * kHz stereo S16 track, tens of seconds). Cancelled by stop / seek (call it again). Returns at once
- * and reads nothing.
- *
- * Two disc tracks can be open (sat_music_use_disc_stream): the drive plays the first opened, the
- * second waits behind it as the standby. sat_music_play on the standby is a gapless handoff when it
- * was prefetched: the playing track stops and goes back to its start (it is then the standby), and
- * the new one is audible in that call; the old track's read in flight is not waited for. Without a
- * prefetch (or while it is still short of 16384 frames) it is the same switch with the refill
- * before the new track is heard. The two share the library's two music slots.
- *
- * Real-drive caution: a prefetch moves the laser to the standby's file and back, and costs the
- * playing track up to about (standby_high - standby_floor) frames plus two segments of margin. The
- * manual's average seek is 500 ms at 2x, close to what the playing track's ring holds, so by default
- * the standby is only read while the playing track is paused or stopped (nothing audible depends on
- * the drive then; the host model completes the prefetch even with 1.2 s seeks). The emulators treat
- * seeks as free, so they cannot show the risk of the other mode: see
- * sat_music_set_prefetch_while_playing. */
-sat_result_t sat_music_prefetch(sat_music_t music);
-/* 1 lets the standby be read behind a track that is playing (0, the default, only while it is paused
- * or stopped). The scheduler then adapts to what each visit costs and gives the prefetch up when no
- * ring depth covers it, but the first visit on a drive with slow seeks can still starve the playing
- * track (the host model with 1.2 s seeks: 134 underruns), and no real-drive figure exists yet
- * (docs/HARDWARE_ACCEPTANCE_CHECKLIST.md row 15). Reset by a runtime reset. */
-void sat_music_set_prefetch_while_playing(uint8_t enable);
-sat_result_t sat_music_pause(sat_music_t music);
-sat_result_t sat_music_resume(sat_music_t music);
-sat_result_t sat_music_stop(sat_music_t music);
-/* Moves playback to `frame` (0..sample_count-1). A playing track restarts
- * there after re-priming both channels; a paused or stopped one starts there
- * on the next sat_music_play. The buffered audio is dropped either way. */
-sat_result_t sat_music_seek(sat_music_t music, uint32_t frame);
-/* Moves the audio forward. A RAM-resident track copies into the rings; a track read from the
- * disc through the legacy path waits for the drive when it needs more. A disc-scheduled track
- * (sat_music_use_disc_stream) lands the segment that has arrived and starts the next, never
- * waiting; it also advances the scheduler's data jobs. */
-sat_result_t sat_music_update(sat_music_t music);
-sat_result_t sat_music_close(sat_music_t music);
-sat_result_t sat_music_info(sat_music_t music, sat_music_info_t* out_info);
-sat_result_t sat_music_stats(sat_music_t music, sat_audio_stream_stats_t* out_stats);
-uint8_t sat_music_is_playing(sat_music_t music);
-uint16_t sat_music_capacity(void);
 
 /* ---- Procedural placeholder audio ----------------------------------------
  * Real games ship recorded samples. Examples, prototypes and tests need

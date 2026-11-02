@@ -3,6 +3,7 @@
 #include "saturn/app.h"
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/color.h"
 #include "example_util.h"
 #include "saturn/fmt.h"
@@ -14,6 +15,7 @@
 
 static sat_sound_t g_sounds[SHOWCASE_SFX_COUNT];
 static sat_music_t g_music = {0};
+static uint8_t g_music_workspace[SAT_MUSIC_WORKSPACE_BYTES(16384u,2u)] __attribute__((section(".wram_l"),aligned(4)));
 static uint8_t g_music_playing = 0u;
 static uint8_t g_selected = 0u;
 static uint16_t g_volume = 255u;
@@ -97,7 +99,7 @@ int main(void) {
     music_asset.kind = SAT_ASSET_STREAM;
     sat_asset_t music_asset_handle;
     sat_example_must(sat_asset_register(&music_asset, &music_asset_handle));
-    sat_example_must(sat_music_open(&g_music, music_asset.logical_path));
+    sat_example_must(sat_music_open(&g_music, &(sat_music_desc_t){music_asset.logical_path, 0, g_music_workspace, sizeof(g_music_workspace), 16384u}));
 
     sat_example_must(sat_music_play(g_music));
     g_music_playing = 1u;

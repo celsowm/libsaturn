@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/cd_block.h"
 #include "saturn/sh2.h"
 #include "saturn/cd_mount.h"
@@ -168,6 +169,7 @@ static bh_stream_t g_stream;
 /* BH_MUSIC_LIB=1: the music is a sat_music track on the stream's own disc scheduler (the stage data
  * shares the drive with it) instead of bh_stream's built-in raw feed. */
 static sat_music_t g_lib_music;
+static uint8_t g_lib_music_workspace[SAT_MUSIC_WORKSPACE_BYTES(16384u,2u)] __attribute__((section(".wram_l"),aligned(4)));
 static sat_cdfs_file_source_t g_music_source;
 #endif
 
@@ -450,10 +452,9 @@ static sat_result_t boot(void) {
         desc.channels = BH_MUSIC_CHANNELS;
         desc.format = SAT_AUDIO_PCM_S8;
         desc.kind = SAT_ASSET_STREAM;
-        SETUP(sat_music_use_disc_stream(&g_stream.disc));
         SETUP(sat_cdfs_register_source_manifest(&g_volume, &source, 1u, &g_music_source));
         SETUP(sat_asset_register_manifest(&desc, 1u, &handle));
-        SETUP(sat_music_open(&g_lib_music, "music/stage"));
+        SETUP(sat_music_open(&g_lib_music, &(sat_music_desc_t){"music/stage", &g_stream.disc, g_lib_music_workspace, sizeof(g_lib_music_workspace), 16384u}));
         SETUP(sat_music_play(g_lib_music));
     }
 #else

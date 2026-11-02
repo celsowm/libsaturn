@@ -11,6 +11,7 @@
 #include "saturn/app.h"
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/color.h"
 #include "example_util.h"
 #include "saturn/font.h"
@@ -37,6 +38,7 @@ static uint16_t g_palette[256];
 static sat_font_glyph_t g_font_glyphs[FONT_GLYPH_COUNT];
 static int16_t g_tone[256];
 static int16_t g_music_samples[1024];
+static uint8_t g_music_workspace[SAT_MUSIC_WORKSPACE_BYTES(16384u,2u)] __attribute__((section(".wram_l"),aligned(4)));
 static uint8_t g_data_blob[8] = {0x52u, 0x32u, 0x44u, 0x00u, 0x01u, 0x02u, 0x03u, 0x04u};
 static const sat_rect_t g_player_frames[4] = {
     {0, 0, FRAME_W, FRAME_H}, {16, 0, FRAME_W, FRAME_H},
@@ -209,7 +211,7 @@ int main(void) {
     sat_example_must(sat_font_load("fonts/runtime", &font));
     sat_example_must(sat_font_prepare(&font));
     sat_example_must(sat_sound_load("audio/click", &sound));
-    sat_example_must(sat_music_open(&music, "audio/runtime-music"));
+    sat_example_must(sat_music_open(&music, &(sat_music_desc_t){"audio/runtime-music", 0, g_music_workspace, sizeof(g_music_workspace), 16384u}));
     sat_example_must(sat_music_play(music));
 
     for (;;) {

@@ -101,7 +101,6 @@ set(LIBSATURN_GRAPHICS_SOURCES
 set(LIBSATURN_AUDIO_SOURCES
     src/audio/driver/api.cpp
     src/audio/effects/api.cpp
-    src/audio/playback/adx_player.cpp
     src/audio/playback/api.cpp
     src/audio/playback/ima.cpp
     src/audio/playback/music.cpp

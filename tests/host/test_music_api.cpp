@@ -4,6 +4,7 @@
 
 #include "saturn/asset.h"
 #include "saturn/audio.h"
+#include "saturn/music.h"
 #include "saturn/disc_stream.h"
 #include "src/audio/streaming/runtime.hpp"
 #include "src/hal/scsp/scsp.hpp"
@@ -14,6 +15,7 @@ namespace {
 int16_t g_samples[4096] = {};
 uint8_t g_adx_samples[4u + 4u * 36u] = {};
 bool g_adx = false;
+static uint8_t g_workspace[SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
 bool g_physical = false;
 bool g_stereo = false;
 /* Nonzero: the Nth CD read plays the left channel ahead, as a service run
@@ -101,6 +103,10 @@ void set_slot_level_pan(uint8_t, uint8_t, uint8_t, uint8_t) {}
 }  // namespace saturn::hal::scsp
 
 /* Updates until the rings are full and the streams are released; returns the updates it took. */
+sat_result_t open_test_music(sat_music_t* out, const char* name) {
+    sat_music_desc_t desc{name, nullptr, g_workspace, sizeof(g_workspace), 32768u};
+    return sat_music_open(out, &desc);
+}
 uint32_t pump(sat_music_t music) {
     uint32_t updates = 0u;
     for (;;) {
@@ -128,7 +134,7 @@ uint32_t service_started(sat_music_t music, uint32_t first_frame) {
 int main() {
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     sat_music_t music{};
-    OK(sat_music_open(&music, "music/theme.satstream") == SAT_OK);
+    OK(open_test_music(&music, "music/theme.satstream") == SAT_OK);
     sat_music_info_t info{};
     OK(sat_music_info(music, &info) == SAT_OK && info.sample_rate == 22050u &&
        info.sample_count == 4096u && info.looping != 0u && info.starting == 0u);
@@ -159,7 +165,7 @@ int main() {
     OK(sat_music_info(stale, &info) == SAT_ERR_INVALID_ARG);
     g_physical = true;
     sat_music_t physical{};
-    OK(sat_music_open(&physical, "music/cd-theme.satstream") == SAT_OK);
+    OK(open_test_music(&physical, "music/cd-theme.satstream") == SAT_OK);
     OK(sat_music_play(physical) == SAT_OK);
     g_reads = 0u;
     OK(sat_music_stats(physical, &stats) == SAT_OK && stats.buffered_frames == 0u);
@@ -168,7 +174,7 @@ int main() {
     OK(sat_music_close(physical) == SAT_OK);
     g_stereo = true;
     sat_music_t stereo{};
-    OK(sat_music_open(&stereo, "music/cd-stereo.satstream") == SAT_OK);
+    OK(open_test_music(&stereo, "music/cd-stereo.satstream") == SAT_OK);
     OK(sat_music_info(stereo, &info) == SAT_OK && info.channels == 2u &&
        info.sample_count == 2048u);
     OK(sat_music_play(stereo) == SAT_OK && sat_music_is_playing(stereo) != 0u);
@@ -186,7 +192,7 @@ int main() {
     g_reads = 0u;
     g_skew_left_on_read = 3u;
     sat_music_t skewed{};
-    OK(sat_music_open(&skewed, "music/cd-stereo.satstream") == SAT_OK);
+    OK(open_test_music(&skewed, "music/cd-stereo.satstream") == SAT_OK);
     OK(sat_music_play(skewed) == SAT_OK);
     OK(g_reads == 0u);
     pump(skewed);
@@ -202,7 +208,7 @@ int main() {
     // Seek restarts a playing stereo track at the requested frame: both
     // channels refill from the new source offset and start together.
     sat_music_t seeking{};
-    OK(sat_music_open(&seeking, "music/cd-stereo.satstream") == SAT_OK);
+    OK(open_test_music(&seeking, "music/cd-stereo.satstream") == SAT_OK);
     OK(sat_music_play(seeking) == SAT_OK);
     pump(seeking);
     g_first_offset = -1;
@@ -232,7 +238,7 @@ int main() {
     g_adx_samples[2] = 0xF5;
     g_adx_samples[3] = 0xB6;
     sat_music_t adx{};
-    OK(sat_music_open(&adx, "music/test-adx.satstream") == SAT_OK);
+    OK(open_test_music(&adx, "music/test-adx.satstream") == SAT_OK);
     OK(sat_music_info(adx, &info) == SAT_OK &&
        info.format == SAT_AUDIO_ADX_ADPCM && info.sample_count == 128u);
     OK(sat_music_play(adx) == SAT_OK);

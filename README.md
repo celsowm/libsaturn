@@ -53,7 +53,7 @@ LibSaturn is more than a set of register definitions. Its subsystems are designe
 
 ### Audio, storage, and system hardware
 
-- **SCSP audio:** PCM voices, seamless PCM8/PCM16 streaming, IMA ADPCM and CRI ADX music decoding, a compact caller-backed ADX CD player (`saturn/adx.h`), and DSP echo/reverb.
+- **SCSP audio:** PCM voices, seamless PCM8/PCM16 streaming, IMA ADPCM and CRI ADX music decoding, a caller-backed unified music API (`saturn/music.h`), and DSP echo/reverb.
 - **68000 sound driver:** a resident program for scheduled, timestamped SCSP register writes, independent of the SH-2 game loop's frame length.
 - **Disc and file access:** CD Block, ISO9660/CDFS, logical file APIs, cooperative prefetch, and a bounded disc scheduler coordinating data and music streams.
 - **Save and expansion:** internal Backup RAM via Boot ROM services, save inspection and verification, and 1 MiB / 4 MiB RAM-cartridge support.
@@ -198,7 +198,6 @@ The repository includes focused hardware examples, system tests, and larger demo
 | [`vdp2_effects_demo`](examples/vdp2_effects_demo) | VDP2 effects and composition |
 | [`parallel_runtime`](examples/parallel_runtime) | Master/Slave execution and bounded jobs |
 | [`cd_streaming_jukebox`](examples/cd_streaming_jukebox) | Audio streamed from disc |
-| [`adx_compact_cd`](examples/adx_compact_cd) | Compact ADX stereo CD streaming plus resident PCM16 effects; bounded caller-owned buffers |
 | [`movie_player`](examples/movie_player) | Plays the LibSaturn intro movie with `sat_movie_play`; shows the decode counters |
 | [`scsp_dsp_demo`](examples/scsp_dsp_demo) | SCSP DSP effects |
 | [`scu_dsp_demo`](examples/scu_dsp_demo) | SCU DSP operation |
