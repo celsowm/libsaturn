@@ -434,7 +434,7 @@ sat_result_t async_deliver_adpcm(MusicSlot& slot, const uint8_t* data, uint32_t 
 
 /* The disc scheduler delivers only one slice per service visit. A single
  * ADX group contains just 32 frames: delivering one group per display frame
- * would cap playback at ~1920 frames/s. Decode up to 1024 frames in a visit,
+ * would cap playback at ~1920 frames/s. Decode up to 2048 frames in a visit,
  * then issue a single write per channel, preserving both ring lockstep and
  * predictor history. The 128-byte block buffer lives on the SH-2 stack. */
 sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
