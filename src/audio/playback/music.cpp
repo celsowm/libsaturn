@@ -682,7 +682,9 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const char* logic
         slot.file = nullptr;
         slot.src_bytes = 0u;
         slot.file_pos = 0u;
-        slot.skip_bytes = 0u;
+        // The 4-byte LPC header belongs to the container, not the first
+        // ADX audio frame. The sector reader starts at offset zero.
+        slot.skip_bytes = is_adx ? 4u : 0u;
         slot.carry_have = 0u;
         slot.pend_count = 0u;
         slot.asset = asset;
