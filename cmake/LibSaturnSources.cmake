@@ -106,6 +106,7 @@ set(LIBSATURN_AUDIO_SOURCES
     src/audio/music/player.cpp
     src/audio/music/open.cpp
     src/audio/music/decoder.cpp
+    src/audio/music/codecs.cpp
     src/audio/music/disc_feed.cpp
     src/audio/playback/sound.cpp
     src/audio/playback/state.cpp

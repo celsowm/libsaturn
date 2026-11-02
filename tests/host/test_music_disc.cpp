@@ -19,6 +19,7 @@
 #include "saturn/audio.h"
 #include "saturn/music.h"
 #include "saturn/disc_stream.h"
+#include "saturn/music_codecs.h"
 #include "src/audio/music/codecs/ima.hpp"
 #include "src/audio/music/codecs/adx.hpp"
 #include "src/audio/streaming/runtime.hpp"
@@ -27,6 +28,11 @@
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 
 namespace saturn::core { void music_runtime_reset(); }
+
+#ifdef SAT_TEST_LEAN_CODECS
+/* test_music_lean.cpp: this program carries only ADX from the disc (codecs.cpp is not linked). */
+SAT_MUSIC_CODECS_ADX_FROM_DISC_ONLY;
+#endif
 
 namespace {
 
@@ -336,6 +342,28 @@ extern "C" sat_result_t sat_asset_read_at(const char* path, uint32_t offset, voi
     return SAT_OK;
 }
 
+/* The file's own reader, which sat_music_open asks for the 4-byte ADX header of a track outside RAM. */
+static sat_result_t track_read_at(void* context, uint32_t offset, void* destination, uint32_t bytes,
+                                  uint32_t* out_read) {
+    const Track* t = static_cast<const Track*>(context);
+    const uint32_t size = static_cast<uint32_t>(t->image.size());
+    const uint32_t count = offset >= size ? 0u : (bytes < size - offset ? bytes : size - offset);
+    std::memcpy(destination, t->image.data() + offset, count);
+    *out_read = count;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_file_backend(const char* path, sat_file_read_at_fn* out_read_at, void** out_context) {
+    for (const Track& t : g_tracks) {
+        if (t.source != nullptr && std::strcmp(t.source, path) == 0) {
+            *out_read_at = track_read_at;
+            *out_context = const_cast<Track*>(&t);
+            return SAT_OK;
+        }
+    }
+    return SAT_ERR_NOT_FOUND;
+}
+
 extern "C" sat_result_t sat_cdfs_source_file(const char* source_path, const sat_cdfs_file_t** out_file) {
     for (const Track& t : g_tracks) {
         if (t.source != nullptr && std::strcmp(t.source, source_path) == 0) {
@@ -488,8 +516,8 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(sat_music_play(g_music) == SAT_OK);
     /* play reads nothing and waits for nothing: the rings fill over the next fields and the streams
      * are released together once they are full */
-    const uint32_t expected_reads = t->format == SAT_AUDIO_ADX_ADPCM ? 1u : 0u;
-    CHECK(g_asset_reads == expected_reads && g_drive.begins == 0u && stream_buffered(0) == 0u);
+    /* an ADX header is read from the file's own reader, not through the asset layer */
+    CHECK(g_asset_reads == 0u && g_drive.begins == 0u && stream_buffered(0) == 0u);
     CHECK(sat_music_info(g_music, &info) == SAT_OK && info.starting == 1u && info.playing == 1u);
     uint32_t start_fields = 0u;
     while (info.starting != 0u) {
@@ -500,7 +528,7 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(g_played.underruns == 0u && g_played.ch[0].empty());     /* nothing was played while filling */
     CHECK(stream_buffered(0) > 24000u);                             /* started from a full ring */
     CHECK(g_drive.finishes == 0u);                                  /* not even the start waited for the drive */
-    CHECK(g_asset_reads == expected_reads);  /* ADX opens with one 4-byte header read */
+    CHECK(g_asset_reads == 0u);  /* the ADX header comes from the file reader, not the asset layer */
     const uint32_t finishes_after_prime = g_drive.finishes;
     const uint32_t begins_after_prime = g_drive.begins;
     uint32_t min_fill = 0xFFFFFFFFu;
@@ -512,7 +540,7 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     CHECK(g_played.underruns == 0u);
     CHECK(g_drive.finishes == finishes_after_prime);    /* nothing waited for the drive */
     CHECK(g_drive.begins > begins_after_prime);         /* but segments did keep arriving */
-    CHECK(g_asset_reads == expected_reads);
+    CHECK(g_asset_reads == 0u);
     CHECK(min_fill >= 4096u);                           /* never down to the SCSP half */
     /* a frame pays for a slice, not a segment: 4 KiB of PCM, or one ADPCM block */
     const uint32_t slice_frames = t->format == SAT_AUDIO_IMA_ADPCM ? codec::kBlockFrames :
@@ -1131,6 +1159,20 @@ int main() {
     g_tracks.back().source = "ram/only";                       /* not on the disc: sat_cdfs_source_file says NOT_FOUND */
     add_pcm("music/other-reader", "xother", SAT_AUDIO_PCM_S16, 2u, 40000u, 5200u);
 
+#ifdef SAT_TEST_LEAN_CODECS
+    /* ADX from the disc plays as in the full program; every other format and source is UNSUPPORTED. */
+    steady_state("music/adx-stereo", 1500);
+    test_adx_minimum_ring("music/adx-stereo", 400u);
+    for (const char* name : {"music/s16-stereo", "music/s8-mono", "music/adpcm-stereo", "music/adpcm-mono",
+                             "music/ram", "music/other-reader"}) {
+        fresh(3u);
+        sat_music_t other{};
+        CHECK(open_test_music(&other, name) == SAT_ERR_UNSUPPORTED);
+        CHECK(sat_music_close(other) != SAT_OK);
+    }
+    std::puts("music disc (ADX from the disc only): OK");
+    return 0;
+#endif
     steady_state("music/s16-stereo", 1500);
     steady_state("music/s8-stereo", 1500);
     steady_state("music/s16-mono", 1500);

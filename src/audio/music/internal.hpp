@@ -68,10 +68,19 @@ extern uint8_t g_prefetch_while_playing;
 uint32_t bytes_per_sample(uint8_t format);
 sat_result_t write_channel(MusicSlot& slot, uint32_t channel,
                            const uint8_t* frames, uint32_t count);
-void deinterleave_stereo(const uint8_t* source, uint8_t* planar,
-                         uint32_t frames, uint32_t sample_bytes);
 uint32_t writable_frames(const MusicSlot& slot);
 sat_result_t feed(MusicSlot& slot);
+
+// What the program's codec table (saturn/music_codecs.h) points at.
+struct DiscDeliver {
+    sat_result_t (*deliver)(MusicSlot& slot, const uint8_t* data, uint32_t bytes, uint32_t* consumed);
+};
+struct ResidentFeed {
+    sat_result_t (*pcm)(MusicSlot& slot);
+    sat_result_t (*ima)(MusicSlot& slot);
+    sat_result_t (*adx)(MusicSlot& slot);
+};
+void async_wrote(MusicSlot& slot, uint32_t frames);
 
 extern const sat_disc_music_feed_ops_t kAsyncFeed;
 bool async_primed(const MusicSlot& slot);

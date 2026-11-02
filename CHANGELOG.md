@@ -17,6 +17,13 @@ The version is defined once, in the `VERSION` file.
   room, and decode into the ring as it drains (they were cut to 4 KiB and reserved). The smallest ring stays 12288
   frames. The new last field `sat_disc_music_feed_ops_t.waits` (0 for other feeds) lets the scheduler keep a segment
   when `deliver` consumes nothing, instead of dropping it.
+- `sat_music`: the code for PCM and IMA from the disc and for tracks read from RAM or an asset reader now sits behind
+  a codec table (`src/audio/music/codecs.cpp`, one table `sat_music_codecs`). Programs see no change. A program that
+  streams ADX from the disc only can define the table itself with `SAT_MUSIC_CODECS_ADX_FROM_DISC_ONLY`
+  (`saturn/music_codecs.h`): the linker then leaves PCM, IMA, the IMA tables and the asset read and cache paths out
+  (6,688 B of Work RAM High in the Tekken 3 fight). `sat_music_open` reads the 4-byte ADX header of a disc track from the
+  file's own reader instead of `sat_asset_read_at`. A track the table does not carry is `SAT_ERR_UNSUPPORTED`.
+  Host test `test_music_lean`.
 
 ### Changed
 

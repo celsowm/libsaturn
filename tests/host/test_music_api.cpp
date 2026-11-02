@@ -74,6 +74,16 @@ extern "C" sat_result_t sat_asset_read_at(
 
 /* music.cpp links the disc scheduler hooks; this test never binds one, so none is reached. */
 extern "C" sat_result_t sat_cdfs_source_file(const char*, const sat_cdfs_file_t**) { return SAT_ERR_NOT_FOUND; }
+/* An ADX track outside RAM asks for its file's reader (the 4-byte header): the "physical" asset reads this test's
+ * ADX image. */
+static sat_result_t file_read_at(void*, uint32_t offset, void* destination, uint32_t bytes, uint32_t* out_read) {
+    return sat_asset_read_at("", offset, destination, bytes, out_read);
+}
+extern "C" sat_result_t sat_file_backend(const char*, sat_file_read_at_fn* out_read_at, void** out_context) {
+    *out_read_at = file_read_at;
+    *out_context = nullptr;
+    return SAT_OK;
+}
 extern "C" sat_result_t sat_disc_stream_music_attach(sat_disc_stream_t*, const sat_disc_music_feed_ops_t*, void*) { OK(false); return SAT_ERR_INVALID_ARG; }
 extern "C" void sat_disc_stream_music_detach(sat_disc_stream_t*) { OK(false); }
 extern "C" void sat_disc_stream_music_abort(sat_disc_stream_t*) { OK(false); }

@@ -1,4 +1,5 @@
 #include "src/audio/music/internal.hpp"
+#include "saturn/music_codecs.h"
 
 namespace saturn::core::music {
 
@@ -14,7 +15,6 @@ constexpr uint32_t kSectorBytes = 2048u;
  * (the `bound` of each pending segment, which shrinks as its frames are written). A write never
  * fails and nothing waits. */
 
-constexpr uint32_t kAsyncSliceBytes = 4096u;      // payload moved by one PCM `deliver` call
 constexpr uint32_t kAdpcmSegmentBlocks = 8u;      // ADPCM reads stay near 8k frames: two must fit a ring
 
 /* The most one read can be. IMA segments are cut to whole sectors near 8 blocks, since ADPCM expands 4:1 and a
@@ -112,65 +112,6 @@ void async_wrote(MusicSlot& slot, uint32_t frames) {
     pending.bound = frames < pending.bound ? pending.bound - frames : 0u;
 }
 
-sat_result_t async_deliver_pcm(MusicSlot& slot, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
-    const uint32_t sample_bytes = bytes_per_sample(slot.format);
-    const uint32_t frame_bytes = sample_bytes * slot.channels;
-    if (frame_bytes == 0u) return SAT_ERR_UNSUPPORTED;     // open() only admits S8/S16: keeps the divide defined
-    uint32_t frames = (bytes < kAsyncSliceBytes ? bytes : kAsyncSliceBytes) / frame_bytes;
-    if (frames == 0u) frames = 1u;
-    if (slot.channels == 1u) {
-        SAT_TRY(write_channel(slot, 0u, data, frames));
-    } else {
-        deinterleave_stereo(data, slot.staging_split, frames, sample_bytes);
-        SAT_TRY(write_channel(slot, 0u, slot.staging_split, frames));
-        SAT_TRY(write_channel(slot, 1u, slot.staging_split + frames * sample_bytes, frames));
-    }
-    async_wrote(slot, frames);
-    *consumed = frames * frame_bytes;
-    return SAT_OK;
-}
-
-/* One block per call. A block can straddle two segments: its head waits in `encoded`
- * (carry_have bytes) until the rest arrives. */
-sat_result_t async_deliver_adpcm(MusicSlot& slot, const uint8_t* data, uint32_t bytes, uint32_t* consumed) {
-    namespace codec = saturn::core::audio::ima_adpcm;
-    const uint32_t block_bytes = codec::block_bytes(slot.channels);
-    const uint8_t* source;
-    uint32_t used;
-    if (slot.carry_have != 0u) {
-        used = block_bytes - slot.carry_have;
-        if (used > bytes) used = bytes;
-        for (uint32_t i = 0u; i < used; ++i) slot.encoded[slot.carry_have + i] = data[i];
-        slot.carry_have += used;
-        *consumed = used;
-        if (slot.carry_have < block_bytes) return SAT_OK;
-        slot.carry_have = 0u;
-        source = slot.encoded;
-    } else if (bytes >= block_bytes) {
-        used = block_bytes;
-        source = data;
-    } else {
-        slot.carry_have = bytes;
-        for (uint32_t i = 0u; i < bytes; ++i) slot.encoded[i] = data[i];
-        *consumed = bytes;
-        return SAT_OK;
-    }
-    *consumed = used;
-    if (!codec::decode_block(source, slot.channels, slot.staging_split)) return SAT_ERR_IO;
-    const uint32_t in_block = slot.position_frame % codec::kBlockFrames;
-    uint32_t take = codec::kBlockFrames - in_block;
-    if (take > slot.sample_count - slot.position_frame) take = slot.sample_count - slot.position_frame;
-    SAT_TRY(write_channel(slot, 0u, slot.staging_split + in_block * 2u, take));
-    if (slot.channels == 2u) {
-        SAT_TRY(write_channel(slot, 1u, slot.staging_split + codec::kChannelBytes + in_block * 2u, take));
-    }
-    slot.position_frame += take;
-    if (slot.position_frame == slot.sample_count) slot.position_frame = 0u;
-    async_wrote(slot, take);
-    return SAT_OK;
-}
-
-
 /* The disc scheduler delivers only one slice per service visit. A single
  * ADX group contains just 32 frames: delivering one group per display frame
  * would cap playback at ~1920 frames/s. Decode up to 2048 frames in a visit,
@@ -249,11 +190,14 @@ sat_result_t async_deliver(void* user, const uint8_t* data, uint32_t bytes, uint
         used = slot.pend[0].skip < bytes ? slot.pend[0].skip : bytes;
         slot.pend[0].skip -= used;
     } else {
-        status = slot.format == SAT_AUDIO_IMA_ADPCM
-            ? async_deliver_adpcm(slot, data, bytes, &used)
-            : slot.format == SAT_AUDIO_ADX_ADPCM
-              ? async_deliver_adx(slot, data, bytes, &used)
-              : async_deliver_pcm(slot, data, bytes, &used);
+        if (slot.format == SAT_AUDIO_ADX_ADPCM) {
+            status = async_deliver_adx(slot, data, bytes, &used);
+        } else {
+            // PCM and IMA are the program's to carry (saturn/music_codecs.h).
+            const DiscDeliver* other = static_cast<const DiscDeliver*>(
+                slot.format == SAT_AUDIO_IMA_ADPCM ? sat_music_codecs.ima_disc : sat_music_codecs.pcm_disc);
+            status = other != nullptr ? other->deliver(slot, data, bytes, &used) : SAT_ERR_UNSUPPORTED;
+        }
     }
     if (status != SAT_OK || used >= bytes) {
         // Segment finished (or dropped): its reservation goes.

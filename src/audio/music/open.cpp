@@ -1,4 +1,5 @@
 #include "src/audio/music/internal.hpp"
+#include "saturn/music_codecs.h"
 
 using namespace saturn::core::music;
 
@@ -75,6 +76,13 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
     // (32 frames of ADX, 1024 of IMA): hundreds of blocking CD reads a second. RAM tracks and non-disc readers
     // keep it.
     if (on_disc && desc->disc == nullptr) return SAT_ERR_UNSUPPORTED;
+    // The program's codec table (saturn/music_codecs.h) names the formats and sources it carries.
+    if (on_disc) {
+        if (info.format == SAT_AUDIO_IMA_ADPCM ? sat_music_codecs.ima_disc == nullptr
+            : !is_adx && sat_music_codecs.pcm_disc == nullptr) return SAT_ERR_UNSUPPORTED;
+    } else if (sat_music_codecs.resident == nullptr) {
+        return SAT_ERR_UNSUPPORTED;
+    }
     // The scheduler delivers the bytes: a disc track needs no read buffer of its own.
     const uint32_t needed = on_disc ? SAT_MUSIC_DISC_WORKSPACE_BYTES(desc->ring_frames, info.channels)
                                     : SAT_MUSIC_WORKSPACE_BYTES(desc->ring_frames, info.channels);
@@ -157,9 +165,12 @@ extern "C" sat_result_t sat_music_open(sat_music_t* out_music, const sat_music_d
                 const uint8_t* source = static_cast<const uint8_t*>(info.data);
                 for (uint32_t k = 0u; k < 4u; ++k) coeff[k] = source[k];
             } else {
+                // The file's own reader: the asset cache and the path lookup are not needed for 4 bytes.
+                sat_file_read_at_fn read_at = nullptr;
+                void* context = nullptr;
                 uint32_t count = 0u;
-                const sat_result_t read_result = sat_asset_read_at(
-                    logical_path, 0u, coeff, sizeof(coeff), &count);
+                sat_result_t read_result = sat_file_backend(info.source_path, &read_at, &context);
+                if (read_result == SAT_OK) read_result = read_at(context, 0u, coeff, sizeof(coeff), &count);
                 if (read_result != SAT_OK || count != sizeof(coeff)) {
                     (void)sat_audio_stream_close(slot.stream);
                     if (stereo != 0u) (void)sat_audio_stream_close(slot.stream_r);
