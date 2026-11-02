@@ -89,6 +89,65 @@ At this stage the reference decoder has host tests against FFmpeg-produced
 frames, but physical Saturn throughput, seeks and collision with combat SFX
 are not validated. An optimized 68000 ADX decoder remains a separate project.
 
+### Compact ADX CD player (caller-owned rings)
+
+For memory-constrained games, `saturn/adx.h` exposes `sat_adx_player_*`,
+independent of the larger `sat_music` runtime. The linker only pulls in the
+player that the application uses; `sat_adx_player_*` does not link the
+`sat_music` implementation's approximately 288 KiB of static Work RAM Low.
+The new API requires a primary `sat_disc_stream_t` feed and a previously
+resolved `sat_cdfs_file_t`. It does not heap-allocate, use CD-DA, or
+interfere with resident sound effects.
+
+The application provides `sat_adx_pcm_rings_t`: two 16384-frame mono S16BE
+rings (64 KiB total for stereo), plus `sat_adx_player_t` with 8 KiB planar
+decode staging and small state. The disc scheduler already owns 32 KiB of
+segment storage. The SCSP streaming runtime owns 32 KiB of upload staging,
+and the two playback slots reserve 32 KiB of **Sound RAM** (distinct from
+Work RAM). The exact linked RAM total also depends on the application's
+other linked facilities.
+
+Generate assets with `tools/convert_audio.py --format adx`. Its header
+provides `SAMPLE_RATE`, `SAMPLE_COUNT`, `CHANNELS`, `BYTES`,
+`COEFF_1` and `COEFF_2` macros. The final two are the signed LPC Q12
+coefficients needed for `sat_adx_config_t`, so opening the file requires no
+blocking disc read to obtain the ADX header.
+
+Example outline (after `sat_audio_init`, CD mount and disc stream init):
+
+```c
+static sat_adx_pcm_rings_t rings __attribute__((section(".wram_l"),aligned(4)));
+static sat_adx_player_t player __attribute__((section(".wram_l"),aligned(4)));
+// Obtain file from CDFS and fill config from the generated header.
+sat_adx_config_t config = {sample_rate, sample_count, coeff_1, coeff_2,
+                           2u, {0, 0, 0}};
+sat_adx_player_open(&player, &disc, &file, &config, &rings);
+sat_adx_player_play(&player);
+// Once each display frame, before sat_audio_update:
+sat_adx_player_update(&player);
+sat_audio_update();
+```
+
+Build a runnable example with `make EXAMPLE=adx_compact_cd`. It downloads
+CC0 source audio and makes an ADX file for the ISO, mixing it with a resident
+PCM16 effect. A = effect, C = pause/resume. The HUD shows the decoded frame
+count, ring fill, underruns, and delivery cost.
+
+The compact feed pipelines two sectors (4096 bytes) per read, reassembles
+ADX frames split at sector boundaries, limits delivery to 2048 decoded frames
+per update, and preserves predictor history across frames. At the final ADX
+group it skips the padding and resets LPC history before the music loops.
+Calling `stop` aborts old CD requests and resets both rings and predictors.
+
+**Limitations:** ADX still decodes on the SH-2, *not* the SCSP's Motorola
+68000. This API currently offers full-file looping only, and one primary
+compact ADX feed per scheduler; it cannot share that primary with
+`sat_music` or the scheduler's built-in raw music feed. The 16384-frame
+rings offer limited tolerance to drive seeks, so actual performance must be
+measured in Ymir/Mednafen and on real Saturn hardware before using this
+path during a combat scene. Do not infer real-drive seek timings from
+emulation results.
+
 ### Seamless PCM8
 
 `SAT_AUDIO_PCM_S8` takes the same continuous path as S16. A half is still
