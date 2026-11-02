@@ -407,11 +407,24 @@ bool g_overlap = false;                 /* a segment was read while another was 
 
 sat_disc_stream_t g_disc;
 sat_music_t g_music;
-uint32_t g_open_workspace = 0u;
 static uint8_t g_workspaces[2][SAT_MUSIC_WORKSPACE_BYTES(32768u,2u)] = {};
-sat_result_t open_test_music(sat_music_t* out, const char* name) {
-    uint8_t* workspace = g_workspaces[(g_open_workspace++) % 2u];
-    sat_music_desc_t desc{name, &g_disc, workspace, sizeof(g_workspaces[0]), 32768u};
+sat_music_t g_workspace_handles[2] = {};
+sat_result_t open_test_music(sat_music_t* out, const char* name, bool use_disc = true) {
+    // Workspaces are owned by open handles, not call order. A closed
+    // handle has an invalid generation and frees its workspace.
+    for (uint32_t i = 0u; i < 2u; ++i) {
+        sat_music_info_t info{};
+        if (g_workspace_handles[i].generation != 0u &&
+            sat_music_info(g_workspace_handles[i], &info) == SAT_OK) continue;
+        sat_music_desc_t desc{name, use_disc ? &g_disc : nullptr,
+            g_workspaces[i], sizeof(g_workspaces[i]), 32768u};
+        const sat_result_t st = sat_music_open(out, &desc);
+        if (st == SAT_OK) g_workspace_handles[i] = *out;
+        return st;
+    }
+    // Exercise the runtime's overlap guard instead of hiding it here.
+    sat_music_desc_t desc{name, use_disc ? &g_disc : nullptr,
+        g_workspaces[0], sizeof(g_workspaces[0]), 32768u};
     return sat_music_open(out, &desc);
 }
 
@@ -420,7 +433,8 @@ void fresh(uint32_t latency = 3u) {
     saturn::core::music_runtime_reset();
     g_drive = Drive{};
     g_fields = 0u;
-    g_open_workspace = 0u;
+    g_workspace_handles[0] = {};
+    g_workspace_handles[1] = {};
     g_drive.latency = latency;
     g_max_update_frames = 0;
     g_overlap = false;
@@ -611,14 +625,16 @@ void test_ownership() {
     CHECK(open_test_music(&other, "music/other-reader") == SAT_OK);          /* UNSUPPORTED source: legacy */
     CHECK(sat_music_info(other, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_close(other) == SAT_OK);
-    CHECK(sat_music_use_disc_stream(nullptr) == SAT_ERR_BUSY);              /* a disc track is open */
+    sat_disc_stream_t alternate{};
+    sat_music_desc_t foreign{"music/s8-stereo", &alternate,
+        g_workspaces[1], sizeof(g_workspaces[1]), 32768u};
+    CHECK(sat_music_open(&second, &foreign) == SAT_ERR_BUSY); // cannot switch disc scheduler
     /* a second disc track waits behind the first as the standby; a third has no feed */
     CHECK(open_test_music(&second, "music/s8-stereo") == SAT_OK);
     CHECK(sat_music_info(g_music, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 0u);
     CHECK(sat_music_info(second, &info) == SAT_OK && info.disc_streamed == 1u && info.standby == 1u);
     sat_music_t third{};
     CHECK(open_test_music(&third, "music/s16-mono") == SAT_ERR_BUSY);
-    CHECK(sat_music_use_disc_stream(nullptr) == SAT_ERR_BUSY);
     /* the first one closing leaves the standby in place; a new disc track then plays the drive */
     CHECK(sat_music_close(g_music) == SAT_OK);
     CHECK(open_test_music(&third, "music/s16-mono") == SAT_OK);
@@ -628,8 +644,7 @@ void test_ownership() {
     /* the slots are free again, and so is the feed */
     CHECK(open_test_music(&second, "music/s8-stereo") == SAT_OK);
     CHECK(sat_music_close(second) == SAT_OK);
-    CHECK(sat_music_use_disc_stream(nullptr) == SAT_OK);
-    CHECK(open_test_music(&second, "music/s16-stereo") == SAT_OK);          /* unbound: old path */
+    CHECK(open_test_music(&second, "music/s16-stereo", false) == SAT_OK); // explicit ordinary reader
     CHECK(sat_music_info(second, &info) == SAT_OK && info.disc_streamed == 0u);
     CHECK(sat_music_close(second) == SAT_OK);
 }
