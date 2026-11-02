@@ -424,11 +424,13 @@ struct Args {
     std::string port_device[2];      // "pad", "analog", "mouse", "none"; empty = unchanged
     bool pad_script_game_frame = false;
     std::string backup_ram_path;     // persistent 32 KiB internal Backup RAM image
+    bool smpc_configured = false;    // BIOS boot without the language and date screens
     std::string backup_cart_path;    // existing external image; mapped copy-on-write
     std::string backup_cart_fixture; // throwaway external image; created formatted, guest writes persist
     std::string ram_cart = "none";  // none, 1m, 4m: volatile expansion
     std::vector<std::pair<uint32_t, std::string>> screenshots;  // frame -> PNG path
     std::string video_observations_path;
+    std::string vdp2_trace_path;     // every VDP2 register change, field by field
     harness::video::Crop video_crop;
     // --screenshot-when: shoot `delay` frames after the big-endian word at `address` first
     // reaches `value` (a guest frame counter, so the shot lands on a game frame, not a VBlank).
@@ -532,9 +534,10 @@ void print_usage() {
         "             [--profile-pc <path>] [--profile-cycles <path>] [--profile-instructions <path>] [--profile-transfers <path>] [--print-sh2-state]\n"
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
         "             [--video-observations CSV] [--video-crop X:Y:WIDTH:HEIGHT] (composited RGB changes per field)\n"
+        "             [--vdp2-trace CSV] (every VDP2 register change, sampled at the end of each field)\n"
         "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
-        "             [--boot-mode injection|bios] [--cdb-rom <local-path>] [--boot-marker ADDR]\n"
+        "             [--boot-mode injection|bios] [--smpc-configured] [--cdb-rom <local-path>] [--boot-marker ADDR]\n"
         "             [--backup-ram <path>] [--backup-cart <existing-path>] [--backup-cart-fixture <path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
         "             [--slave-reset-entry <address>]\n");
 }
@@ -647,6 +650,10 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--misaligned-report");
             if (!v) return false;
             out->misaligned_report_path = v;
+        } else if(arg=="--vdp2-trace") {
+            const char* v=next("--vdp2-trace");
+            if(!v || !*v)return false;
+            out->vdp2_trace_path=v;
         } else if(arg=="--video-observations") {
             const char* v=next("--video-observations");
             if(!v || !*v)return false;
@@ -726,6 +733,8 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--pad-release-at");
             if (!v) return false;
             out->pad_release_at = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--smpc-configured") {
+            out->smpc_configured = true;
         } else if (arg == "--backup-ram") {
             const char* v = next("--backup-ram");
             if (!v) return false;
@@ -1004,6 +1013,13 @@ int main(int argc, char** argv) {
     saturn->configuration.video.threadedDeinterlacer=false;
     saturn->EnableSH2CacheEmulation(args.sh2_cache);
     saturn->LoadIPL(std::span<uint8_t, ymir::sys::kIPLSize>(bios.data(), ymir::sys::kIPLSize));
+    if (args.smpc_configured) {
+        // A set STE tells the BIOS the console was configured before.
+        ymir::smpc::PersistentSMPCData smpc_data;
+        saturn->SMPC.SavePersistentData(smpc_data);
+        smpc_data.STE = true;
+        saturn->SMPC.LoadPersistentData(smpc_data);
+    }
 
     if (!args.cdb_rom_path.empty()) {
         auto rom = read_file(args.cdb_rom_path);
@@ -1275,6 +1291,16 @@ int main(int argc, char** argv) {
              ++sink->generation;
          }});
     std::ofstream video_output;
+    std::ofstream vdp2_trace;
+    std::array<uint16_t,0x90> vdp2_last{};
+    if(!args.vdp2_trace_path.empty()) {
+        vdp2_trace.open(args.vdp2_trace_path);
+        if(!vdp2_trace) {
+            std::fprintf(stderr,"cannot create VDP2 trace: %s\n",args.vdp2_trace_path.c_str());
+            return 2;
+        }
+        vdp2_trace<<"field,offset,old,new\n";
+    }
     harness::video::Observer video_observer(args.video_crop);
     uint64_t last_video_generation=0;
     if(!args.video_observations_path.empty()) {
@@ -1388,6 +1414,19 @@ int main(int argc, char** argv) {
                 saturn->slaveSH2.SetWatchFrame(emulated);
             }
             saturn->RunFrame();
+            if(vdp2_trace.is_open()) {
+                /* 0x004, 0x008 and 0x00A (TVSTAT, HCNT, VCNT) move by themselves. */
+                for(uint32_t offset=0u;offset<vdp2_last.size()*2u;offset+=2u) {
+                    if(offset==0x004u||offset==0x008u||offset==0x00Au)continue;
+                    const uint16_t value=saturn->VDP.GetProbe().GetVDP2Regs().Read<true>(offset);
+                    uint16_t& last=vdp2_last[offset/2u];
+                    if(value==last)continue;
+                    char line[64];
+                    std::snprintf(line,sizeof line,"%u,%03X,%04X,%04X\n",(unsigned)(frame_offset+i),(unsigned)offset,(unsigned)last,(unsigned)value);
+                    vdp2_trace<<line;
+                    last=value;
+                }
+            }
             if(measuring_program && video_output.is_open()) {
                 harness::video::Observation observation;
                 if(!frame.pixels.empty()) {
