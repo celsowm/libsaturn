@@ -156,6 +156,13 @@ sat_result_t transfer_words(
     if ((bytes & 1u) != 0u) return SAT_ERR_INVALID_ARG;
 #if defined(__sh__) || defined(__SH2__)
     volatile uint16_t* dtr = &reg(SAT_CD_BLOCK_DTR);
+    if ((reinterpret_cast<uintptr_t>(destination) & 3u) == 0u && (bytes & 3u) == 0u) {
+        // The CDC guide's access: one longword read is two data words, upper first. Half the A-bus reads.
+        volatile uint32_t* dtr32 = reinterpret_cast<volatile uint32_t*>(dtr);
+        uint32_t* output = reinterpret_cast<uint32_t*>(destination);
+        for (uint32_t i = 0u; i < bytes / 4u; ++i) output[i] = *dtr32;
+        return SAT_OK;
+    }
     if ((reinterpret_cast<uintptr_t>(destination) & 1u) == 0u) {
         // The SH-2 is big-endian, as are the CD Block's data words. Store
         // each word directly instead of splitting it into two byte writes.

@@ -22,6 +22,9 @@ The version is defined once, in the `VERSION` file.
   unchanged: a host test compares 16,000 random stereo frames (clamping scales, both coefficient signs) and the
   int32 ends of the shift with an exact 64-bit reference. Ymir, 44.1 kHz stereo in a fight: 4,670 to about 2,900
   cycles per stereo block.
+- CD Block transfers read `DATATRNS` as longwords, as the CDC guide asks, when the destination is 4-byte aligned
+  and the size a multiple of 4 (whole sectors always are): half the A-bus reads. Ymir, a fight streaming ADX:
+  29.35 to 29.82 images per second.
 - ADX on the SH-2: a channel's 32 samples are decoded by `sat_adx_decode_channel_s16be` (assembly in
   `src/audio/music/codecs/adx_sh2.cpp`): coefficients, history, floor bias and clamp bounds in registers, MULS.W
   products, halfword stores, clamps that fall through in range; about 23 instructions a sample against GCC's 38.

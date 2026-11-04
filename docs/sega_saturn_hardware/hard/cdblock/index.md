@@ -181,8 +181,10 @@ sectors/s and 500 / 800 ms average 1/3-stroke access). Spin-up time and short-se
 
 Register access: CPU DMA and software transfers must access `DATATRNS` as **32-bit longwords**
 (upper word first); an odd word count leaves the last half undefined. Declare the pointer
-`volatile`. libsaturn reads 16-bit words (`transfer_words` in `src/hal/cd/block.cpp`); that works on
-Mednafen and Ymir, but the guide's longword rule has not been tried, and nothing has run on hardware.
+`volatile`. libsaturn reads longwords (`transfer_words` in `src/hal/cd/block.cpp`) whenever the
+destination is 4-byte aligned and the size a multiple of 4 (every whole-sector transfer), else 16-bit
+words. On Ymir a Tekken 3 fight streaming ADX through the scheduler went from 29.35 to 29.82 images per
+second with the same decoded output; not yet run on Mednafen or hardware.
 
 **SCU-DMA:** SCU-DMA *indirect mode must not be used* for the CD Block data register; only a 4-byte
 address increment is possible there, and direct mode has no such limit (SCU manual note and CDC
@@ -302,8 +304,7 @@ numbers, to be confirmed on hardware (record it in `docs/HARDWARE_ACCEPTANCE_CHE
   deeper read-ahead is possible; the limit is the SCSP ring size, not the block.
 - **SCU-DMA from `DATATRNS`.** Allowed in direct mode only. The project already found Ymir and
   Mednafen disagree on DMA timing, so any such path stays opt-in until both agree.
-- **Longword reads of `DATATRNS`** as the guide requires for CPU-DMA/software transfers; check on
-  hardware.
+- **Longword reads of `DATATRNS`**: done for aligned transfers (above); check on hardware.
 
 ## Not covered anywhere we could read
 
