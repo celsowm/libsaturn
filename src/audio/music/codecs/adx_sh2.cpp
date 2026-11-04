@@ -6,9 +6,12 @@
  * 23 instructions a sample. The arithmetic is the C loop's, sample for sample:
  *   sample = clamp(steps[n] + ((c0 * p1 + c1 * p2 + 2^31) >>> 12) - 2^19), p2 = p1, p1 = sample.
  *
- * void sat_adx_decode_channel_s16be(const uint8_t* nibbles, const int32_t* steps, int16_t* state, int16_t* dest)
- *   nibbles: the frame's 16 bytes after its scale, high nibble first; steps: the 16 deltas times the scale;
- *   state: {c0, c1, p1, p2}, p1 and p2 written back; dest: 32 S16BE samples, 2-byte aligned. */
+ * The frame's scale is read here too and the 16 steps (each nibble's delta times the scale) built unrolled on this
+ * function's stack: the caller has already rejected the end marker (scale bit 15).
+ *
+ * void sat_adx_decode_channel_s16be(const uint8_t* frame, const int16_t* coefficients, int16_t* history, int16_t* dest)
+ *   frame: the 18-byte frame, big-endian scale first; coefficients: {c0, c1}; history: {p1, p2}, written back;
+ *   dest: 32 S16BE samples, 2-byte aligned. */
 #if defined(__sh__)
 __asm__(
     "    .text\n"
@@ -24,13 +27,53 @@ __asm__(
     "    mov.l   r14,@-r15\n"
     "    sts.l   macl,@-r15\n"
     "    mov.l   r6,@-r15\n"
-    "    mov.w   @r6,r8\n"            /* c0 */
-    "    mov.w   @(2,r6),r0\n"
+    "    mov.w   @r5,r8\n"            /* c0 */
+    "    mov.w   @(2,r5),r0\n"
     "    mov     r0,r9\n"             /* c1 */
-    "    mov.w   @(4,r6),r0\n"
-    "    mov     r0,r10\n"            /* p1 */
-    "    mov.w   @(6,r6),r0\n"
+    "    mov.w   @r6,r10\n"           /* p1 */
+    "    mov.w   @(2,r6),r0\n"
     "    mov     r0,r11\n"            /* p2 */
+    "    mov.b   @r4+,r0\n"
+    "    mov.b   @r4+,r1\n"
+    "    extu.b  r0,r0\n"
+    "    shll8   r0\n"
+    "    extu.b  r1,r1\n"
+    "    or      r1,r0\n"             /* scale */
+    "    add     #-64,r15\n"          /* steps[16]: n = 0..7 is n * scale, 8..15 is (n - 16) * scale */
+    "    mov     #0,r1\n"
+    "    mov.l   r1,@r15\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(4,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(8,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(12,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(16,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(20,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(24,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(28,r15)\n"
+    "    add     r0,r1\n"             /* 8 * scale */
+    "    neg     r1,r1\n"
+    "    mov.l   r1,@(32,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(36,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(40,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(44,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(48,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(52,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(56,r15)\n"
+    "    add     r0,r1\n"
+    "    mov.l   r1,@(60,r15)\n"
+    "    mov     r15,r5\n"
     "    mov.l   .Ladx_bias,r12\n"    /* 2^31 */
     "    mov.l   .Ladx_unbias,r13\n"  /* -2^19 */
     "    mov.w   .Ladx_max,r14\n"     /* 32767 */
@@ -87,11 +130,11 @@ __asm__(
     "    dt      r3\n"
     "    bf.s    .Ladx_loop\n"
     "    add     #4,r7\n"
-    "    mov.l   @r15+,r1\n"          /* state */
-    "    mov     r10,r0\n"
-    "    mov.w   r0,@(4,r1)\n"
+    "    add     #64,r15\n"
+    "    mov.l   @r15+,r1\n"          /* history */
+    "    mov.w   r10,@r1\n"
     "    mov     r11,r0\n"
-    "    mov.w   r0,@(6,r1)\n"
+    "    mov.w   r0,@(2,r1)\n"
     "    lds.l   @r15+,macl\n"
     "    mov.l   @r15+,r14\n"
     "    mov.l   @r15+,r13\n"

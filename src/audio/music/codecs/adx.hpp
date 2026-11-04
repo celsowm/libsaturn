@@ -10,8 +10,8 @@
  * successive frames and reset on a musical loop.
  */
 #if defined(__sh__)
-/* adx_sh2.cpp: decode_channel<true> in SH-2 assembly; state is {c0, c1, p1, p2}. */
-extern "C" void sat_adx_decode_channel_s16be(const uint8_t* nibbles, const int32_t* steps, int16_t* state,
+/* adx_sh2.cpp: one channel's frame (scale included) in SH-2 assembly, as decode_channel<true>; history is {p1, p2}. */
+extern "C" void sat_adx_decode_channel_s16be(const uint8_t* frame, const int16_t* coefficients, int16_t* history,
                                              int16_t* dest);
 #endif
 
@@ -114,6 +114,14 @@ inline bool decode_block_to(const uint8_t* source, uint8_t channels,
         const uint32_t scale =
             (static_cast<uint32_t>(frame[0]) << 8u) | frame[1];
         if (scale & 0x8000u) return false; // ADX end marker is not PCM
+        uint8_t* const dest = ch == 0u ? left : right;
+#if defined(__sh__)
+        if ((reinterpret_cast<uintptr_t>(dest) & 1u) == 0u) {
+            sat_adx_decode_channel_s16be(frame, state.coefficient, state.previous[ch],
+                                         reinterpret_cast<int16_t*>(dest));
+            continue;
+        }
+#endif
         // A nibble n is the delta (n ^ 8) - 8; steps[n] is that delta times the scale, built with adds.
         int32_t steps[16];
         int32_t step = -8 * static_cast<int32_t>(scale);
@@ -123,15 +131,7 @@ inline bool decode_block_to(const uint8_t* source, uint8_t channels,
         }
         int16_t prev1 = state.previous[ch][0];
         int16_t prev2 = state.previous[ch][1];
-        uint8_t* const dest = ch == 0u ? left : right;
-#if defined(__sh__)
-        if ((reinterpret_cast<uintptr_t>(dest) & 1u) == 0u) {
-            int16_t context[4] = {c0, c1, prev1, prev2};
-            sat_adx_decode_channel_s16be(frame + 2u, steps, context, reinterpret_cast<int16_t*>(dest));
-            prev1 = context[2];
-            prev2 = context[3];
-        } else
-#elif defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
         if ((reinterpret_cast<uintptr_t>(dest) & 1u) == 0u)
             decode_channel<true>(frame + 2u, steps, c0, c1, prev1, prev2, dest);
         else
