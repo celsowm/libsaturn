@@ -81,7 +81,17 @@ void set_fb_rotation(uint16_t width, uint16_t height);
 bool fb_rotation();
 /* SAT_VDP1_FRAME_ON_SUBMIT when true; applied by the next begin_frame. */
 void set_frame_mode(bool on_submit);
-void begin_frame(Command* command_buffer, uint16_t capacity);
+/* Starts a frame: its command table and Gouraud tables are written in the VRAM bank the VDP1 is not reading. `capacity`
+ * limits the table (0: the whole bank, 2048 commands and 2048 Gouraud tables). */
+void begin_frame(uint16_t capacity = 0u);
+/* The frame's command table (VRAM) and CMDLINK value of command `index` of it; for tests. */
+Command* frame_commands();
+uint16_t frame_command_link(uint32_t index);
+/* Host tests: VDP1 VRAM is this window (512 KiB) instead of the hardware address. Null restores the hardware. */
+void set_vram_window(uint8_t* window);
+/* Host tests: the VDP1 registers in plain memory. `poll` runs before every COPR read, so a test can model the VDP1
+ * over time. Null arguments restore the hardware. */
+void set_register_window(volatile uint8_t* vdp1_registers, void (*poll)());
 /* Caller-owned frame command-buffer partition: protected overlay quota. */
 sat_result_t reserve_overlay_commands(uint16_t count);
 sat_result_t command_checkpoint(sat_vdp1_command_checkpoint_t* out);
@@ -131,10 +141,6 @@ sat_result_t push_line(const LineRequest& req);
 sat_result_t push_polygon_gouraud(const PolygonRequest& req, const uint16_t* gouraud);
 sat_result_t push_polyline_gouraud(const PolygonRequest& req, const uint16_t* gouraud);
 sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud);
-/* Copies the command and Gouraud tables to VRAM with SCU-DMA instead of CPU
- * stores. Default off: see saturn/dma.h. */
-void set_submit_dma(bool enabled);
-bool submit_dma();
 void submit();
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index);
@@ -181,6 +187,8 @@ bool wait_draw_end();
 /* How often wait_draw_end found drawing in progress, and gave up. */
 uint32_t draw_waits();
 uint32_t draw_timeouts();
+/* Frames submit() dropped because the VDP1 still read the published bank (counted with a draw timeout). */
+uint32_t frames_dropped();
 
 /* Called by the SCU VBlank-IN handler: in ON_SUBMIT mode it asks for the
  * framebuffer change once the submitted list has ended. */

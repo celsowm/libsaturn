@@ -6,6 +6,7 @@
 #include "test_scene3d_faces_api.cpp"
 #undef main
 #include "src/hal/vdp1/vdp1.hpp"
+#include "vdp1_test_vram.hpp"
 
 namespace vd=saturn::hal::vdp1;
 extern "C" sat_result_t sat_vdp1_command_batch_link(sat_vdp1_command_batch_t* b,uint16_t i) {
@@ -27,7 +28,7 @@ extern "C" sat_result_t sat_vdp1_command_stats(sat_vdp1_command_stats_t* out) {
 int main() {
     /* ordinary_scene_regressions needs the program spy (its draw counters);
      * this binary links the real HAL, and test_scene3d_faces_api runs them. */
-    vd::Command commands[32]{};
+    use_test_vram();
     sat_scene3d_faces_t scene{};
     sat_scene3d_face_t cold[8]{};
     sat_scene3d_projected_face_t hot[8]{};
@@ -36,7 +37,8 @@ int main() {
     sat_vec3_t eye{},forward{0,0,SAT_FX16_ONE};
     assert(sat_scene3d_faces_init(&scene,cold,keys,order,8)==SAT_OK);
     assert(sat_scene3d_faces_use_projected_storage(&scene,hot,8)==SAT_OK);
-    vd::begin_frame(commands,32);
+    vd::begin_frame(32u);
+    vd::Command* const commands = vd::frame_commands();
     assert(vd::reserve_overlay_commands(4)==SAT_OK);
     sat_vdp1_command_batch_t batch{};
     assert(vd::command_batch_reserve(8,&batch)==SAT_OK);
@@ -57,16 +59,16 @@ int main() {
     assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
     assert(!batch.active && !vd::command_batch_pending());
     // Equal-depth source order remains green, blue, followed by near red.
-    assert(commands[1].link==3u*4u);
-    assert(commands[3].colr==0x83e0 && commands[3].link==4u*4u);
-    assert(commands[4].colr==0xfc00 && commands[4].link==2u*4u);
-    assert(commands[2].colr==0x801f && commands[2].link==10u*4u);
+    assert(commands[1].link==vd::frame_command_link(3u));
+    assert(commands[3].colr==0x83e0 && commands[3].link==vd::frame_command_link(4u));
+    assert(commands[4].colr==0xfc00 && commands[4].link==vd::frame_command_link(2u));
+    assert(commands[2].colr==0x801f && commands[2].link==vd::frame_command_link(10u));
     assert(scene.emitted_faces==3);
     assert(vd::begin_overlay_pass()==SAT_OK);
 
     // Borrowed residency failing at flush cancels the entire arena and
     // leaves the prefix/HUD budget intact. No native draw becomes reachable.
-    vd::begin_frame(commands,32);
+    vd::begin_frame(32u);
     assert(vd::reserve_overlay_commands(4)==SAT_OK);
     assert(vd::command_batch_reserve(8,&batch)==SAT_OK);
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
@@ -86,7 +88,7 @@ int main() {
     {
         sat_vdp1_projected_program_t program{{0x1234,0x5678,0x1111,0x2222,0x3333,0x4444},&texture};
         texture.valid=1;
-        vd::begin_frame(commands,32);
+        vd::begin_frame(32u);
         assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
         const int16_t corners[2][8]={{-1,2,3,-4,5,-6,-7,8},{9,-10,-11,12,13,-14,-15,16}};
         for(uint16_t i=0;i<2u;++i) {

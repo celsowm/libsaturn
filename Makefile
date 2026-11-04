@@ -764,17 +764,19 @@ HOST_TEST_EXTRA_test_clown_lighting := examples/killer_clown_demo/lighting.c src
 HOST_TEST_EXTRA_test_geometry_link_isolation := src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_mesh3d_textured := src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_vdp1_upload := src/graphics/vdp1/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp
-HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp src/core/runtime/video_memory.cpp
-HOST_TEST_EXTRA_test_sprite_batch := src/hal/vdp1/vdp1.cpp src/graphics/2d/sprites/batch.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp src/core/runtime/video_memory.cpp
-HOST_TEST_EXTRA_test_sprite_atlas := src/graphics/2d/sprites/atlas.cpp src/graphics/2d/sprites/batch.cpp src/hal/vdp1/vdp1.cpp src/resources/plan.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp src/core/runtime/video_memory.cpp
+HOST_TEST_EXTRA_test_vdp1_clip := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+HOST_TEST_EXTRA_test_sprite_batch := src/hal/vdp1/vdp1.cpp src/graphics/2d/sprites/batch.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+HOST_TEST_EXTRA_test_sprite_atlas := src/graphics/2d/sprites/atlas.cpp src/graphics/2d/sprites/batch.cpp src/hal/vdp1/vdp1.cpp src/resources/plan.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_tate := src/graphics/2d/tate.cpp
 HOST_TEST_EXTRA_test_disc_stream := src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_music_disc := src/audio/music/player.cpp src/audio/music/open.cpp src/audio/music/decoder.cpp src/audio/music/codecs.cpp src/audio/music/disc_feed.cpp src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_music_lean := src/audio/music/player.cpp src/audio/music/open.cpp src/audio/music/decoder.cpp src/audio/music/disc_feed.cpp src/audio/streaming/api.cpp src/audio/streaming/runtime.cpp src/storage/cd/disc_stream.cpp
 HOST_TEST_EXTRA_test_bh_sim := examples/bullet_hell_stress/bh_sim.c src/physics/2d/collision.cpp src/physics/spatial/2d.cpp src/graphics/2d/tate.cpp
-HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp src/core/runtime/video_memory.cpp
+HOST_TEST_EXTRA_test_vdp1_checkpoint := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
+HOST_TEST_EXTRA_test_vdp1_banks := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp
+build/tests/test_vdp1_banks: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 build/tests/test_vdp1_checkpoint: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
-HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp src/core/runtime/video_memory.cpp
+HOST_TEST_EXTRA_test_vdp1_vram_region := src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 HOST_TEST_EXTRA_test_texture_api := src/graphics/2d/textures/api.cpp src/core/runtime/state.cpp src/graphics/2d/palette/registry.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/textures/texture_memory.cpp
 HOST_TEST_EXTRA_test_render2d_api := src/graphics/2d/rendering/api.cpp src/graphics/2d/rendering/runtime.cpp src/graphics/2d/textures/api.cpp src/graphics/2d/textures/runtime.cpp src/graphics/2d/palette/api.cpp src/graphics/2d/palette/registry.cpp src/core/runtime/state.cpp src/graphics/2d/textures/texture_memory.cpp
 HOST_TEST_EXTRA_test_vdp1_color_calc_api := src/graphics/vdp1/color_calc.cpp
@@ -789,7 +791,7 @@ HOST_TEST_EXTRA_test_scene_managed_texture := src/graphics/3d/scene/managed_text
 HOST_TEST_EXTRA_test_parallel_completion := src/core/parallel/executor.cpp
 HOST_TEST_EXTRA_test_scene_parallel_runtime := src/graphics/3d/scene/parallel.cpp
 HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
-HOST_TEST_EXTRA_test_scene_native_commands := src/graphics/3d/scene/faces.cpp src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp src/core/runtime/video_memory.cpp
+HOST_TEST_EXTRA_test_scene_native_commands := src/graphics/3d/scene/faces.cpp src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 build/tests/test_scene_native_commands: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/graphics/3d/animation/clip.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/core/math3d/api.cpp

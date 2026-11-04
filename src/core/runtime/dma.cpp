@@ -65,10 +65,6 @@ extern "C" sat_result_t sat_dma_wait(uint8_t level) {
     return dma::wait(level);
 }
 
-extern "C" void sat_dma_set_command_list(int enabled) {
-    saturn::hal::vdp1::set_submit_dma(enabled != 0);
-}
-
 extern "C" void sat_dma_set_enabled(int enabled) {
     dma::set_enabled(enabled != 0);
 }

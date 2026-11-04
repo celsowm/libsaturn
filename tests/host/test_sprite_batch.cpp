@@ -4,10 +4,10 @@
 #include <vector>
 
 #include "src/core/runtime/logic.hpp"
-#include "src/hal/vdp1/submit_copy.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 
 #include "saturn/sprite_batch.h"
+#include "vdp1_test_vram.hpp"
 #include "saturn/vdp1.h"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
@@ -22,8 +22,8 @@ uint32_t rnd() { g_rng = g_rng * 1664525u + 1013904223u; return g_rng >> 8; }
 /* The command the general path (hal push_sprite, what sat_draw_texture ends in) emits. */
 Command reference_command(const sat_sprite_frame_t& f, const sat_sprite_instance_t& in,
                           uint16_t flags, uint16_t format, uint16_t palette) {
-    Command buf[8]{};
-    begin_frame(buf, 8u);
+    begin_frame(8u);
+    Command* const buf = frame_commands();
     SpriteRequest req{};
     req.x = static_cast<int16_t>(in.x - f.pivot_x - 160);
     req.y = static_cast<int16_t>(in.y - f.pivot_y - 112);
@@ -40,6 +40,7 @@ Command reference_command(const sat_sprite_frame_t& f, const sat_sprite_instance
 }  // namespace
 
 int main() {
+    use_test_vram();
     /* Frame preparation. */
     sat_sprite_frame_t f{};
     OK(sat_sprite_frame_init_raw(&f, 0x100u, 16u, 16u, SAT_VDP1_TEXTURE_INDEXED8, 3u, 0u, 8, 8) == SAT_OK);
@@ -91,19 +92,19 @@ int main() {
             in.frame = static_cast<uint16_t>(rnd() % frames.size());
             inst.push_back(in);
         }
-        std::vector<Command> list(512);
-        begin_frame(list.data(), 512u);
+        begin_frame(512u);
         sat_sprite_batch_stats_t st{};
         OK(sat_sprite_batch_draw(frames.data(), static_cast<uint32_t>(frames.size()), inst.data(),
                                  static_cast<uint32_t>(inst.size()), SAT_SPRITE_BATCH_KEEP_PRECLIP, &st) == SAT_OK);
         OK(st.no_preclip == 0u && st.dropped == 0u && st.invalid == 0u);
         OK(st.submitted + st.culled == inst.size());
-        std::vector<Command> list_fast(512);
-        begin_frame(list_fast.data(), 512u);
+        std::vector<Command> list = frame_snapshot(512u);
+        begin_frame(512u);
         sat_sprite_batch_stats_t fast{};
         OK(sat_sprite_batch_draw(frames.data(), static_cast<uint32_t>(frames.size()), inst.data(),
                                  static_cast<uint32_t>(inst.size()), 0u, &fast) == SAT_OK);
         OK(fast.submitted == st.submitted && fast.culled == st.culled);
+        std::vector<Command> list_fast = frame_snapshot(512u);
 
         const Spec spec_of_frame[] = {specs[0], specs[1], specs[2], specs[3], {0u, SAT_VDP1_TEXTURE_INDEXED8, 2u}};
         uint32_t slot = 2u, expect_off = 0u, culled = 0u;
@@ -126,16 +127,14 @@ int main() {
         OK(fast.no_preclip < fast.submitted);   /* edge sprites keep pre-clipping */
 
         /* NO_CULL submits everything. */
-        std::vector<Command> all(512);
-        begin_frame(all.data(), 512u);
+        begin_frame(512u);
         sat_sprite_batch_stats_t nc{};
         OK(sat_sprite_batch_draw(frames.data(), static_cast<uint32_t>(frames.size()), inst.data(),
                                  static_cast<uint32_t>(inst.size()), SAT_SPRITE_BATCH_NO_CULL, &nc) == SAT_OK);
         OK(nc.culled == 0u && nc.submitted == inst.size());
 
         /* The direct-write window emits the same commands as sat_sprite_batch_draw. */
-        std::vector<Command> viawin(512);
-        begin_frame(viawin.data(), 512u);
+        begin_frame(512u);
         sat_sprite_batch_window_t win;
         OK(sat_sprite_batch_begin(&win, static_cast<uint32_t>(inst.size()), 0u) == SAT_OK);
         sat_sprite_batch_window_t local = win;
@@ -145,11 +144,12 @@ int main() {
         sat_sprite_batch_stats_t ws{};
         OK(sat_sprite_batch_end(&local, &ws) == SAT_OK);
         OK(ws.submitted == fast.submitted && ws.culled == fast.culled && ws.no_preclip == fast.no_preclip);
+        std::vector<Command> viawin = frame_snapshot(512u);
         for (uint32_t i = 0; i < fast.submitted; ++i) {
             OK(std::memcmp(&viawin[2u + i], &list_fast[2u + i], kHead) == 0);
         }
         /* A window smaller than the sprites drops the rest and reports it. */
-        begin_frame(viawin.data(), 512u);
+        begin_frame(512u);
         OK(sat_sprite_batch_begin(&win, 10u, 0u) == SAT_OK);
         local = win;
         for (const sat_sprite_instance_t& in : inst) sat_sprite_batch_emit(&local, &frames[in.frame], 160, 112);
@@ -165,13 +165,13 @@ int main() {
         OK(sat_sprite_frame_init_raw(&pair[0], 1u, 16u, 16u, 0u, 0u, 0u, 8, 8) == SAT_OK);
         OK(sat_sprite_frame_init_raw(&pair[1], 1u, 16u, 16u, 0u, 0u, SAT_SPRITE_FLAG_USER_CLIP, 8, 8) == SAT_OK);
         const sat_sprite_instance_t two[2] = {{100, 100, 0u, 0u}, {100, 100, 1u, 0u}};
-        std::vector<Command> list(16);
-        begin_frame(list.data(), 16u);
+        begin_frame(16u);
         sat_sprite_batch_stats_t st{};
         OK(sat_sprite_batch_draw(pair, 2u, two, 2u, 0u, &st) == SAT_OK);
         OK(st.submitted == 2u && st.no_preclip == 1u);
-        OK((list[2].pmod & 0x0800u) != 0u && (list[2].pmod & 0x0400u) == 0u);
-        OK((list[3].pmod & 0x0800u) == 0u && (list[3].pmod & 0x0400u) != 0u);
+        std::vector<Command> list16 = frame_snapshot(16u);
+        OK((list16[2].pmod & 0x0800u) != 0u && (list16[2].pmod & 0x0400u) == 0u);
+        OK((list16[3].pmod & 0x0800u) == 0u && (list16[3].pmod & 0x0400u) != 0u);
     }
 
     /* Edge touching: one texel on screen is on screen, one texel past is culled. */
@@ -187,8 +187,8 @@ int main() {
         };
         const bool visible[] = {true, false, true, false, true, false, true, false};
         for (size_t i = 0; i < 8; ++i) {
-            Command buf[8]{};
-            begin_frame(buf, 8u);
+            begin_frame(8u);
+            Command* const buf = frame_commands();
             sat_sprite_batch_stats_t st{};
             OK(sat_sprite_batch_draw(&fr, 1u, &cases[i], 1u, 0u, &st) == SAT_OK);
             OK(st.submitted == (visible[i] ? 1u : 0u) && st.culled == (visible[i] ? 0u : 1u));
@@ -196,8 +196,8 @@ int main() {
             OK(st.no_preclip == 0u);
         }
         /* exactly filling the corner: inside, pre-clipping off */
-        Command buf[8]{};
-        begin_frame(buf, 8u);
+        begin_frame(8u);
+        Command* const buf = frame_commands();
         sat_sprite_batch_stats_t st{};
         const sat_sprite_instance_t corner[] = {{0, 0, 0, 0}, {304, 208, 0, 0}};
         OK(sat_sprite_batch_draw(&fr, 1u, corner, 2u, 0u, &st) == SAT_OK);
@@ -212,8 +212,8 @@ int main() {
         sat_sprite_frame_t fr{};
         OK(sat_sprite_frame_init_raw(&fr, 1u, 8u, 8u, 0u, 0u, 0u, 0, 0) == SAT_OK);
         std::vector<sat_sprite_instance_t> inst(20, sat_sprite_instance_t{10, 10, 0, 0});
-        Command buf[12]{};
-        begin_frame(buf, 12u);
+        begin_frame(12u);
+        Command* const buf = frame_commands();
         OK(reserve_overlay_commands(3u) == SAT_OK);
         sat_sprite_batch_stats_t st{};
         /* 12 slots - 2 setup - 1 END - 3 overlay = 6 */
@@ -227,12 +227,11 @@ int main() {
         OK(st.submitted == 1u);
 
         /* Equivalent to calling push_sprite until it says CAPACITY. */
-        Command a[16]{}, b[16]{};
         for (uint32_t cap = 4u; cap <= 16u; ++cap) {
-            begin_frame(a, static_cast<uint16_t>(cap));
+            begin_frame(static_cast<uint16_t>(cap));
             uint32_t single = 0u;
             while (push_sprite(one) == SAT_OK) ++single;
-            begin_frame(b, static_cast<uint16_t>(cap));
+            begin_frame(static_cast<uint16_t>(cap));
             sat_sprite_batch_stats_t s2{};
             sat_sprite_batch_draw(&fr, 1u, inst.data(), 20u, SAT_SPRITE_BATCH_KEEP_PRECLIP, &s2);
             OK(s2.submitted == single);
@@ -244,56 +243,14 @@ int main() {
         sat_sprite_frame_t fr{};
         OK(sat_sprite_frame_init_raw(&fr, 1u, 8u, 8u, 0u, 0u, 0u, 0, 0) == SAT_OK);
         const sat_sprite_instance_t inst[] = {{10, 10, 0, 0}, {20, 20, 5, 0}, {30, 30, 0, 0}};
-        Command buf[12]{};
-        begin_frame(buf, 12u);
+        begin_frame(12u);
+        Command* const buf = frame_commands();
         sat_sprite_batch_stats_t st{};
         OK(sat_sprite_batch_draw(&fr, 1u, inst, 3u, 0u, &st) == SAT_ERR_INVALID_ARG);
         OK(st.submitted == 2u && st.invalid == 1u);
         OK(sat_sprite_batch_draw(&fr, 1u, nullptr, 3u, 0u, &st) == SAT_ERR_INVALID_ARG);
         OK(sat_sprite_batch_draw(&fr, 1u, inst, 0u, 0u, &st) == SAT_OK && st.submitted == 0u);
         OK(sat_sprite_batch_draw(&fr, 1u, inst, 1u, 0x80u, &st) == SAT_ERR_INVALID_ARG);   /* unknown option */
-    }
-
-    /* The copy into VRAM: a normal sprite without Gouraud shading moves its first 16 bytes only, any
-     * other command all 32, and the slot's other bytes stay as they were. */
-    {
-        using saturn::hal::vdp1::submit_copy::copy_commands;
-        enum { kCount = 64 };
-        std::vector<uint32_t> src(kCount * 8u), dst(kCount * 8u, 0xDEADBEEFu);
-        uint32_t whole = 0u, head = 0u;
-        for (uint32_t i = 0u; i < kCount; ++i) {
-            for (uint32_t k = 0u; k < 8u; ++k) src[i * 8u + k] = rnd() * 2654435761u + k;
-            const uint32_t kind = rnd() % 4u;
-            /* CMDCTRL command in bits 19-16 of word 0, CMDPMOD Gouraud bit 2 in bit 18 of word 1 */
-            src[i * 8u] = (src[i * 8u] & ~0x000F0000u) | (kind == 1u ? 0x00020000u : kind == 2u ? 0x00080000u : 0u);
-            src[i * 8u + 1u] = (src[i * 8u + 1u] & ~0x00040000u) | (kind == 3u ? 0x00040000u : 0u);
-            if (kind == 0u) ++head; else ++whole;
-        }
-        OK(head != 0u && whole != 0u);
-        const uint32_t stores = copy_commands(src.data(), dst.data(), kCount);
-        OK(stores == head * 4u + whole * 8u);
-        for (uint32_t i = 0u; i < kCount; ++i) {
-            const bool only_head = saturn::hal::vdp1::submit_copy::reads_only_head(src[i * 8u], src[i * 8u + 1u]);
-            for (uint32_t k = 0u; k < 8u; ++k) {
-                if (k < 4u || !only_head) OK(dst[i * 8u + k] == src[i * 8u + k]);
-                else OK(dst[i * 8u + k] == 0xDEADBEEFu);
-            }
-        }
-        OK(copy_commands(src.data(), dst.data(), 0u) == 0u);
-        /* All eight jump modes, both VRAM banks, and a shared root: only
-         * ASSIGN/CALL link addresses change, including SKIP variants. */
-        for (uint32_t base : {32u, 65568u}) {
-            for (uint32_t jp = 0u; jp < 8u; ++jp) {
-                uint32_t command[8] = {(jp << 28u) | 0x00040014u, 0x00C00002u,
-                    0x12345678u, 0x23456789u, 0x3456789Au, 0x456789ABu, 0x56789ABCu, 0u};
-                uint32_t bank[8] = {};
-                saturn::hal::vdp1::submit_copy::copy_commands_relocated(command, bank, 1u, base);
-                const bool linked = (jp & 3u) == 1u || (jp & 3u) == 2u;
-                OK(bank[0] == (command[0] + (linked ? base / 8u : 0u)));
-                for (uint32_t w = 1u; w < 8u; ++w) OK(bank[w] == command[w]);
-                OK(command[0] == ((jp << 28u) | 0x00040014u));
-            }
-        }
     }
 
     std::puts("sprite batch: OK");

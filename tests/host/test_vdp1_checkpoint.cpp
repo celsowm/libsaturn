@@ -2,11 +2,13 @@
 #include <cstdio>
 #include "src/hal/vdp1/vdp1.hpp"
 #include "src/hal/scu/scu.hpp"
+#include "vdp1_test_vram.hpp"
 
 int main() {
     namespace vd=saturn::hal::vdp1;
-    vd::Command commands[12]{};
-    vd::begin_frame(commands,12u);
+    use_test_vram();
+    vd::begin_frame(12u);
+    vd::Command* const commands = vd::frame_commands();
     sat_vdp1_command_checkpoint_t first{};
     assert(vd::command_checkpoint(&first)==SAT_OK);
     assert(first.used==2u && first.gouraud_tables==0u);
@@ -34,7 +36,7 @@ int main() {
     vd::command_stats(used,cap,hud,overlay);
     assert(used==2u && hud==3u);
     assert(vd::push_polygon(p)==SAT_OK);
-    vd::begin_frame(commands,12u);
+    vd::begin_frame(12u);
     assert(vd::command_rollback(&after_reservation)==SAT_ERR_INVALID_ARG);
     // Disjoint physical preparation, painter traversal, unused holes and HUD.
     assert(vd::reserve_overlay_commands(2u)==SAT_OK);
@@ -54,12 +56,12 @@ int main() {
     assert(vd::command_batch_link(&batch,2u)==SAT_ERR_BUSY); // already consumed
     assert(vd::command_batch_finish(&batch)==SAT_OK);
     assert(!vd::command_batch_pending());
-    assert((commands[1].ctrl&0x7000u)==0x1000u && commands[1].link==4u*4u);
-    assert(commands[4].link==6u*4u && commands[6].link==2u*4u && commands[2].link==7u*4u);
+    assert((commands[1].ctrl&0x7000u)==0x1000u && commands[1].link==vd::frame_command_link(4u));
+    assert(commands[4].link==vd::frame_command_link(6u) && commands[6].link==vd::frame_command_link(2u) && commands[2].link==vd::frame_command_link(7u));
     assert(vd::begin_overlay_pass()==SAT_OK);
     assert(vd::push_polygon(p)==SAT_OK);
     assert(vd::command_batch_link(&batch,7u)==SAT_ERR_INVALID_ARG);
-    vd::begin_frame(commands,12u);
+    vd::begin_frame(12u);
     assert(serial!=batch.checkpoint.frame_serial+1u || !batch.active);
     assert(vd::command_batch_finish(&batch)==SAT_ERR_INVALID_ARG);
     assert(vd::reserve_overlay_commands(3u)==SAT_OK);
@@ -70,6 +72,6 @@ int main() {
     assert(used==2u && hud==3u && !overlay);
     assert(vd::command_batch_reserve(1u,&batch)==SAT_OK);
     assert(vd::command_batch_finish(&batch)==SAT_OK); // empty scene skips span
-    assert(commands[1].link==3u*4u);
+    assert(commands[1].link==vd::frame_command_link(3u));
     std::puts("VDP1 staged command checkpoint: OK");
 }

@@ -9,11 +9,23 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
-- Work RAM tables sized by the program: `saturn/video_memory.h` (VDP1 command list, Gouraud tables),
-  `saturn/asset_memory.h` (file mounts, handles, assets, cache blocks, prefetch) and `saturn/texture_memory.h`
-  (textures, regions). Each is a table the library defines with the old capacities (80 KiB, 13 KiB, 5 KiB); a program
-  that defines the table with storage of its own leaves the library's out of the link. Defaults and API unchanged.
-  Host test `test_asset_lean`.
+- VDP1 command tables and Gouraud tables are written in VRAM, not staged in Work RAM and copied at submit. Two banks
+  (2048 commands and 2048 Gouraud tables each, 80 KiB per bank) alternate between frames; VRAM 0..31 is a root that
+  names the bank the VDP1 draws. Links and CMDGRDA are absolute. `begin_frame(capacity)` (0: the whole bank) takes no
+  table; `saturn/video_memory.h` and `sat_dma_set_command_list` are removed (the SCU-DMA copy `sat_dma_copy` stays).
+  Work RAM given back: 64 KiB of commands and 16 KiB of Gouraud tables. Host test `test_vdp1_banks`.
+- VDP1 bank protocol: the end of a published list is COPR naming its END command (VDP1 manual 4.8), not
+  EDSR.CEF, which stays set after a start and cannot tell the lists apart. The SCU interrupt status register is not
+  written (Saturn Technical Bulletin, SCU item 07): the draw-end is read, never acknowledged by a write. A submit that
+  cannot take its bank within the bounded wait publishes nothing and counts a dropped frame (`frames_dropped()`); the
+  next `begin_frame` builds in the same free bank. In 1-cycle mode the new root is published first and the old bank
+  is reclaimed by `begin_frame`, after COPR has left its range; a bank the VDP1 still reads is never written. Host
+  test `test_vdp1_banks` covers these. In double-interlace mode, a stalled field publication or COPR still in the
+  bank also drops the frame; the interrupt receives the pending END before the root-publication flag.
+- Work RAM tables sized by the program: `saturn/asset_memory.h` (file mounts, handles, assets, cache blocks, prefetch)
+  and `saturn/texture_memory.h` (textures, regions). Each is a table the library defines with the old capacities
+  (13 KiB, 5 KiB); a program that defines the table with storage of its own leaves the library's out of the link.
+  Defaults and API unchanged. Host test `test_asset_lean`.
 - Audio streams: the Sound RAM upload reads the caller's ring directly (two pieces at a wrap); the 4 x 8 KiB staging
   in `g_audio_streams` is gone (33 KB of Work RAM Low). A failed piece still consumes nothing.
 - `sat_music`: a disc-scheduler track needs `SAT_MUSIC_DISC_WORKSPACE_BYTES` (no 8 KiB read buffer). The music,

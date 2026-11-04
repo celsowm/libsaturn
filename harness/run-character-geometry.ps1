@@ -25,7 +25,6 @@ try {
 #include "saturn/saturn.h"
 #include "examples/characters/demo.h"
 int main(void) {
-    sat_dma_set_command_list(0);
     return character_demo_run(CHARACTER_DEMO_STRESS);
 }
 "@ | Set-Content -LiteralPath (Join-Path $temporary 'main.c')

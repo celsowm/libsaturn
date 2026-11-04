@@ -271,9 +271,6 @@ static void run_tests(void) {
     g_dma_demo.scu_transfers = s.scu_transfers;
     g_dma_demo.timeouts = s.timeouts;
     g_dma_demo.illegal = s.illegal;
-    /* From here every frame's command table and Gouraud tables go by DMA: the
-     * screen below must keep rendering exactly as before. */
-    sat_dma_set_command_list(1);
     g_dma_demo.done = 1u;
 }
 

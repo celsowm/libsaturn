@@ -1,5 +1,9 @@
 # Character frame handoff performance
 
+Historical study: the CPU/DMA command-list transfer switch and its harness
+were removed when VDP1 command lists moved to direct VRAM construction. The
+commands below apply to the old revision.
+
 This study follows the [preparation optimization](CHARACTER_PREPARATION_PERFORMANCE.md).
 It measures the existing VBlank wait and VDP1 submission paths with two HIGH
 characters, the walking clip, unchanged textures/camera and 60 Hz simulation.

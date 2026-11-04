@@ -1,4 +1,3 @@
-#include "saturn/video_memory.h"
 #include "saturn/core.h"
 #include "saturn/audio.h"
 #include "saturn/parallel.h"
@@ -65,8 +64,7 @@ extern "C" sat_result_t sat_init(const sat_video_config_t* config) {
     saturn::hal::vdp1::init(config->width, config->height, g_state.clear_color);
     saturn::hal::scu::init_frame_clock();
     saturn::hal::scu::init_interrupts();
-    saturn::hal::vdp1::begin_frame(reinterpret_cast<saturn::hal::vdp1::Command*>(sat_video_memory.commands),
-                                   sat_video_memory.command_capacity);
+    saturn::hal::vdp1::begin_frame();
     sat_boot_mark(SAT_BOOT_INIT_END, 1, SAT_OK);
     return SAT_OK;
 }

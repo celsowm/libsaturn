@@ -21,12 +21,6 @@ sat_result_t g_next = SAT_OK;
 Stats g_stats{};
 }
 
-namespace saturn::hal::vdp1 {
-static bool g_submit_dma = false;
-void set_submit_dma(bool enabled) { g_submit_dma = enabled; }
-bool submit_dma() { return g_submit_dma; }
-}
-
 namespace saturn::hal::scu::dma {
 void set_enabled(bool enabled) { g_enabled = enabled; }
 bool enabled() { return g_enabled; }
@@ -116,11 +110,6 @@ int main() {
     assert(out.scu_transfers == 7u && out.bytes_cpu == 99u && out.last_path == SAT_DMA_PATH_SH2);
     assert(out.sh2_copies == 3u && out.bytes_sh2 == 4096u);
     sat_dma_get_stats(nullptr);
-    assert(!saturn::hal::vdp1::submit_dma());
-    sat_dma_set_command_list(1);
-    assert(saturn::hal::vdp1::submit_dma());
-    sat_dma_set_command_list(0);
-    assert(!saturn::hal::vdp1::submit_dma());
     sat_dma_set_enabled(0);
     assert(!g_enabled);
     sat_dma_set_enabled(1);

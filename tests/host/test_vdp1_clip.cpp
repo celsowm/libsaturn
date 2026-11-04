@@ -7,10 +7,12 @@
 #include "src/hal/scu/scu.hpp"
 
 #include "saturn/vdp1.h"
+#include "vdp1_test_vram.hpp"
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
 int main() {
+    use_test_vram();
     using namespace saturn::hal::vdp1;
 
     // Compare every command word against the existing writer across texture
@@ -37,17 +39,18 @@ int main() {
         reference.srca=texture.srca;reference.palette=texture.palette;
         reference.format=texture.format;reference.flags=flags;
         reference.user_clip=(flags&SAT_SPRITE_FLAG_USER_CLIP)!=0;
-        Command paired[5];std::memset(paired,0xa5,sizeof(paired));
-        begin_frame(paired,5);
+        begin_frame(5);
+        Command* const paired = frame_commands();
+        std::memset(paired,0xa5,5*sizeof(Command));
         OK(push_distorted_sprite(reference)==SAT_OK);
         OK(push_projected_sprite(quad,texture,flags)==SAT_OK);
         OK(std::memcmp(&paired[2],&paired[3],sizeof(Command))==0);
         const Command expected=paired[2];
         uint16_t prefix[6];std::memcpy(prefix,&expected,sizeof(prefix));
-        Command before[5];std::memcpy(before,paired,sizeof(paired));
+        Command before[5];std::memcpy(before,paired,5*sizeof(Command));
         OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_CAPACITY);
-        OK(std::memcmp(before,paired,sizeof(paired))==0);
-        begin_frame(paired,5);OK(reserve_overlay_commands(2)==SAT_OK);
+        OK(std::memcmp(before,paired,5*sizeof(Command))==0);
+        begin_frame(5);OK(reserve_overlay_commands(2)==SAT_OK);
         OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_CAPACITY);
         OK(begin_overlay_pass()==SAT_OK);
         texture.valid=0;OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_INVALID_ARG);
@@ -63,14 +66,14 @@ int main() {
         // Prepared prefix uses the same coordinate/footer words, END budget,
         // overlay admission and invalid-descriptor occupancy rules.
         texture.width=reference.width;texture.height=reference.height;
-        begin_frame(paired,5);
+        begin_frame(5);
         OK(push_projected_program(quad,prefix,texture)==SAT_OK);
         OK(std::memcmp(&expected,&paired[2],sizeof(Command))==0);
         OK(push_projected_program(quad,prefix,texture)==SAT_OK);
-        std::memcpy(before,paired,sizeof(paired));
+        std::memcpy(before,paired,5*sizeof(Command));
         OK(push_projected_program(quad,prefix,texture)==SAT_ERR_CAPACITY);
-        OK(std::memcmp(before,paired,sizeof(paired))==0);
-        begin_frame(paired,5);OK(reserve_overlay_commands(2)==SAT_OK);
+        OK(std::memcmp(before,paired,5*sizeof(Command))==0);
+        begin_frame(5);OK(reserve_overlay_commands(2)==SAT_OK);
         OK(push_projected_program(quad,prefix,texture)==SAT_ERR_CAPACITY);
         OK(begin_overlay_pass()==SAT_OK);
         texture.valid=0;
@@ -81,8 +84,8 @@ int main() {
         OK(push_projected_program(quad,prefix,texture)==SAT_OK);
     }
 
-    Command commands[12]{};
-    begin_frame(commands, 12u);
+    begin_frame(12u);
+    Command* const commands = frame_commands();
 
     UserClipRequest clip{10u, 20u, 100u, 80u};
     OK(push_user_clip(clip) == SAT_OK);
@@ -124,8 +127,7 @@ int main() {
     UserClipRequest outside{0u, 0u, 320u, 223u};
     OK(push_user_clip(outside) == SAT_ERR_INVALID_ARG);
 
-    Command small[3]{};
-    begin_frame(small, 3u);
+    begin_frame(3u);
     OK(push_user_clip(clip) == SAT_ERR_CAPACITY);
 
     /* sat_vdp1_set_user_clip: the rectangle is cut to the screen, and one
@@ -145,8 +147,8 @@ int main() {
         OK(validate_indexed8_sprite_effects(SAT_SPRITE_FLAG_USER_CLIP | SAT_SPRITE_FLAG_FLIP_H) == SAT_OK);
         OK(validate_polygon_effects(0x801Fu, SAT_SPRITE_FLAG_USER_CLIP) == SAT_ERR_INVALID_ARG);
         OK(compose_sprite_pmod(SAT_SPRITE_FLAG_USER_CLIP) == compose_sprite_pmod(0u));
-        Command flagged[8]{};
-        begin_frame(flagged, 8u);
+        begin_frame(8u);
+        Command* const flagged = frame_commands();
         DistortedSpriteRequest quad{};
         quad.width = 16u;
         quad.height = 16u;
@@ -158,8 +160,7 @@ int main() {
 
     /* The world can never consume the two protected overlay slots or the
      * final END slot, regardless of which primitive exhausted its budget. */
-    Command reserved[8]{};
-    begin_frame(reserved,8u); /* two setup commands already installed */
+    begin_frame(8u); /* two setup commands already installed */
     OK(reserve_overlay_commands(2u)==SAT_OK);
     OK(push_sprite(sprite)==SAT_OK);
     OK(push_polygon(polygon)==SAT_OK);
@@ -173,16 +174,16 @@ int main() {
     OK(push_polygon(polygon)==SAT_OK);
     OK(push_sprite(sprite)==SAT_ERR_CAPACITY);
     /* New frame clears the reservation and restores normal command budget. */
-    begin_frame(reserved,8u);
+    begin_frame(8u);
     for(int i=0;i<5;++i) OK(push_sprite(sprite)==SAT_OK);
     OK(push_sprite(sprite)==SAT_ERR_CAPACITY);
-    begin_frame(reserved,8u);
+    begin_frame(8u);
     OK(reserve_overlay_commands(6u)==SAT_ERR_CAPACITY);
     OK(push_sprite(sprite)==SAT_OK);
 
     /* RGB CLUT sprites preserve source and CLUT while selecting Gouraud. */
-    Command lut_commands[8]{};
-    begin_frame(lut_commands,8u);
+    begin_frame(8u);
+    Command* const lut_commands = frame_commands();
     DistortedSpriteRequest lut_quad{};
     lut_quad.width=16;lut_quad.height=16;lut_quad.srca=0x3456;
     lut_quad.palette=0x2345;lut_quad.format=SAT_VDP1_TEXTURE_LUT4;
@@ -190,7 +191,7 @@ int main() {
     OK((lut_commands[2].pmod&0x003fu)==0x000cu);
     OK(lut_commands[2].colr==lut_quad.palette);
     OK(lut_commands[2].srca==lut_quad.srca);
-    OK(lut_commands[2].grda==65536u/8u);
+    OK(lut_commands[2].grda==(32u + 65536u)/8u);
     lut_quad.format=SAT_VDP1_TEXTURE_INDEXED8;
     OK(push_distorted_sprite_gouraud(lut_quad,corners)==SAT_ERR_UNSUPPORTED);
     lut_quad.format=SAT_VDP1_TEXTURE_LUT4;
@@ -201,7 +202,7 @@ int main() {
         OK(push_distorted_sprite_gouraud(lut_quad,corners)!=SAT_ERR_CAPACITY);
     lut_quad.width=16;
     OK(push_distorted_sprite_gouraud(lut_quad,corners)==SAT_OK);
-    OK(lut_commands[3].grda==65536u/8u+1u);
+    OK(lut_commands[3].grda==(32u + 65536u)/8u+1u);
 
     std::puts("vdp1 clip: OK");
     return 0;

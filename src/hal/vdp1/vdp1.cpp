@@ -1,6 +1,4 @@
 #include "src/hal/vdp1/vdp1.hpp"
-#include "saturn/video_memory.h"
-#include "src/hal/vdp1/submit_copy.hpp"
 #include "src/hal/vdp1/texture_arena.hpp"
 #include "src/hal/scu/dma.hpp"
 #include "src/hal/scu/scu.hpp"
@@ -27,13 +25,12 @@ constexpr uintptr_t kUncached = 0x20000000u;
  * -O2, but the ones it does not silently become null and every access reads or
  * writes address zero. See the long explanation in src/hal/vdp2/vdp2.cpp and the
  * build-time guard in tools/check_no_static_ctors.py. */
-#define TVMR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00000u))
-#define FBCR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00002u))
-#define PTMR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00004u))
-#define EWDR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00006u))
-#define EWLR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00008u))
-#define EWRR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D0000Au))
-#define EDSR (*reinterpret_cast<volatile uint16_t*>(kUncached | 0x05D00010u))
+#define TVMR (vdp1_reg(0x00u))
+#define FBCR (vdp1_reg(0x02u))
+#define PTMR (vdp1_reg(0x04u))
+#define EWDR (vdp1_reg(0x06u))
+#define EWLR (vdp1_reg(0x08u))
+#define EWRR (vdp1_reg(0x0Au))
 /* These are macros rather than reference variables on purpose: a reference or
  * pointer bound to a reinterpret_cast is dynamically initialized, and this
  * build runs no static constructors (crt0.s calls _main directly and the
@@ -42,31 +39,75 @@ constexpr uintptr_t kUncached = 0x20000000u;
  * writes address zero. See the long explanation in src/hal/vdp2/vdp2.cpp and the
  * build-time guard in tools/check_no_static_ctors.py. */
 #define VDP2_CRAM (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05F00000u))
-#define VDP1_VRAM_32 (reinterpret_cast<volatile uint32_t*>(kUncached | 0x05C00000u))
-#define VDP1_VRAM_16 (reinterpret_cast<volatile uint16_t*>(kUncached | 0x05C00000u))
+/* VDP1 VRAM layout. The command table and the Gouraud tables of a frame are written straight into one of two banks
+ * (no staging copy); the VDP1 reads the bank the root points at while the CPU builds the next frame in the other.
+ * VRAM 0..31 is the root: a skip-assign command (CMDCTRL JP=101, manual 6.1) whose CMDLINK names the bank to draw.
+ * Commands are 32 bytes and Gouraud tables 8 bytes; CMDLINK and CMDGRDA count in 8-byte units. */
 constexpr uint32_t kVramSize = 512u * 1024u;
-/* Room for saturn::internal::kCmdCapacity 32-byte command tables; texture
- * uploads start right after it. */
+constexpr uint32_t kRootBytes = 32u;
 constexpr uint32_t kCommandAreaBytes = 64u * 1024u;
-/* Gouraud shading tables (VDP1 manual 5.3), 8 bytes each, right after the
- * command area. Like commands they are staged in work RAM during the frame
- * and copied to VRAM in submit(); textures start after both areas. */
-constexpr uint16_t kCommandTableLimit = static_cast<uint16_t>(kCommandAreaBytes / 32u);
 constexpr uint32_t kGouraudAreaBytes = 16u * 1024u;
+constexpr uint32_t kBankBytes = kCommandAreaBytes + kGouraudAreaBytes;
+constexpr uint32_t kBankCount = 2u;
+constexpr uint32_t kTextureBase = kRootBytes + kBankCount * kBankBytes;
+constexpr uint16_t kCommandTableLimit = static_cast<uint16_t>(kCommandAreaBytes / 32u);
 constexpr uint16_t kGouraudTableLimit = static_cast<uint16_t>(kGouraudAreaBytes / 8u);
-constexpr uint32_t kTextureBase = kCommandAreaBytes + kGouraudAreaBytes;
+constexpr uint32_t bank_base(uint32_t bank) { return kRootBytes + bank * kBankBytes; }
+constexpr uint16_t kRootSkipAssign = 0x5000u;
+
+/* Window onto VDP1 VRAM. Null on hardware (the uncached VRAM address); a host test sets its own memory with
+ * set_vram_window(), so the same code runs against a plain array. Constant-initialised: no static constructor. */
+uint8_t* g_vram_window = nullptr;
+inline uint8_t* vram() {
+    return g_vram_window != nullptr ? g_vram_window : reinterpret_cast<uint8_t*>(kUncached | 0x05C00000u);
+}
+/* Register window. Null on hardware (the VDP1 registers); a host test points it at plain memory and gets `poll`
+ * called before every EDSR / COPR read, so it can model the VDP1 over time. */
+volatile uint8_t* g_vdp1_regs = nullptr;
+void (*g_register_poll)() = nullptr;
+inline volatile uint16_t& vdp1_reg(uint32_t offset) {
+    return g_vdp1_regs != nullptr
+        ? *reinterpret_cast<volatile uint16_t*>(g_vdp1_regs + offset)
+        : *reinterpret_cast<volatile uint16_t*>(kUncached | (0x05D00000u + offset));
+}
+inline uint16_t copr() {
+    if (g_register_poll != nullptr) g_register_poll();
+    return vdp1_reg(0x14u);
+}
+
+/* The end of the published list. EDSR.CEF alone cannot tell it from the end of an earlier list: after the PTMR
+ * write it stays set until the VDP1 starts. COPR can (VDP1 manual 4.8): fetching the END command leaves its table
+ * address / 8 in COPR until the next list starts, and processing updates it constantly. Each list ends with an
+ * END at an address of its own bank, and consecutive lists use different banks, so the list has ended exactly
+ * when COPR names its END. The address is recorded at publish. Both registers are read-only; nothing touches the
+ * SCU status register (the Saturn Technical Bulletin forbids writing it). */
+uint16_t g_published_end = 0u;
+inline bool draw_end_seen() { return copr() == g_published_end; }
+/* 1-cycle: the VDP1 redraws the published list at every field, so a bank is handed back only after the publish that
+ * moved the root away from it. Once the root names the new bank the old one is never started again; a draw of it
+ * still running at the publish keeps COPR inside it (addresses / 8 from g_reclaim_first up to, not including,
+ * g_reclaim_end, its END). begin_frame waits for COPR to leave that range before writing the bank. COPR is not
+ * waited to name the old END: after the new list is drawn, COPR no longer shows the old one. */
+uint16_t g_reclaim_first = 0u;
+uint16_t g_reclaim_end = 0u;
+bool g_reclaim_pending = false;
+inline volatile uint16_t* vram16() { return reinterpret_cast<volatile uint16_t*>(vram()); }
 
 Command* g_cmd_buffer = nullptr;
 uint16_t g_cmd_capacity = 0;
 uint16_t g_cmd_count = 0;
 uint16_t g_overlay_reserved = 0;
 bool g_overlay_pass = false;
-/* The tables are staged in the program's storage (saturn/video_memory.h; Low WRAM by default: few frames use Gouraud
- * tables, and High WRAM is kept for data the CPU touches every frame). Submit copies it with the CPU (SCU DMA cannot
- * read Low WRAM). */
-inline uint16_t* gouraud_words() { return sat_video_memory.gouraud; }
-inline uint16_t gouraud_capacity() {
-    return sat_video_memory.gouraud_capacity < kGouraudTableLimit ? sat_video_memory.gouraud_capacity : kGouraudTableLimit;
+/* Bank of the frame in progress and of the last list handed to the VDP1, and the VRAM byte addresses of the frame's
+ * command table and Gouraud tables. Without interlace the frame builds in the bank the VDP1 is not reading. */
+uint8_t g_build_bank = 0u;
+uint8_t g_published_bank = 1u;
+uint32_t g_cmd_base = 0u;
+uint32_t g_gouraud_base = 0u;
+inline uint16_t* gouraud_words() { return reinterpret_cast<uint16_t*>(vram() + g_gouraud_base); }
+/* CMDLINK value of command `index` of the frame's table: VRAM address over eight, absolute. */
+inline uint16_t command_link(uint32_t index) {
+    return static_cast<uint16_t>(g_cmd_base / 8u + index * 4u);
 }
 uint16_t g_gouraud_count = 0;
 uint32_t g_frame_serial=0u;
@@ -76,9 +117,10 @@ uint32_t g_command_batch_serial=0u;
 /* Set once a command list has been handed to the VDP1: before that, only
  * init's lone END list exists and there is no drawing to wait for. */
 bool g_list_submitted=false;
-bool g_submit_dma=false;
 uint32_t g_draw_waits=0u;
 uint32_t g_draw_timeouts=0u;
+/* Frames submit() dropped because the VDP1 still read the published bank. */
+uint32_t g_frames_dropped=0u;
 /* ON_SUBMIT swap state. kSwapImmediate: FCT went out with the list (the first
  * list after leaving 1-cycle mode, which must enter manual mode at once).
  * kSwapPending: the list plots, FCT not written yet; the VBlank-IN handler
@@ -106,6 +148,8 @@ bool g_double_interlace = false;
 uint8_t g_interlace_bank = 0u;
 volatile uint32_t g_interlace_publish_frame = 0u;
 volatile uint32_t g_interlace_pending_base = 0u;
+/* END command of the list waiting for its pair boundary, published with the root (g_published_end). */
+uint16_t g_interlace_pending_end = 0u;
 /* 640/704-wide hi-res: TVMR TVM = 001, an 8 bits/pixel framebuffer. */
 bool g_hires = false;
 /* TVMR TVM = 011, rotation 8: a 512 x 512 x 8 bits framebuffer the VDP2 reads back rotated.
@@ -180,11 +224,28 @@ inline bool command_slot_unavailable() {
         (g_overlay_pass ? 0u : g_overlay_reserved) >= g_cmd_capacity;
 }
 
-inline void copy_words_to_vram(const Command* src, uint32_t count_commands) {
-    (void)submit_copy::copy_commands(reinterpret_cast<const uint32_t*>(src), VDP1_VRAM_32, count_commands);
+/* Points the root at the bank `base` (VRAM byte address): one 32-bit store covering CMDCTRL and CMDLINK. */
+inline void publish_root(uint32_t base) {
+    volatile uint32_t* const root = reinterpret_cast<volatile uint32_t*>(vram());
+    root[0] = (static_cast<uint32_t>(kRootSkipAssign) << 16u) | (base / 8u);
 }
 
+/* Waits until the VDP1 no longer reads the bank the next frame writes (interlace only: the other bank keeps being
+ * drawn). Defined with the waits below. */
+bool acquire_interlace_bank();
+/* Leaving 1-cycle mode: waits until the list the swaps keep restarting has ended. False on a timeout. */
+bool settle_auto_plot();
+/* 1-cycle: waits until the VDP1 has left the bank the root no longer names. False on a timeout (the frame is dropped). */
+bool reclaim_settled();
+
 }  // namespace
+
+void set_vram_window(uint8_t* window) { g_vram_window = window; }
+
+void set_register_window(volatile uint8_t* vdp1_registers, void (*poll)()) {
+    g_vdp1_regs = vdp1_registers;
+    g_register_poll = poll;
+}
 
 void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_width = width;
@@ -194,12 +255,16 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     g_hires = width >= 640u;
     g_fb_rotation = false;
     g_fb_rotation_boot_clear = 0u;
-    /* Two immutable command banks plus a fixed root jump. Auto plotting
+    /* Two command banks plus a root that names the one drawn. Auto plotting
      * must keep running every field even while the CPU builds a new scene. */
     g_interlace_bank = 0u;
     g_interlace_pending_base = 0u;
+    g_interlace_pending_end = 0u;
+    g_build_bank = 0u;
+    g_published_bank = 1u;
     g_list_submitted = false;
-    g_texture_arena.reset(g_double_interlace ? 32u + 2u * kCommandAreaBytes : kTextureBase, kVramSize);
+    g_reclaim_pending = false;
+    g_texture_arena.reset(kTextureBase, kVramSize);
 
     TVMR = g_hires ? 0x0001u : 0x0000u;
     FBCR = g_double_interlace ? 0x0008u : 0x0000u;
@@ -222,10 +287,12 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     EWLR = 0x0000;
     EWRR = full_erase_ewrr(width, height);
 
-    VDP1_VRAM_32[0] = 0x80000000u;
-    VDP1_VRAM_32[1] = 0x00000000u;
-    VDP1_VRAM_32[2] = 0x00000000u;
-    VDP1_VRAM_32[3] = 0x00000000u;
+    /* No list yet: the root is an END command, so nothing is drawn until the first submit. */
+    volatile uint32_t* const root = reinterpret_cast<volatile uint32_t*>(vram());
+    root[0] = 0x80000000u;
+    root[1] = 0x00000000u;
+    root[2] = 0x00000000u;
+    root[3] = 0x00000000u;
     PTMR = 0x0002;
 }
 
@@ -290,7 +357,7 @@ void set_erase_enabled(bool enable, uint16_t width, uint16_t height) {
     }
 }
 
-void begin_frame(Command* command_buffer, uint16_t capacity) {
+void begin_frame(uint16_t capacity) {
     /* A caller must join all workers before beginning another frame. */
 #if SAT_NATIVE_SCENE_COMMANDS
     if(g_command_batch)return;
@@ -298,18 +365,38 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     ++g_frame_serial;
     if(g_frame_serial==0u)g_frame_serial=1u;
     g_frame_submitted=false;
-    g_cmd_buffer = command_buffer;
-    g_cmd_capacity = capacity < kCommandTableLimit ? capacity : kCommandTableLimit;
+    if (g_double_interlace) {
+        if (!acquire_interlace_bank()) {
+            g_cmd_buffer = nullptr;
+            g_frame_submitted = true;
+            ++g_frames_dropped;
+            return;
+        }
+        g_build_bank = g_interlace_bank;
+    } else {
+        g_build_bank = g_published_bank ^ 1u;
+    }
+    g_cmd_base = bank_base(g_build_bank);
+    g_gouraud_base = g_cmd_base + kCommandAreaBytes;
+    g_cmd_buffer = reinterpret_cast<Command*>(vram() + g_cmd_base);
+    g_cmd_capacity = capacity != 0u && capacity < kCommandTableLimit ? capacity : kCommandTableLimit;
     g_cmd_count = 0;
     g_overlay_reserved = 0u;
     g_overlay_pass = false;
     g_gouraud_count = 0;
+    if (!reclaim_settled()) {
+        // The VDP1 still reads this bank: nothing is written to it. The frame is dropped and the next begin_frame
+        // builds here again, once the VDP1 has left it.
+        g_cmd_buffer = nullptr;
+        g_frame_submitted = true;
+        ++g_frames_dropped;
+        return;
+    }
 
     // Both the local (relative) coordinate register and the system clipping
     // register are hardware-undefined after power-on/reset (VDP1 manual
     // 7.1/7.3) and persist only until explicitly rewritten. Every command
-    // list submitted here starts fresh at VRAM word 0 (see submit()'s
-    // copy_words_to_vram call), so without re-issuing these two setup
+    // list starts a fresh table in its VRAM bank, so without re-issuing these two setup
     // commands every frame, sprite coordinates silently stop being relative
     // to screen center (0,0) as every other function in this HAL assumes,
     // and drift onto whatever garbage the clip/offset registers held.
@@ -354,17 +441,27 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     sys_clip.pad = 0;
 
     if (g_on_submit_pending != g_on_submit) {
-        g_on_submit = g_on_submit_pending;
-        if (g_on_submit) {
+        if (g_on_submit_pending) {
             // Plot only on request from now on. submit's FBCR write leaves
             // 1-cycle mode; until then the VDP1 keeps swapping each field.
+            // The switch waits for the list in flight; if it does not end, the
+            // auto-plot is restored and the frame stays 1-cycle: the switch is
+            // retried by the next begin_frame, never taken as done.
             PTMR = 0x0000u;
+            if (!settle_auto_plot()) {
+                PTMR = saturn::core::kVdp1PtmrPlotAtSwap;
+            } else {
+                g_on_submit = true;
+                g_swap_state = kSwapIdle;
+                g_manual_mode = false;
+            }
         } else {
+            g_on_submit = false;
             FBCR = 0x0000u;
             PTMR = saturn::core::kVdp1PtmrPlotAtSwap;
+            g_swap_state = kSwapIdle;
+            g_manual_mode = false;
         }
-        g_swap_state = kSwapIdle;
-        g_manual_mode = false;
     }
     if ((!g_on_submit && !g_fb_rotation) || !g_erase_on || g_cmd_count >= g_cmd_capacity) {
         return;
@@ -392,6 +489,9 @@ void begin_frame(Command* command_buffer, uint16_t capacity) {
     clear.grda = 0;
     clear.pad = 0;
 }
+
+Command* frame_commands() { return g_cmd_buffer; }
+uint16_t frame_command_link(uint32_t index) { return command_link(index); }
 
 void command_stats(uint16_t& used, uint16_t& capacity,
                    uint16_t& overlay_reserved, bool& overlay_pass) {
@@ -468,7 +568,7 @@ sat_result_t command_batch_link(sat_vdp1_command_batch_t* b,uint16_t index) {
      * record, detecting duplicate IDs before they can create a cycle. */
     if(cmd.ctrl&0xF000u)return SAT_ERR_INVALID_ARG;
     cmd.ctrl=static_cast<uint16_t>(cmd.ctrl|0x1000u);cmd.pad=0u;
-    if(b->tail!=UINT16_MAX)g_cmd_buffer[b->tail].link=static_cast<uint16_t>(index*4u);
+    if(b->tail!=UINT16_MAX)g_cmd_buffer[b->tail].link=command_link(index);
     else b->head=index;
     b->tail=index;
     return SAT_OK;
@@ -477,13 +577,12 @@ sat_result_t command_batch_link(sat_vdp1_command_batch_t* b,uint16_t index) {
 sat_result_t command_batch_finish(sat_vdp1_command_batch_t* b) {
     if(!current_batch(b))return SAT_ERR_INVALID_ARG;
     const uint16_t first=b->checkpoint.used;
-    /* CMDLINK is the VRAM byte address divided by eight. Commands are 32
-     * bytes, so absolute command IDs multiply by four. The untouched prefix
-     * becomes reachable only after the entire painter traversal is ready. */
-    if(b->tail!=UINT16_MAX)g_cmd_buffer[b->tail].link=static_cast<uint16_t>(g_cmd_count*4u);
+    /* The untouched prefix becomes reachable only after the entire painter
+     * traversal is ready. */
+    if(b->tail!=UINT16_MAX)g_cmd_buffer[b->tail].link=command_link(g_cmd_count);
     Command& prefix=g_cmd_buffer[first-1u];
     prefix.ctrl=static_cast<uint16_t>((prefix.ctrl&0x8FFFu)|0x1000u);
-    prefix.link=static_cast<uint16_t>((b->head==UINT16_MAX?g_cmd_count:b->head)*4u);
+    prefix.link=command_link(b->head==UINT16_MAX?g_cmd_count:b->head);
     b->active=0;g_command_batch=nullptr;
     return SAT_OK;
 }
@@ -661,7 +760,7 @@ struct BatchCounts {
  * frame and one for the position, and the work between is a handful of adds and one combined
  * sign test for "wholly on screen". `kChecked` adds the capacity check (only needed when the
  * list may not hold every instance), `kPreclipOff` the Pclp rule. A normal sprite reads only its
- * first 16 bytes (see submit_copy.hpp), so the vertices B, C and D are not written. */
+ * first 16 bytes (VDP1 manual 7.4), so the vertices B, C and D are not written. */
 template <bool kChecked, bool kPreclipOff>
 void batch_loop(const sat_sprite_frame_t* frames, uint32_t frame_count,
                 const sat_sprite_instance_t* in, uint32_t count, uint32_t limit,
@@ -1009,14 +1108,14 @@ inline sat_result_t stage_gouraud(const uint16_t* corners, int corner_count, uin
     if (corners == nullptr) {
         return SAT_ERR_INVALID_ARG;
     }
-    if (g_gouraud_count >= gouraud_capacity()) {
+    if (g_gouraud_count >= kGouraudTableLimit) {
         return SAT_ERR_CAPACITY;
     }
     uint16_t* table = &gouraud_words()[static_cast<uint32_t>(g_gouraud_count) * 4u];
     for (int i = 0; i < 4; ++i) {
         table[i] = (i < corner_count) ? corners[i] : saturn::core::kGouraudNeutral;
     }
-    *out_grda = saturn::core::gouraud_table_grda(kCommandAreaBytes, g_gouraud_count);
+    *out_grda = saturn::core::gouraud_table_grda(g_gouraud_base, g_gouraud_count);
     ++g_gouraud_count;
     return SAT_OK;
 }
@@ -1074,33 +1173,10 @@ sat_result_t push_line_gouraud(const LineRequest& req, const uint16_t* gouraud) 
 
 namespace {
 
-/* Frame clock state at the last ON_SUBMIT submit. */
-uint32_t g_submit_frame = 0u;
-uint64_t g_submit_tick = 0u;
-
-constexpr uint16_t kCef = 0x0002u;
-constexpr uint16_t kBef = 0x0001u;
 constexpr uint16_t kTvstatVblank = 0x0008u;
 
 bool in_vblank() {
     return (vdp2::read_tvstat() & kTvstatVblank) != 0u;
-}
-
-/* kSwapImmediate: true once the swap requested by the last submit has surely
- * happened. It happens at the first VBlank-OUT after the submit: more than a
- * display frame ago, or the end of a VBlank that sat_wait_vblank has since
- * seen begin (waited out here: at most the blanking lines). */
-bool swapped_since_submit() {
-    const uint32_t frame_ticks = saturn::hal::scu::ticks_per_frame();
-    if (frame_ticks != 0u && saturn::hal::scu::elapsed_ticks() - g_submit_tick > frame_ticks) {
-        return true;
-    }
-    if (saturn::hal::scu::frame_counter() == g_submit_frame) {
-        return false;
-    }
-    for (uint32_t i = 0u; i < 0x100000u && in_vblank(); ++i) {
-    }
-    return true;
 }
 
 /* kSwapPending: asks for the swap if the list has ended and this is a VBlank.
@@ -1108,7 +1184,7 @@ bool swapped_since_submit() {
  * handler does not run (interrupts stopped). */
 void service_swap() {
     if (g_swap_state != kSwapPending) return;
-    if (!saturn::core::vdp1_swap_may_request((EDSR & kCef) != 0u, in_vblank())) return;
+    if (!saturn::core::vdp1_swap_may_request(draw_end_seen(), in_vblank())) return;
     FBCR = saturn::core::kVdp1FbcrManualChange;
     g_swap_vblank = g_vblank_ins;
     g_swap_state = kSwapRequested;
@@ -1117,11 +1193,12 @@ void service_swap() {
 }
 
 /* ON_SUBMIT: the last list's swap has happened (or none is outstanding), so
- * the back framebuffer is free for the next list. */
+ * the back framebuffer is free for the next list. kSwapImmediate: the swap went
+ * out with the list, so the list's end is all there is to wait for. */
 bool swap_settled() {
     switch (g_swap_state) {
     case kSwapImmediate:
-        if ((EDSR & kCef) != 0u || ((EDSR & kBef) != 0u && swapped_since_submit())) {
+        if (draw_end_seen()) {
             g_swap_state = kSwapIdle;
             return true;
         }
@@ -1140,18 +1217,14 @@ bool swap_settled() {
     }
 }
 
-/* The last list reached its END command. EDSR CEF (bit 1) is cleared when the
- * VDP1 starts a list and set at its END; a framebuffer swap moves it to BEF
- * (bit 0) and clears it (VDP1 manual 4.6). In 1-cycle mode the list starts at
- * the swap, so CEF alone answers. In ON_SUBMIT mode the list starts at submit
- * and its swap is asked for only after its END, so a pending swap means
- * "ended" once CEF is set, and a requested or finished one means it was. */
+/* The last list reached its END command (draw_end_seen). A pending swap means "ended" once the end is seen, and a
+ * requested or finished one means it was. */
 bool list_ended() {
-    if (!g_on_submit) return (EDSR & kCef) != 0u;
+    if (!g_on_submit) return draw_end_seen();
     switch (g_swap_state) {
     case kSwapPending:
         service_swap();
-        return g_swap_state != kSwapPending || (EDSR & kCef) != 0u;
+        return g_swap_state != kSwapPending || draw_end_seen();
     case kSwapImmediate:
         return swap_settled();
     default:
@@ -1187,6 +1260,37 @@ bool wait_until(Done done, uint32_t frames) {
     return false;
 }
 
+/* PTMR is already 0, so nothing restarts the list: it is over once its END was fetched. */
+bool settle_auto_plot() {
+    if (!g_list_submitted) return true;
+    return wait_until([] { return draw_end_seen(); }, 2u);
+}
+
+bool reclaim_settled() {
+    if (!g_reclaim_pending) return true;
+    if (!wait_until([] {
+            const uint16_t at = copr();
+            return at < g_reclaim_first || at >= g_reclaim_end;
+        }, 2u)) return false;
+    g_reclaim_pending = false;
+    return true;
+}
+
+bool acquire_interlace_bank() {
+    /* Before writing the inactive bank, allow the previous root jump to be consumed at a field start. The other
+     * bank keeps rendering. */
+    if (!g_list_submitted) return true;
+    return wait_until([] {
+        if (g_interlace_pending_base != 0u ||
+            g_vblank_ins == g_interlace_publish_frame || in_vblank()) return false;
+        /* A late draw may still be in the bank even after the field boundary.
+         * Keep the whole command area reserved until COPR has left it. */
+        const uint16_t at = copr();
+        const uint32_t first = bank_base(g_interlace_bank) / 8u;
+        return at < first || at >= first + kCommandAreaBytes / 8u;
+    }, 4u);
+}
+
 }  // namespace
 
 bool wait_draw_end() {
@@ -1206,7 +1310,8 @@ void on_vblank_in() {
          * This prevents a weave pair from combining different pose lists. */
         const uint32_t base = g_interlace_pending_base;
         if (odd && base != 0u) {
-            VDP1_VRAM_32[0] = 0x50000000u | (base / 8u);
+            g_published_end = g_interlace_pending_end;
+            publish_root(base);
             g_interlace_publish_frame = g_vblank_ins;
             g_interlace_pending_base = 0u;
         }
@@ -1245,12 +1350,9 @@ void wait_swap_requested() {
     }
 }
 
-void set_submit_dma(bool enabled) { g_submit_dma = enabled; }
-
-bool submit_dma() { return g_submit_dma; }
-
 uint32_t draw_waits() { return g_draw_waits; }
 uint32_t draw_timeouts() { return g_draw_timeouts; }
+uint32_t frames_dropped() { return g_frames_dropped; }
 
 void submit() {
 #if SAT_NATIVE_SCENE_COMMANDS
@@ -1259,22 +1361,11 @@ void submit() {
     if (g_cmd_buffer == nullptr) {
         return;
     }
-    // Never rewrite the command table while the VDP1 still reads the
-    // previous one, nor (ON_SUBMIT) plot into a back framebuffer whose swap
-    // is still outstanding: that list was never shown. On timeout the frame
-    // is submitted anyway (counted): dropping it would stall the game on a
-    // wedged VDP1. A pending swap may wait for its list's end plus a VBlank.
-    if (g_list_submitted) {
-        if (g_on_submit) {
-            (void)wait_until([] { return list_ended() && swap_settled(); }, 4u);
-        } else if (!g_double_interlace) {
-            (void)wait_draw_end();
-        }
-    }
     if (g_cmd_count >= g_cmd_capacity) {
         g_cmd_count = static_cast<uint16_t>(g_cmd_capacity - 1u);
     }
 
+    /* The list is finished in the bank the frame built in, which the VDP1 does not read: no wait is needed for that. */
     Command& end = g_cmd_buffer[g_cmd_count++];
     end.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdNormalSprite, true);
     end.link = 0;
@@ -1292,49 +1383,41 @@ void submit() {
     end.yd = 0;
     end.grda = 0;
     end.pad = 0;
+    /* Reading the list's last command back makes sure its uncached stores have reached VRAM before the root names
+     * the bank. */
+    (void)*reinterpret_cast<volatile uint32_t*>(vram() + g_cmd_base + (g_cmd_count - 1u) * 32u);
 
+    /* Bank ownership. The published bank is the one the root names and the VDP1 may read; the other is the CPU's.
+     * ON_SUBMIT: the previous list is over, and its swap has happened, before the root moves: the wait is bounded and
+     * on a timeout nothing is published, the frame is dropped and the next begin_frame builds in this same bank.
+     * 1-cycle: the VDP1 starts the published list again at every field, so the root moves first and the bank the
+     * CPU gets back is reclaimed by begin_frame, after the VDP1 has left it (reclaim_settled). */
+    if (g_list_submitted && g_on_submit) {
+        if (!wait_until([] { return list_ended() && swap_settled(); }, 4u)) {
+            ++g_frames_dropped;
+            g_frame_submitted = true;
+            return;
+        }
+    }
+
+    /* The list was built in its bank; nothing is copied. */
     if (g_double_interlace) {
-        /* Before reusing the inactive bank, allow the previous root jump
-         * to be consumed at a field start. The other bank keeps rendering. */
-        if (g_list_submitted) {
-            (void)wait_until([] {
-                return g_interlace_pending_base == 0u &&
-                    g_vblank_ins != g_interlace_publish_frame && !in_vblank();
-            }, 4u);
-        }
-        const uint32_t base = 32u + static_cast<uint32_t>(g_interlace_bank) * kCommandAreaBytes;
-        submit_copy::copy_commands_relocated(reinterpret_cast<const uint32_t*>(g_cmd_buffer),
-                                              VDP1_VRAM_32 + base / 4u, g_cmd_count, base);
-        /* The VBlank handler publishes the completed bank at a pair boundary.
-         * SKIP ASSIGN reads no texture; all later links target this bank. */
+        /* The VBlank handler publishes the bank at a pair boundary (on_vblank_in). SKIP ASSIGN reads no texture;
+         * all later links target this bank. */
+        g_interlace_pending_end = static_cast<uint16_t>((g_cmd_base + (g_cmd_count - 1u) * 32u) / 8u);
+        /* The interrupt treats a nonzero base as the publication flag. */
         asm volatile("" ::: "memory");
-        g_interlace_pending_base = base;
+        g_interlace_pending_base = g_cmd_base;
         g_interlace_bank ^= 1u;
-    } else if (g_submit_dma) {
-        /* Command table and Gouraud tables by SCU-DMA. A DMA that fails is
-         * redone by the CPU: the table must be complete before the VDP1
-         * draws. */
-        void* const vram = reinterpret_cast<void*>(kUncached | 0x05C00000u);
-        if (scu::dma::copy(vram, g_cmd_buffer, g_cmd_count * sizeof(Command)) != SAT_OK) {
-            copy_words_to_vram(g_cmd_buffer, g_cmd_count);
-        }
-        const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
-        const uint32_t gouraud_count_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
-        if (gouraud_count_words != 0u &&
-            scu::dma::copy(const_cast<uint16_t*>(VDP1_VRAM_16) + gouraud_word_base,
-                           gouraud_words(), gouraud_count_words * sizeof(uint16_t)) != SAT_OK) {
-            for (uint32_t i = 0; i < gouraud_count_words; ++i) {
-                VDP1_VRAM_16[gouraud_word_base + i] = gouraud_words()[i];
-            }
-        }
     } else {
-        copy_words_to_vram(g_cmd_buffer, g_cmd_count);
-
-        const uint32_t gouraud_word_base = kCommandAreaBytes / 2u;
-        const uint32_t gouraud_count_words = static_cast<uint32_t>(g_gouraud_count) * 4u;
-        for (uint32_t i = 0; i < gouraud_count_words; ++i) {
-            VDP1_VRAM_16[gouraud_word_base + i] = gouraud_words()[i];
+        if (g_list_submitted && !g_on_submit) {
+            g_reclaim_first = static_cast<uint16_t>(bank_base(g_published_bank) / 8u);
+            g_reclaim_end = g_published_end;
+            g_reclaim_pending = true;
         }
+        publish_root(g_cmd_base);
+        g_published_bank = g_build_bank;
+        g_published_end = static_cast<uint16_t>((g_cmd_base + (g_cmd_count - 1u) * 32u) / 8u);
     }
 
     g_frame_submitted=true;
@@ -1344,8 +1427,6 @@ void submit() {
         // Draw into the back framebuffer now. The first list after 1-cycle
         // mode asks for the change with it (manual mode starts there); later
         // ones leave it to the VBlank-IN after their END (service_swap).
-        g_submit_frame = saturn::hal::scu::frame_counter();
-        g_submit_tick = saturn::hal::scu::elapsed_ticks();
         PTMR = saturn::core::kVdp1PtmrPlotNow;
         if (!g_manual_mode) {
             FBCR = saturn::core::kVdp1FbcrManualChange;
@@ -1383,12 +1464,12 @@ sat_result_t validate_indexed8_transfer(
  * contiguous block; otherwise one copy per row. */
 sat_result_t write_indexed8_rows(
     uint32_t start, const uint8_t* pixels, uint16_t width, uint16_t height, uint16_t pitch) {
-    uint8_t* vram = reinterpret_cast<uint8_t*>(kUncached | 0x05C00000u) + start;
+    uint8_t* const dst = vram() + start;
     if (pitch == width) {
-        return scu::dma::copy(vram, pixels, static_cast<uint32_t>(width) * height);
+        return scu::dma::copy(dst, pixels, static_cast<uint32_t>(width) * height);
     }
     for (uint16_t y = 0u; y < height; ++y) {
-        SAT_TRY(scu::dma::copy(vram + static_cast<uint32_t>(y) * width,
+        SAT_TRY(scu::dma::copy(dst + static_cast<uint32_t>(y) * width,
                                pixels + static_cast<uint32_t>(y) * pitch, width));
     }
     return SAT_OK;
@@ -1448,8 +1529,7 @@ sat_result_t write_texture_region(uint32_t offset, const void* src, uint32_t byt
         return SAT_ERR_INVALID_ARG;
     }
     if (!wait_draw_end()) return SAT_ERR_TIMEOUT;
-    uint8_t* vram = reinterpret_cast<uint8_t*>(kUncached | 0x05C00000u) + offset;
-    return scu::dma::copy(vram, src, bytes);
+    return scu::dma::copy(vram() + offset, src, bytes);
 }
 
 sat_result_t upload_texture_indexed8(
@@ -1463,7 +1543,7 @@ sat_result_t upload_lut(const uint16_t* lut_rgb555, uint16_t* out_colr) {
     uint32_t start = 0u;
     SAT_TRY(arena_take(kLutBytes, kLutBytes, &start));
     for (uint32_t i = 0u; i < 16u; ++i) {
-        VDP1_VRAM_16[start / 2u + i] = lut_rgb555[i];
+        vram16()[start / 2u + i] = lut_rgb555[i];
     }
     *out_colr = static_cast<uint16_t>(start >> 3u);
     return SAT_OK;
@@ -1553,7 +1633,7 @@ sat_result_t update_texture_indexed8_rect(
         const uint32_t dst =
             first_word + (row * texture_width + first_x) / 2u;
         for (uint32_t col = first_x; col < end_x; col += 2u)
-            VDP1_VRAM_16[dst + (col - first_x) / 2u] =
+            vram16()[dst + (col - first_x) / 2u] =
                 static_cast<uint16_t>(
                     (static_cast<uint16_t>(source[col]) << 8u) |
                      static_cast<uint16_t>(source[col + 1u]));
@@ -1580,6 +1660,10 @@ extern "C" uint32_t sat_vdp1_test_draw_waits(void) {
 
 extern "C" uint32_t sat_vdp1_test_draw_timeouts(void) {
     return g_draw_timeouts;
+}
+
+extern "C" uint32_t sat_vdp1_test_frames_dropped(void) {
+    return g_frames_dropped;
 }
 #endif
 
