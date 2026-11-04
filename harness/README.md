@@ -220,6 +220,13 @@ Inspect execution and screenshots past the BIOS. `--pad-script` already connects
 P1; do not also replace P1's report callback with `--port-device 1:pad` or
 `--device-script`.
 
+For multi-chunk SMPC tests, `--port-device 1:test-tap --port-device 2:test-tap`
+injects fixed report bytes for two six-device adapters. This is a synthetic
+INTBACK stream, not an electrical model of a multitap. The harness patch also
+uses IREG0 bit-7 transitions for CONTINUE, as described by the SMPC manual.
+`harness/tests/test_input_multitap_probe.py` checks a captured input demo when
+`LIBSATURN_INPUT_TAP_DUMP` and `LIBSATURN_INPUT_MAP` are set.
+
 The trace window uses zero-based **program** frame indices, excluding the
 pre-injection BIOS setup. Each CPU's histogram, event stream and PC snapshots,
 and the shared frame log, have an independent capacity (default 65,536;

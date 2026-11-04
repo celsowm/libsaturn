@@ -5,12 +5,16 @@
 #include "src/hal/sh2/cpu.hpp"
 #include "src/hal/sh2/interrupt.hpp"
 
+/* The DMA object is optional in statically linked applications. */
+extern "C" void sat_scu_dma_illegal_isr() __attribute__((weak));
+
 namespace saturn::hal::scu::irq {
 
 namespace {
 
 namespace logic = saturn::hal::scu::irq_logic;
 
+#ifndef SCU_T0C
 #define SCU_T0C (*reinterpret_cast<volatile uint32_t*>(0x25FE0090u))
 #define SCU_T1S (*reinterpret_cast<volatile uint32_t*>(0x25FE0094u))
 #define SCU_T1MD (*reinterpret_cast<volatile uint32_t*>(0x25FE0098u))
@@ -22,6 +26,7 @@ namespace logic = saturn::hal::scu::irq_logic;
  * Level 0 is never taken, whatever the SR mask. */
 #define SH2_IPRA (*reinterpret_cast<volatile uint16_t*>(0xFFFFFEE2u))
 #define SH2_IPRB (*reinterpret_cast<volatile uint16_t*>(0xFFFFFE60u))
+#endif
 constexpr uint16_t kIcrVecmd = 0x0001u;
 constexpr uint32_t kStartSpins = 4000000u;
 
@@ -32,6 +37,8 @@ sh2::interrupt::Handler g_previous[logic::kSourceCount];
 /* IMS is write-only: this shadow is what every handler restores on exit. */
 volatile uint32_t g_ims = logic::kImsAllMasked;
 uint16_t g_enabled = 0u;
+uint16_t g_retained = 0u;
+uint8_t g_references[logic::kSourceCount];
 uint8_t g_previous_sr_mask = 0xFu;
 uint16_t g_previous_ipra = 0u;
 uint16_t g_previous_iprb = 0u;
@@ -43,6 +50,7 @@ bool g_timer0_line_only = false;
 inline void dispatch(uint8_t source) {
     g_count[source] = g_count[source] + 1u;
     if (source == logic::kVblankIn) on_vblank_in();
+    if (source == 12u && sat_scu_dma_illegal_isr != nullptr) sat_scu_dma_illegal_isr();
     const Handler handler = g_handler[source];
     if (handler != nullptr) handler(g_user[source]);
     /* Taking an SCU interrupt in vector mode can leave IMS fully masked
@@ -51,8 +59,11 @@ inline void dispatch(uint8_t source) {
     SCU_IMS = g_ims;
 }
 
+#ifndef SAT_SCU_INTERRUPT_ATTRIBUTE
+#define SAT_SCU_INTERRUPT_ATTRIBUTE __attribute__((interrupt_handler))
+#endif
 #define SAT_SCU_ISR(n) \
-    extern "C" __attribute__((interrupt_handler)) void sat_scu_isr_##n() { dispatch(n); }
+    extern "C" SAT_SCU_INTERRUPT_ATTRIBUTE void sat_scu_isr_##n() { dispatch(n); }
 SAT_SCU_ISR(0) SAT_SCU_ISR(1) SAT_SCU_ISR(2) SAT_SCU_ISR(3) SAT_SCU_ISR(4)
 SAT_SCU_ISR(5) SAT_SCU_ISR(6) SAT_SCU_ISR(7) SAT_SCU_ISR(8) SAT_SCU_ISR(9)
 SAT_SCU_ISR(10) SAT_SCU_ISR(11) SAT_SCU_ISR(12) SAT_SCU_ISR(13)
@@ -65,11 +76,14 @@ constexpr sh2::interrupt::Handler kIsr[logic::kSourceCount] = {
 
 /* Applies g_enabled: IMS, timer enable and the SR mask, with every level
  * masked while the three change together. */
-void apply(uint32_t status) {
-    g_ims = logic::compose_ims(g_enabled);
-    SCU_T1MD = logic::compose_t1md(logic::timers_needed(g_enabled), g_timer0_line_only);
+void apply(uint32_t status, bool preserve_stricter_mask = false) {
+    const uint16_t enabled = static_cast<uint16_t>(g_enabled | g_retained);
+    g_ims = logic::compose_ims(enabled);
+    SCU_T1MD = logic::compose_t1md(logic::timers_needed(enabled), g_timer0_line_only);
     SCU_IMS = g_ims;
-    const uint8_t mask = g_installed ? logic::sr_mask(g_enabled) : g_previous_sr_mask;
+    uint8_t mask = g_installed ? logic::sr_mask(enabled) : g_previous_sr_mask;
+    const uint8_t prior = static_cast<uint8_t>((status >> 4u) & 0x0Fu);
+    if (preserve_stricter_mask && prior > mask) mask = prior;
     sh2::restore_interrupts((status & ~0x000000F0u) |
                             (static_cast<uint32_t>(mask) << 4u));
 }
@@ -124,12 +138,14 @@ bool start() {
 void stop() {
     const uint32_t status = sh2::save_and_mask_interrupts();
     g_enabled = 0u;
+    g_retained = 0u;
     g_installed = false;
     g_live = false;
     g_ims = logic::kImsAllMasked;
     SCU_T1MD = 0u;
     SCU_IMS = g_ims;
     for (uint8_t s = 0u; s < logic::kSourceCount; ++s) {
+        g_references[s] = 0u;
         sh2::interrupt::restore(logic::vector(s), g_previous[s]);
         g_handler[s] = nullptr;
         g_user[s] = nullptr;
@@ -164,6 +180,34 @@ void set_handler(uint8_t source, Handler handler, void* user) {
 
 uint32_t count(uint8_t source) {
     return source < logic::kSourceCount ? g_count[source] : 0u;
+}
+
+bool retain(uint8_t source) {
+    if (source >= logic::kSourceCount) return false;
+    const uint32_t status = sh2::save_and_mask_interrupts();
+    const uint8_t prior_mask = static_cast<uint8_t>((status >> 4u) & 0x0Fu);
+    const uint8_t expected_mask = logic::sr_mask(static_cast<uint16_t>(g_enabled | g_retained));
+    if (!g_live || g_references[source] == 0xFFu || prior_mask > expected_mask) {
+        sh2::restore_interrupts(status);
+        return false;
+    }
+    ++g_references[source];
+    g_retained = static_cast<uint16_t>(g_retained | (1u << source));
+    apply(status);
+    return true;
+}
+
+void release(uint8_t source) {
+    if (source >= logic::kSourceCount) return;
+    const uint32_t status = sh2::save_and_mask_interrupts();
+    if (g_references[source] == 0u || !g_live) {
+        sh2::restore_interrupts(status);
+        return;
+    }
+    if (--g_references[source] == 0u) {
+        g_retained = static_cast<uint16_t>(g_retained & ~(1u << source));
+    }
+    apply(status, true);
 }
 
 void set_timer0_line(uint16_t line) {

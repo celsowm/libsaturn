@@ -1,0 +1,90 @@
+diff --git a/libs/ymir-core/include/ymir/hw/smpc/peripheral/peripheral_port.hpp b/libs/ymir-core/include/ymir/hw/smpc/peripheral/peripheral_port.hpp
+index 51c9153e..1db497ea 100644
+--- a/libs/ymir-core/include/ymir/hw/smpc/peripheral/peripheral_port.hpp
++++ b/libs/ymir-core/include/ymir/hw/smpc/peripheral/peripheral_port.hpp
+@@ -11,9 +11,11 @@
+ 
+ #include <ymir/core/types.hpp>
+ 
++#include <algorithm>
+ #include <memory>
+ #include <span>
+ #include <utility>
++#include <vector>
+ 
+ // -----------------------------------------------------------------------------
+ // Forward declarations
+@@ -67,6 +69,11 @@ public:
+         ConnectPeripheral<NullPeripheral>();
+     }
+ 
++    // Harness-only synthetic INTBACK stream, including its port status byte.
++    void SetSyntheticReport(std::span<const uint8> report) {
++        m_syntheticReport.assign(report.begin(), report.end());
++    }
++
+     BasePeripheral &GetPeripheral() {
+         return *m_peripheral;
+     }
+@@ -77,12 +84,14 @@ public:
+ private:
+     // TODO: implement multi-tap as an array of peripherals
+     std::unique_ptr<BasePeripheral> m_peripheral;
++    std::vector<uint8> m_syntheticReport;
+ 
+     CBPeripheralReport m_cbPeripheralReport;
+ 
+     template <typename T, typename... Args>
+         requires std::derived_from<T, BasePeripheral>
+     T *ConnectPeripheral(Args &&...args) {
++        m_syntheticReport.clear();
+         T *peripheral = new T(std::forward<Args>(args)...);
+         m_peripheral.reset(peripheral);
+         return peripheral;
+@@ -92,6 +101,7 @@ private:
+ 
+     // Updates inputs and returns the report length
+     uint32 UpdateInputs() const {
++        if (!m_syntheticReport.empty()) return static_cast<uint32>(m_syntheticReport.size());
+         if (m_peripheral->IsConnected()) {
+             m_peripheral->UpdateInputs();
+             if (m_peripheral->GetType() != PeripheralType::VirtuaGun) {
+@@ -102,6 +112,10 @@ private:
+     }
+ 
+     void Read(std::span<uint8> out) const {
++        if (!m_syntheticReport.empty()) {
++            std::copy_n(m_syntheticReport.begin(), std::min(out.size(), m_syntheticReport.size()), out.begin());
++            return;
++        }
+         if (m_peripheral->IsConnected()) {
+             if (m_peripheral->GetType() == PeripheralType::VirtuaGun) {
+                 // [0] 0xA0 -> 7-4 = A=6Player connected; 3-0 = 0 connectors
+diff --git a/libs/ymir-core/src/ymir/hw/smpc/smpc.cpp b/libs/ymir-core/src/ymir/hw/smpc/smpc.cpp
+index 8beb7463..1cfd9a32 100644
+--- a/libs/ymir-core/src/ymir/hw/smpc/smpc.cpp
++++ b/libs/ymir-core/src/ymir/hw/smpc/smpc.cpp
+@@ -367,12 +367,13 @@ void SMPC::Write(uint32 address, uint8 value) {
+     devlog::trace<grp::regs>("Register write to {:02X} = {:02X}", address, value);
+ 
+     switch (address) {
+-    case 0x01:
++    case 0x01: {
++        const uint8 previous = IREG[0];
+         WriteIREG(0, value);
+         if constexpr (!poke) {
+             if (m_intbackInProgress) {
+                 // Handle INTBACK continue/break requests
+-                const bool continueFlag = bit::test<7>(IREG[0]);
++                const bool continueFlag = bit::test<7>(previous ^ IREG[0]);
+                 const bool breakFlag = bit::test<6>(IREG[0]);
+                 if (continueFlag) {
+                     devlog::trace<grp::intback>("INTBACK continue request");
+@@ -391,6 +392,7 @@ void SMPC::Write(uint32 address, uint8 value) {
+             }
+         }
+         break;
++    }
+     case 0x03: WriteIREG(1, value); break;
+     case 0x05: WriteIREG(2, value); break;
+     case 0x07: WriteIREG(3, value); break;

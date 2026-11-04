@@ -4,6 +4,7 @@ namespace saturn::hal::smpc {
 
 namespace {
 
+#ifndef SMPC_IREG
 #define SMPC_IREG0 (*reinterpret_cast<volatile uint8_t*>(0x20100001))
 #define SMPC_IREG1 (*reinterpret_cast<volatile uint8_t*>(0x20100003))
 #define SMPC_IREG2 (*reinterpret_cast<volatile uint8_t*>(0x20100005))
@@ -19,6 +20,7 @@ namespace {
 #define SMPC_SF (*reinterpret_cast<volatile uint8_t*>(0x20100063))
 #define SMPC_COMREG (*reinterpret_cast<volatile uint8_t*>(0x2010001F))
 #define SMPC_IOSEL1 (*reinterpret_cast<volatile uint8_t*>(0x2010007D))
+#endif
 
 constexpr uint32_t kSfTimeoutIters = 1000000u;
 constexpr uint8_t kIntbackCommand = 0x10u;
@@ -29,6 +31,7 @@ constexpr uint8_t kSlaveOffCommand = 0x03u;
 constexpr uint8_t kResetEnableCommand = 0x19u;
 constexpr uint8_t kSystemResetCommand = 0x0Du;
 constexpr uint8_t kResetDisableCommand = 0x1Au;
+uint8_t g_continue_bit = 0u;
 
 inline void ensure_smpc_control_mode() {
     SMPC_IOSEL1 = 0x00u;
@@ -43,7 +46,9 @@ inline bool wait_sf_clear() {
 }
 
 inline void break_intback() {
-    SMPC_IREG(0) = kIntbackBreak;
+    /* Preserve CONT: toggling it while asserting BR requests both operations,
+     * for which the SMPC manual gives no defined behavior. */
+    SMPC_IREG(0) = static_cast<uint8_t>(kIntbackBreak | g_continue_bit);
     (void)wait_sf_clear();
 }
 
@@ -102,7 +107,7 @@ bool begin_peripheral_read(uint8_t port_mask) {
     settle_pending_intback();
     init_control_mode_once();
     if (!wait_sf_clear()) return false;
-    clear_smpc_ist();
+    g_continue_bit = 0u;
     SMPC_IREG(0) = 0x00u;
     SMPC_IREG(1) = intback_ireg1(port_mask);
     SMPC_IREG(2) = 0xF0u;
@@ -124,7 +129,10 @@ bool finish_peripheral_read(PeripheralSnapshot* out_snapshot, ParseStatus* parse
     stream.length = 0u;
     stream.chunks = 0u;
     stream.overflow = false;
-    if (!wait_sf_clear()) return false;
+    if (!wait_sf_clear()) {
+        break_intback();
+        return false;
+    }
 
     for (;;) {
         uint8_t oreg[kChunkBytes];
@@ -136,8 +144,15 @@ bool finish_peripheral_read(PeripheralSnapshot* out_snapshot, ParseStatus* parse
         }
         if (!more_chunks(sr)) break;
         clear_smpc_ist();
-        SMPC_IREG(0) = kIntbackContinue;
+        g_continue_bit = next_intback_continue(g_continue_bit);
+        SMPC_IREG(0) = g_continue_bit;
         if (!wait_chunk_ready()) {
+            break_intback();
+            return false;
+        }
+        /* PDL identifies the first data block. If the first CONTINUE was
+         * ignored, an unrelated or stale IRQ must not make us replay it. */
+        if (stream.chunks == 1u && (SMPC_SR & 0x40u) != 0u) {
             break_intback();
             return false;
         }

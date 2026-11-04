@@ -56,7 +56,9 @@ FetchContent_MakeAvailable(ymir)
 # the mask (the AVX2 and scalar paths were correct), so non-AVX2 builds
 # rendered a wrong blur. It touches a different file, so each patch can still
 # be reverse-checked on its own.
-foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug ymir_gradation_sse_fix)
+# ymir_smpc_test_reports adds opt-in synthetic INTBACK report bytes and makes
+# CONTINUE detection follow IREG0 bit 7 transitions, as the SMPC manual says.
+foreach(YMIR_DEBUG_PATCH_NAME ymir_harness_debug ymir_gradation_sse_fix ymir_smpc_test_reports)
     set(YMIR_DEBUG_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/${YMIR_DEBUG_PATCH_NAME}.patch")
     execute_process(
         COMMAND git -C "${ymir_SOURCE_DIR}" apply --check --reverse "${YMIR_DEBUG_PATCH}"

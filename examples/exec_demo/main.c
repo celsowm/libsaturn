@@ -1,7 +1,8 @@
 /* exec_demo - sat_exec round trip. The program execs itself (0.BIN) kRounds
  * times, handing the round number to the next run, each time with the Slave
  * SH-2 running and VBlank interrupts live, so every run starts from what the
- * previous one left. The backdrop changes colour per round; the last round
+ * previous one left. The handoff alternates the normal and keep-display
+ * variants. The backdrop changes colour per round; the last round
  * stays on green. harness/run-exec.ps1 reads g_exec_demo. */
 #include <stdint.h>
 
@@ -26,6 +27,7 @@ typedef struct exec_demo {
     uint32_t slave_beats;    /* the Slave's heartbeats this round */
     uint32_t frames;         /* frames this round */
     uint32_t done;           /* 1 once the last round is reached */
+    uint32_t pending_smpc;   /* bit per handoff with masked SMPC status pending */
 } exec_demo_t;
 
 exec_demo_t g_exec_demo;
@@ -50,7 +52,12 @@ int main(void) {
     uint32_t round = 0u;
     uint32_t bytes = 0u;
     g_exec_demo.arg_status = sat_exec_arg(&round, sizeof(round), &bytes);
-    round = (g_exec_demo.arg_status == SAT_OK && bytes == sizeof(round)) ? round + 1u : 0u;
+    if (g_exec_demo.arg_status == SAT_OK && bytes == sizeof(round)) {
+        g_exec_demo.pending_smpc = round >> 8u;
+        round = (round & 0xFFu) + 1u;
+    } else {
+        round = 0u;
+    }
     g_exec_demo.round = round;
     g_exec_demo.exec_status = SAT_OK;
     g_exec_demo.magic = kMagic;
@@ -74,7 +81,16 @@ int main(void) {
         g_exec_demo.slave_beats = sat_dual_sh2_slave_heartbeat_count();
         if (g_exec_demo.frames == kFramesPerRound) {
             if (round < kRounds) {
-                g_exec_demo.exec_status = sat_exec(&g_volume, "0.BIN", &round, sizeof(round));
+                /* The status-only INTBACK raises the masked SMPC source before
+                 * loading the next image. */
+                sat_smpc_status_t status;
+                sat_example_must(sat_smpc_status(&status));
+                const volatile uint32_t* const ist = (const volatile uint32_t*)0x25FE00A4u;
+                const uint32_t pending = (*ist >> 7u) & 1u;
+                const uint32_t arg = round | ((g_exec_demo.pending_smpc | (pending << round)) << 8u);
+                g_exec_demo.exec_status = (round & 1u)
+                    ? sat_exec_keep_display(&g_volume, "0.BIN", &arg, sizeof(arg))
+                    : sat_exec(&g_volume, "0.BIN", &arg, sizeof(arg));
             } else {
                 g_exec_demo.done = 1u;
             }

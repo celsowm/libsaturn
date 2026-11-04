@@ -84,10 +84,12 @@ struct InstructionCounter final : ymir::debug::ISH2Tracer {
     uint32_t aip_pc = 0;
     uint32_t app_pc = 0;
     std::function<void(uint32_t)> checkpoint;
+    std::function<void(uint32_t)> instruction_hook;
     std::vector<uint32_t> entry_instructions;
     void ExecuteInstruction(uint32_t pc, uint16_t, bool) override {
         ++count;
         current_pc=pc;
+        if (instruction_hook) instruction_hook(pc);
         if(profile.active && std::find(snapshot_pcs.begin(),snapshot_pcs.end(),pc)!=snapshot_pcs.end()) {
             if(snapshots.size()<profile.capacity) snapshots.push_back({profile.frame,registers(),peek_instructions(pc)});
             else ++dropped_snapshots;
@@ -399,6 +401,9 @@ struct Args {
     std::string bin_path;
     std::string out_path = "probe.json";
     uint32_t frames = 60;
+    uint32_t inject_dma_illegal_frame = std::numeric_limits<uint32_t>::max();
+    uint32_t inject_dma_illegal_pc = 0u;
+    uint32_t inject_dma_invalid_source_pc = 0u;
     uint32_t boot_frames = 90; // BIOS-only frames run before injecting --bin
     bool fill_wram_low = false;
     uint8_t wram_low_fill = 0;
@@ -535,9 +540,10 @@ void print_usage() {
         "             [--pad-script <path>] [--screenshot FRAME:PATH ...] [--screenshot-when ADDR:VALUE[+DELAY]:PATH ...]\n"
         "             [--video-observations CSV] [--video-crop X:Y:WIDTH:HEIGHT] (composited RGB changes per field)\n"
         "             [--vdp2-trace CSV] (every VDP2 register change, sampled at the end of each field)\n"
-        "             [--port-device 1|2:pad|analog|mouse|none ...] [--device-script <path>]\n"
+        "             [--port-device 1|2:pad|analog|mouse|none|test-tap ...] [--device-script <path>]\n"
         "             [--pad-button NAME] [--pad-press-at N] [--pad-release-at N]\n"
         "             [--boot-mode injection|bios] [--smpc-configured] [--cdb-rom <local-path>] [--boot-marker ADDR]\n"
+        "             [--inject-dma-illegal FRAME] [--inject-dma-illegal-pc ADDRESS | --inject-dma-invalid-source-pc ADDRESS]\n"
         "             [--backup-ram <path>] [--backup-cart <existing-path>] [--backup-cart-fixture <path>] [--ram-cart none|1m|4m] [--scsp-trace]\n"
         "             [--slave-reset-entry <address>]\n");
 }
@@ -684,6 +690,18 @@ bool parse_args(int argc, char** argv, Args* out) {
             const char* v = next("--pad-script");
             if (!v) return false;
             out->pad_script_path = v;
+        } else if (arg == "--inject-dma-illegal") {
+            const char* v = next("--inject-dma-illegal");
+            if (!v) return false;
+            out->inject_dma_illegal_frame = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--inject-dma-illegal-pc") {
+            const char* v = next("--inject-dma-illegal-pc");
+            if (!v) return false;
+            out->inject_dma_illegal_pc = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+        } else if (arg == "--inject-dma-invalid-source-pc") {
+            const char* v = next("--inject-dma-invalid-source-pc");
+            if (!v) return false;
+            out->inject_dma_invalid_source_pc = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
         } else if (arg == "--device-script") {
             const char* v = next("--device-script");
             if (!v) return false;
@@ -693,7 +711,7 @@ bool parse_args(int argc, char** argv, Args* out) {
             if (!v) return false;
             const std::string spec = v;
             if (spec.size() < 3 || spec[1] != ':' || (spec[0] != '1' && spec[0] != '2')) {
-                std::fprintf(stderr, "invalid --port-device spec: %s (want 1|2:pad|analog|mouse|none)\n", v);
+                std::fprintf(stderr, "invalid --port-device spec: %s (want 1|2:pad|analog|mouse|none|test-tap)\n", v);
                 return false;
             }
             out->port_device[spec[0] - '1'] = spec.substr(2);
@@ -1260,6 +1278,20 @@ int main(int argc, char** argv) {
             else if (type == "analog") port.ConnectAnalogPad();
             else if (type == "mouse") port.ConnectShuttleMouse();
             else if (type == "none") port.DisconnectPeripherals();
+            else if (type == "test-tap") {
+                /* Synthetic INTBACK bytes, not an electrical multitap model. */
+                std::array<uint8_t, 43> report{};
+                report[0] = 0x16u;
+                for (size_t tap = 0; tap < 6; ++tap) {
+                    const size_t at = 1u + tap * 7u;
+                    report[at] = 0x16u;
+                    report[at + 1u] = report[at + 2u] = 0xFFu;
+                    report[at + 3u] = static_cast<uint8_t>(0x40u + idx * 6u + tap);
+                    report[at + 4u] = 0x80u;
+                    report[at + 5u] = report[at + 6u] = 0u;
+                }
+                port.SetSyntheticReport(report);
+            }
             else {
                 std::fprintf(stderr, "unknown --port-device type: %s\n", type.c_str());
                 return 1;
@@ -1363,7 +1395,24 @@ int main(int argc, char** argv) {
         cpu->profile.capacity=args.trace_capacity;
         cpu->snapshot_pcs=args.snapshot_pcs;
     }
-    if (!args.profile_instructions_path.empty() || args.bios_boot || !args.debug_profile.empty()) {
+    bool dma_illegal_injected = false;
+    bool dma_active_at_injection = false;
+    if (args.inject_dma_illegal_pc != 0u || args.inject_dma_invalid_source_pc != 0u) {
+        master_instructions.instruction_hook = [&](uint32_t pc) {
+            const bool invalid_source = args.inject_dma_invalid_source_pc != 0u &&
+                                        pc == args.inject_dma_invalid_source_pc;
+            const bool trigger_irq = args.inject_dma_illegal_pc != 0u && pc == args.inject_dma_illegal_pc;
+            if (g_pad_active && !dma_illegal_injected && (invalid_source || trigger_irq) &&
+                master_instructions.profile.frame >= args.inject_dma_illegal_frame) {
+                dma_illegal_injected = true;
+                dma_active_at_injection = saturn->SCU.GetProbe().IsDMATransferActive(0);
+                if (invalid_source) saturn->SCU.GetProbe().SetDMASourceAddress(0, 0x05C70000u);
+                else saturn->SCU.TriggerDMAIllegal();
+            }
+        };
+    }
+    if (!args.profile_instructions_path.empty() || args.bios_boot || !args.debug_profile.empty() ||
+        args.inject_dma_illegal_pc != 0u || args.inject_dma_invalid_source_pc != 0u) {
         master_instructions.observe_boot = args.bios_boot;
         if (args.bios_boot) {
             master_instructions.app_pc=(static_cast<uint32_t>(disc_ip[0xf0])<<24u) |
@@ -1395,6 +1444,12 @@ int main(int argc, char** argv) {
     std::vector<std::array<uint32_t, 11>> boot_trace;
     auto run_frames = [&](uint32_t count, uint32_t frame_offset) {
         for (uint32_t i = 0; i < count; i++) {
+            if (measuring_program && args.inject_dma_illegal_pc == 0u &&
+                args.inject_dma_invalid_source_pc == 0u && i == args.inject_dma_illegal_frame) {
+                dma_illegal_injected = true;
+                dma_active_at_injection = saturn->SCU.GetProbe().IsDMATransferActive(0);
+                saturn->SCU.TriggerDMAIllegal();
+            }
             // Set before running, so the pad reports the buttons this script
             // line asks for during the frame it names rather than after it.
             if (!args.pad_script_game_frame) g_pad_frame_index = i;
@@ -2171,6 +2226,11 @@ int main(int argc, char** argv) {
     // reading BIOS defaults and calling it a pass, every other assertion in
     // harness/tests/*.py should be gated on pc_after_run actually landing
     // inside [load_addr, load_addr + bin_bytes) -- proof our code ran at all.
+    j.key("dma_fault_injection");
+    j.begin_object();
+    j.key("injected"); j.value(dma_illegal_injected);
+    j.key("level0_active"); j.value(dma_active_at_injection);
+    j.end_object();
     j.key("boot");
     j.begin_object();
     j.key("sh2_cache_emulation"); j.value(saturn->IsSH2CacheEmulationEnabled());

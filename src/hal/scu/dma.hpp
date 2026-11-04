@@ -29,7 +29,7 @@ bool enabled();
 
 /* True while the level is operating or waiting. Once it reads false the
  * level's job is finished: destination Work RAM is invalidated in the cache
- * and the DMA-end status bit cleared. */
+ * after observing idle. */
 bool busy(uint8_t level);
 
 /* Starts one transfer or one indirect list (entries share a destination kind)

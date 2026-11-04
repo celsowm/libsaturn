@@ -22,6 +22,11 @@ bool live();
 void set_handler(uint8_t source, Handler handler, void* user);
 uint32_t count(uint8_t source);
 
+/* Internal consumers may keep a source enabled without replacing its public
+ * handler. Retains must be balanced; they are discarded by stop(). */
+bool retain(uint8_t source);
+void release(uint8_t source);
+
 void set_timer0_line(uint16_t line);
 void set_timer1(uint16_t dots, bool timer0_line_only);
 

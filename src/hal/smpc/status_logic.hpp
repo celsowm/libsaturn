@@ -22,6 +22,10 @@ inline uint8_t intback_ireg1(uint8_t port_mask) {
     return ireg1;
 }
 constexpr uint8_t kIntbackContinue = 0x80u;
+/* SMPC accepts a CONTINUE when bit 7 changes (SMPC manual 3.1). */
+inline uint8_t next_intback_continue(uint8_t previous) {
+    return static_cast<uint8_t>((previous ^ kIntbackContinue) & kIntbackContinue);
+}
 constexpr uint8_t kIntbackBreak = 0x40u;
 /* SR bit 5: peripheral data remains (NPE / PDE). */
 constexpr uint8_t kSrMoreData = 0x20u;

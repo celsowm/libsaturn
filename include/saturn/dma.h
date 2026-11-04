@@ -73,7 +73,7 @@ int sat_dma_scu_capable(const void* dst, const void* src, uint32_t bytes);
  * sat_dma_busy() reads 0 or sat_dma_wait() returns. Errors:
  * SAT_ERR_INVALID_ARG (level, size, alignment), SAT_ERR_UNSUPPORTED (a route
  * the manual forbids), SAT_ERR_BUSY (the level runs, or level 2 while level
- * 1 runs). */
+ * 1 runs), SAT_ERR_IO (a previous illegal interrupt cannot be acknowledged). */
 sat_result_t sat_dma_start(uint8_t level, const void* src, void* dst, uint32_t bytes);
 
 /* One start, up to SAT_DMA_MAX_LIST transfers (indirect mode). Entries must
@@ -84,7 +84,10 @@ sat_result_t sat_dma_start_list(uint8_t level, const sat_dma_transfer_t* transfe
 /* 1 while the level is operating or waiting. */
 int sat_dma_busy(uint8_t level);
 
-/* Waits for the level; SAT_ERR_TIMEOUT after forcing it to stop. */
+/* Waits for the level; SAT_ERR_TIMEOUT after requesting a forced stop, or
+ * SAT_ERR_IO for a detected illegal transfer. An error remains available to
+ * wait after sat_dma_busy reports the level idle. A forced stop affects all
+ * levels. After timeout, retain buffers until sat_dma_busy reports idle. */
 sat_result_t sat_dma_wait(uint8_t level);
 
 /* 0 makes sat_dma_copy and the library's own uploads use the CPU only, for

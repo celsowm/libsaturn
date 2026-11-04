@@ -109,6 +109,13 @@ static void command_constants_follow_the_manual() {
     assert(intback_ireg1(0x2u) == 0x3Au);    /* ... and for port 2 */
     assert(intback_ireg1(0x0u) == 0xFAu);
     assert(kIstSmpc == 0x80u);
+    uint8_t request = 0u;
+    request = next_intback_continue(request);
+    assert(request == 0x80u);
+    request = next_intback_continue(request);
+    assert(request == 0u);
+    request = next_intback_continue(request);
+    assert(request == 0x80u);
 }
 
 int main() {

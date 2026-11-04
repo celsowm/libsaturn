@@ -1,6 +1,8 @@
 #include "src/hal/scu/dma.hpp"
+#include "src/hal/scu/irq.hpp"
 
 #include "src/hal/sh2/cache.hpp"
+#include "src/hal/sh2/cpu.hpp"
 #include "src/hal/sh2/dmac.hpp"
 
 namespace saturn::hal::scu::dma {
@@ -9,7 +11,9 @@ namespace {
 
 namespace logic = saturn::hal::scu::dma_logic;
 
+#ifndef SCU_REG
 #define SCU_REG(addr) (*reinterpret_cast<volatile uint32_t*>(addr))
+#endif
 
 /* Setup plus polling costs more than moving a few longwords by hand. */
 constexpr uint32_t kMinDmaBytes = 64u;
@@ -17,8 +21,9 @@ constexpr uint32_t kWaitSpins = 4000000u;
 constexpr uint32_t kStopSpins = 100000u;
 
 struct Pending {
-    bool active;
+    volatile bool active;
     uint8_t count;
+    volatile sat_result_t result;
     uint32_t dst[logic::kMaxListEntries];
     uint32_t bytes[logic::kMaxListEntries];
 };
@@ -29,6 +34,9 @@ alignas(16) uint32_t g_table[logic::kLevelCount]
                             [logic::kMaxListEntries * logic::kWordsPerEntry];
 Stats g_stats;
 bool g_enabled = true;
+volatile bool g_illegal_seen = false;
+volatile uint32_t g_illegal_count = 0u;
+constexpr uint8_t kIllegalIrqSource = 12u;
 
 sat_result_t from_status(logic::Status st) {
     switch (st) {
@@ -48,8 +56,47 @@ bool level_blocked(uint8_t level) {
     return level == 2u && (status & logic::kStatusBusy[1]) != 0u;
 }
 
-/* Writing 0 clears an IST bit; ones leave the others alone. */
-inline void clear_ist(uint32_t bits) { SCU_REG(logic::kRegisterIstatus) = ~bits; }
+/* IST is read-only. A shared error is conservatively attached to every
+ * outstanding job, even if the hardware cannot identify its level. */
+void record_illegal() {
+    if (!g_illegal_seen) g_illegal_count = g_illegal_count + 1u;
+    g_illegal_seen = true;
+    for (uint8_t i = 0u; i < logic::kLevelCount; ++i) {
+        if (g_pending[i].active && g_pending[i].result == SAT_OK) {
+            g_pending[i].result = SAT_ERR_IO;
+        }
+    }
+}
+
+bool observe_illegal() {
+    const uint32_t status = sh2::save_and_mask_interrupts();
+    const bool pending = (SCU_REG(logic::kRegisterIstatus) & logic::kIstIllegal) != 0u;
+    if (!pending) {
+        g_illegal_seen = false;
+    } else {
+        record_illegal();
+    }
+    sh2::restore_interrupts(status);
+    return pending;
+}
+
+/* Let the SH-2 accept the event; never write IST. If IRQs cannot be used or
+ * acknowledgement stalls, leave the condition latched and refuse new jobs. */
+bool acknowledge_illegal() {
+    const uint32_t before = irq::count(kIllegalIrqSource);
+    if ((SCU_REG(logic::kRegisterIstatus) & logic::kIstIllegal) == 0u) {
+        g_illegal_seen = false;
+        return true;
+    }
+    if (!irq::retain(kIllegalIrqSource)) return false;
+    uint32_t spins = 0u;
+    while (irq::count(kIllegalIrqSource) == before && irq::live() && ++spins < kStopSpins) {}
+    const bool accepted = irq::count(kIllegalIrqSource) != before;
+    irq::release(kIllegalIrqSource);
+    const bool cleared = accepted && (SCU_REG(logic::kRegisterIstatus) & logic::kIstIllegal) == 0u;
+    if (cleared) g_illegal_seen = false;
+    return cleared;
+}
 
 void invalidate_destinations(const Pending& p) {
     for (uint8_t i = 0u; i < p.count; ++i) {
@@ -62,17 +109,21 @@ void invalidate_destinations(const Pending& p) {
 /* Called once a level reads idle. */
 sat_result_t finish(uint8_t level) {
     Pending& p = g_pending[level];
-    if (!p.active) return SAT_OK;
-    p.active = false;
+    if (!p.active) return p.result;
     invalidate_destinations(p);
-    const bool illegal = (SCU_REG(logic::kRegisterIstatus) & logic::kIstIllegal) != 0u;
-    clear_ist(logic::kIstEnd[level] | logic::kIstIllegal);
-    if (illegal) {
-        ++g_stats.illegal;
-        return SAT_ERR_IO;
-    }
+    if (observe_illegal()) (void)acknowledge_illegal();
+    p.active = false;
+    if (p.result != SAT_OK) return p.result;
     ++g_stats.scu_transfers;
     return SAT_OK;
+}
+
+/* busy() has no error return. Keep a completion error until wait() or the
+ * next start reports it, rather than losing it when busy() notices idle. */
+sat_result_t take_completion(uint8_t level) {
+    const sat_result_t result = finish(level);
+    g_pending[level].result = SAT_OK;
+    return result;
 }
 
 void remember(uint8_t level, const logic::Transfer* list, uint8_t count) {
@@ -131,7 +182,7 @@ bool enabled() { return g_enabled; }
 bool busy(uint8_t level) {
     if (level >= logic::kLevelCount) return false;
     if ((status_register() & logic::kStatusBusy[level]) != 0u) return true;
-    finish(level);
+    (void)finish(level);
     return false;
 }
 
@@ -141,7 +192,8 @@ sat_result_t start(uint8_t level, const void* src, void* dst, uint32_t bytes) {
     logic::Plan plan{};
     SAT_TRY(from_status(logic::plan_direct(level, t, &plan)));
     if (level_blocked(level)) return SAT_ERR_BUSY;
-    finish(level);
+    SAT_TRY(take_completion(level));
+    if (observe_illegal() && !acknowledge_illegal()) return SAT_ERR_IO;
     remember(level, &t, 1u);
     launch(level, plan.read, plan.write, plan.count, plan.add, plan.mode);
     return SAT_OK;
@@ -159,13 +211,14 @@ sat_result_t start_list(uint8_t level, const void* const* srcs, void* const* dst
         list[i] = {logic::physical(srcs[i]),
                    logic::physical(dsts[i]), bytes[i]};
     }
+    if (level_blocked(level)) return SAT_ERR_BUSY;
     const uint32_t table = logic::physical(g_table[level]);
     if (logic::classify(table) != logic::Region::WorkRamH) return SAT_ERR_UNSUPPORTED;
+    SAT_TRY(take_completion(level));
+    if (observe_illegal() && !acknowledge_illegal()) return SAT_ERR_IO;
     uint32_t add = 0u;
     SAT_TRY(from_status(
         logic::build_indirect(level, list, count, g_table[level], &add, nullptr)));
-    if (level_blocked(level)) return SAT_ERR_BUSY;
-    finish(level);
     remember(level, list, count);
     /* Indirect mode reads the table address from the write register. */
     launch(level, 0u, table, 0u, add, logic::kModeIndirectImmediate);
@@ -175,17 +228,23 @@ sat_result_t start_list(uint8_t level, const void* const* srcs, void* const* dst
 sat_result_t wait(uint8_t level) {
     if (level >= logic::kLevelCount) return SAT_ERR_INVALID_ARG;
     for (uint32_t spins = 0u; spins < kWaitSpins; ++spins) {
-        if ((status_register() & logic::kStatusBusy[level]) == 0u) return finish(level);
+        if ((status_register() & logic::kStatusBusy[level]) == 0u) return take_completion(level);
     }
-    /* Force-stop so the level cannot keep the bus, then report it. */
+    /* DSTP stops all levels, not just the one being waited for. Until each
+     * is observed idle, its buffers may still be touched by the hardware. */
+    for (uint8_t i = 0u; i < logic::kLevelCount; ++i) {
+        if (g_pending[i].active) g_pending[i].result = SAT_ERR_TIMEOUT;
+    }
     SCU_REG(logic::kRegisterStop) = 1u;
     for (uint32_t spins = 0u; spins < kStopSpins; ++spins) {
         if ((status_register() & logic::kStatusBusy[level]) == 0u) break;
     }
     SCU_REG(logic::kRegisterStop) = 0u;
-    g_pending[level].active = false;
-    clear_ist(logic::kIstEnd[level] | logic::kIstIllegal);
+    if (observe_illegal()) (void)acknowledge_illegal();
     ++g_stats.timeouts;
+    if ((status_register() & logic::kStatusBusy[level]) == 0u) {
+        (void)take_completion(level);
+    }
     return SAT_ERR_TIMEOUT;
 }
 
@@ -230,6 +289,17 @@ sat_result_t copy_sh2(void* dst, const void* src, uint32_t bytes) {
     return SAT_OK;
 }
 
-Stats stats() { return g_stats; }
+Stats stats() {
+    Stats result = g_stats;
+    result.illegal = g_illegal_count;
+    return result;
+}
+
+extern "C" void sat_scu_dma_illegal_isr() {
+    record_illegal();
+    /* Each delivered IRQ is a distinct event. A prior IST observation, if
+     * any, has already been counted and is deduplicated by record_illegal. */
+    g_illegal_seen = false;
+}
 
 }  // namespace saturn::hal::scu::dma

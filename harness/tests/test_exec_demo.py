@@ -19,7 +19,7 @@ from harness.scripts import telemetry as tel
 MAGIC = 0x45584543  # "EXEC"
 ROUNDS = 4
 FIELDS = (
-    "magic round arg_status missing_status exec_status slave_status slave_beats frames done"
+    "magic round arg_status missing_status exec_status slave_status slave_beats frames done pending_smpc"
 ).split()
 SIGNED = {"arg_status", "missing_status", "exec_status", "slave_status"}
 SAT_OK = 0
@@ -64,6 +64,9 @@ class ExecDemoTests(unittest.TestCase):
     def test_the_slave_starts_again_after_an_exec(self):
         self.assertEqual(self.r["slave_status"], SAT_OK, self.r)
         self.assertGreater(self.r["slave_beats"], 0, self.r)
+
+    def test_handoffs_begin_with_masked_smpc_interrupt_pending(self):
+        self.assertEqual(self.r["pending_smpc"], (1 << ROUNDS) - 1, self.r)
 
 
 if __name__ == "__main__":

@@ -54,11 +54,10 @@ volatile T& reg(uint32_t address) {
     return *reinterpret_cast<volatile T*>(static_cast<uintptr_t>(address));
 }
 
-/* SCU (SCU manual 6.1): interrupt mask/status, DMA enables and forced stop. */
+/* SCU (SCU manual 6.1): interrupt mask, DMA enables and forced stop. */
 constexpr uint32_t kScuDmaEnable[3] = {0x25FE0010u, 0x25FE0030u, 0x25FE0050u};
 constexpr uint32_t kScuDmaForcedStop = 0x25FE0060u;
 constexpr uint32_t kScuIms = 0x25FE00A0u;
-constexpr uint32_t kScuIst = 0x25FE00A4u;
 /* SCSP: 32 slots of 0x20 bytes; word 0 holds KYONEX (bit 12) and KYONB (bit 11).
  * The common control word keeps MEM4MB (bit 9) and takes MVOL 0. */
 constexpr uint32_t kScspSlots = 0x25B00000u;
@@ -94,7 +93,9 @@ void stop_machine(bool keep_display) {
     if (saturn::hal::scu::irq::live()) saturn::hal::scu::irq::stop();
     sh2::set_interrupt_mask(15u);
     reg<uint32_t>(kScuIms) = 0x0000BFFFu;
-    reg<uint32_t>(kScuIst) = 0u;
+    /* IST is read-only: writing it can lose an unrelated interrupt (SCU
+     * manual 3.5). Keep the BIOS vectors restored and both masks closed
+     * throughout the handoff; the next image owns its interrupt setup. */
 
     (void)saturn::hal::smpc::slave_off();
 
