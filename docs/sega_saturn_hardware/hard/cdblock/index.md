@@ -303,7 +303,9 @@ numbers, to be confirmed on hardware (record it in `docs/HARDWARE_ACCEPTANCE_CHE
 - **Bigger or fewer segments.** The 200-sector buffer is far larger than the 8-sector segment, so a
   deeper read-ahead is possible; the limit is the SCSP ring size, not the block.
 - **SCU-DMA from `DATATRNS`.** Allowed in direct mode only. The project already found Ymir and
-  Mednafen disagree on DMA timing, so any such path stays opt-in until both agree.
+  Mednafen disagree on DMA timing, so any such path stays opt-in until both agree. Tried on Ymir
+  (level 0, direct, read +4, whole sectors into Work RAM-H, then a cache invalidate): the first disc
+  read after it failed with `SAT_ERR_IO`, so `transfer_words` stays on the CPU.
 - **Longword reads of `DATATRNS`**: done for aligned transfers (above); check on hardware.
 
 ## Not covered anywhere we could read
