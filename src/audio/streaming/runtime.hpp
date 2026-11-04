@@ -59,7 +59,7 @@ struct AudioStreamSlot {
     uint32_t refill_count;
     uint32_t monitor_frame;
     uint32_t refill_done;          /* frames written so far: of the inactive half, or of both halves while starting */
-    uint32_t refill_start_frame;   /* service frame the half became inactive; while starting, the last slice's frame */
+    uint32_t refill_start_frame;   /* last look before the half became inactive; while starting, the last slice's frame */
     uint8_t format;
     uint8_t scsp_slot;
     uint8_t playback_buffer;

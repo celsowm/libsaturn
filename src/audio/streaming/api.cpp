@@ -149,18 +149,22 @@ uint32_t upload_stream_chunk(AudioStreamSlot& slot, uint8_t buffer_index, uint32
 /* Writes the next part of a refill and commits it once the half is whole. The ring is not
  * consumed until then, so a failed or abandoned refill leaves it intact. `finish_now` writes
  * everything that is left (a half that started playing while still being rewritten). The part
- * written per call follows the time the half has left: a half lasts per_half display frames, the
- * observation can lag and the next service can be late, so three frames are kept spare. Returns
- * false when an upload failed. */
-bool advance_refill(AudioStreamSlot& slot, uint32_t frame_now, uint32_t display_rate, bool finish_now) {
+ * written per call follows the time the half has left: a half lasts per_half display frames from
+ * the flip, which happened after the previous look (refill_start_frame), and the next look may come
+ * `gap` frames from now (as long as the last one took), so each call writes up to that next look,
+ * with three frames spare. A program that services once per image at 3-7 fields an image would
+ * otherwise finish a 22.05 kHz half (11 fields) after it had started playing again. Returns false
+ * when an upload failed. */
+bool advance_refill(AudioStreamSlot& slot, uint32_t frame_now, uint32_t gap, uint32_t display_rate,
+                    bool finish_now) {
     const uint32_t total = slot.playback_chunk_frames;
     uint32_t target = total;
     if (!finish_now && slot.sample_rate != 0u) {
         const uint32_t per_half = (total * display_rate) / slot.sample_rate;
         const uint32_t budget = per_half > 3u ? per_half - 3u : 1u;
-        const uint32_t elapsed = frame_now - slot.refill_start_frame;
-        if (elapsed + 1u < budget) {
-            target = (total * (elapsed + 1u)) / budget;
+        const uint32_t by_next_look = frame_now - slot.refill_start_frame + gap;
+        if (by_next_look < budget) {
+            target = (total * by_next_look) / budget;
             target = (target + kRefillGranuleFrames - 1u) / kRefillGranuleFrames * kRefillGranuleFrames;
             if (target > total) target = total;
         }
@@ -266,9 +270,11 @@ void audio_stream_service(
             // SCSP exposes its real current address through MSLC/CA, and one
             // CA unit is exactly our 4096-sample half size.
             if (slot.monitor_frame == frame_now) continue;
+            const uint32_t last_look = slot.monitor_frame;
+            const uint32_t gap = frame_now - last_look;
             slot.monitor_frame = frame_now;
 
-            if (slot.refill_active != 0u && !advance_refill(slot, frame_now, display_rate, false)) {
+            if (slot.refill_active != 0u && !advance_refill(slot, frame_now, gap, display_rate, false)) {
                 /* An upload failed: forget the part written and let the half be seen as changed again. */
                 ++slot.ring.underrun_count;
                 slot.playback_buffer = slot.refill_half;
@@ -288,7 +294,7 @@ void audio_stream_service(
                 // The half changed again while the last one was still being rewritten: it is playing
                 // now, so finish it at once (late) and go on to the half that just became inactive.
                 ++slot.ring.underrun_count;
-                if (!advance_refill(slot, frame_now, display_rate, true)) {
+                if (!advance_refill(slot, frame_now, gap, display_rate, true)) {
                     slot.refill_active = 0u;
                     slot.refill_done = 0u;
                     continue;
@@ -309,10 +315,10 @@ void audio_stream_service(
             // pays for the whole half (a half too short for that is written at once).
             slot.refill_half = refill_half;
             slot.refill_done = 0u;
-            slot.refill_start_frame = frame_now;
+            slot.refill_start_frame = last_look;   // the earliest the flip can have been
             slot.refill_active = 1u;
             slot.playback_buffer = active_half;
-            if (!advance_refill(slot, frame_now, display_rate, false)) {
+            if (!advance_refill(slot, frame_now, gap, display_rate, false)) {
                 ++slot.ring.underrun_count;
                 slot.playback_buffer = refill_half;
                 slot.refill_active = 0u;

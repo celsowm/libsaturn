@@ -483,6 +483,27 @@ int main() {
         OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.refill_count == 3u && st.consumed_frames == 12288u);
         OK(sat_audio_stream_close(spread) == SAT_OK);
 
+        // Serviced once per image, an image every 4 fields, the flip just after a look: a 22.05 kHz half
+        // plays for 11 fields, and the rewrite is whole within them although it is seen 4 fields late.
+        saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
+        sat_audio_spec_t image_rate = {22050u, 16384u, 1u, SAT_AUDIO_PCM_S16, 0u};
+        OK(sat_audio_stream_open(&spread, &image_rate, spread_storage, sizeof(spread_storage)) == SAT_OK);
+        OK(sat_audio_stream_write(spread, spread_frames, 12288u) == SAT_OK);
+        scsp::g_current_sample_block = 0u;
+        uint32_t look = service_until_playing(spread, 0u);
+        look += 4u;
+        service(look);                                  // the last look before the flip
+        const uint32_t flip = look;
+        OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.refill_count == 2u);
+        scsp::g_current_sample_block = 1u;
+        while (st.refill_count != 3u || st.consumed_frames != 12288u) {
+            look += 4u;
+            OK(look - flip <= 11u);
+            service(look);
+            OK(sat_audio_stream_stats(spread, &st) == SAT_OK && st.underrun_count == 0u);
+        }
+        OK(sat_audio_stream_close(spread) == SAT_OK);
+
         scsp::g_current_sample_block = 0u;
     }
 

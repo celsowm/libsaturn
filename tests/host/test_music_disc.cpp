@@ -430,7 +430,8 @@ void scsp_consume(uint32_t frames) {
     }
 }
 
-uint32_t g_max_update_frames = 0;       /* most frames one sat_music_update put in a ring */
+uint32_t g_max_update_frames = 0;       /* most frames one sat_music_update put in a ring holding music_reserve */
+uint32_t g_max_low_update_frames = 0;   /* the same, from a ring under music_reserve (a second slice may run) */
 bool g_overlap = false;                 /* a segment was read while another was being delivered */
 
 sat_disc_stream_t g_disc;
@@ -469,6 +470,7 @@ void fresh(uint32_t latency = 3u) {
     g_workspace_handles[1] = {};
     g_drive.latency = latency;
     g_max_update_frames = 0;
+    g_max_low_update_frames = 0;
     g_overlap = false;
     g_asset_reads = 0;
     g_played = Played{};
@@ -489,7 +491,8 @@ sat_result_t field(const Track& t) {
     const uint32_t before = stream_buffered(0);
     const sat_result_t r = sat_music_update(g_music);
     const uint32_t after = stream_buffered(0);
-    if (after > before && after - before > g_max_update_frames) g_max_update_frames = after - before;
+    uint32_t& most = before < g_disc.music_reserve ? g_max_low_update_frames : g_max_update_frames;
+    if (after > before && after - before > most) most = after - before;
     if (g_disc.deliv_active != 0u && g_disc.in_flight != 0u) g_overlap = true;
     return r;
 }
@@ -552,6 +555,7 @@ void steady_state(const char* path, uint32_t fields, uint32_t latency = 3u) {
     const uint32_t slice_frames = t->format == SAT_AUDIO_IMA_ADPCM ? codec::kBlockFrames :
         t->format == SAT_AUDIO_ADX_ADPCM ? 2048u : 4096u / t->frame_bytes();
     CHECK(g_max_update_frames > 0u && g_max_update_frames <= slice_frames);
+    CHECK(g_max_low_update_frames <= 2u * slice_frames);   /* under music_reserve, a second slice at most */
     CHECK(g_drive.max_poll_sectors <= SAT_DISC_STREAM_SEGMENT_SECTORS);
     if (t->format != SAT_AUDIO_IMA_ADPCM && t->format != SAT_AUDIO_ADX_ADPCM &&
         t->frame_bytes() >= 4u) CHECK(g_overlap);

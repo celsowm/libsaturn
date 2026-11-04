@@ -121,12 +121,11 @@ uint32_t g_draw_waits=0u;
 uint32_t g_draw_timeouts=0u;
 /* Frames submit() dropped because the VDP1 still read the published bank. */
 uint32_t g_frames_dropped=0u;
-/* ON_SUBMIT swap state. kSwapImmediate: FCT went out with the list (the first
- * list after leaving 1-cycle mode, which must enter manual mode at once).
- * kSwapPending: the list plots, FCT not written yet; the VBlank-IN handler
- * writes it once the list has ended. kSwapRequested: FCT written during
- * VBlank g_swap_vblank; the change happens when that VBlank ends. */
-enum SwapState : uint8_t { kSwapIdle, kSwapImmediate, kSwapPending, kSwapRequested };
+/* ON_SUBMIT swap state. kSwapPending: the list plots, FCT not written yet; the
+ * VBlank-IN handler writes it once the list has ended. kSwapRequested: FCT
+ * written during VBlank g_swap_vblank; the change happens when that VBlank
+ * ends. */
+enum SwapState : uint8_t { kSwapIdle, kSwapPending, kSwapRequested };
 volatile uint8_t g_swap_state = kSwapIdle;
 /* FBCR holds FCM=1 (manual change): set by the first ON_SUBMIT submit. */
 bool g_manual_mode = false;
@@ -1193,16 +1192,9 @@ void service_swap() {
 }
 
 /* ON_SUBMIT: the last list's swap has happened (or none is outstanding), so
- * the back framebuffer is free for the next list. kSwapImmediate: the swap went
- * out with the list, so the list's end is all there is to wait for. */
+ * the back framebuffer is free for the next list. */
 bool swap_settled() {
     switch (g_swap_state) {
-    case kSwapImmediate:
-        if (draw_end_seen()) {
-            g_swap_state = kSwapIdle;
-            return true;
-        }
-        return false;
     case kSwapPending:
         service_swap();
         return false;
@@ -1225,8 +1217,6 @@ bool list_ended() {
     case kSwapPending:
         service_swap();
         return g_swap_state != kSwapPending || draw_end_seen();
-    case kSwapImmediate:
-        return swap_settled();
     default:
         return true;
     }
@@ -1424,17 +1414,16 @@ void submit() {
     g_list_submitted=true;
     g_list_serial = g_list_serial + 1u;
     if (g_on_submit) {
-        // Draw into the back framebuffer now. The first list after 1-cycle
-        // mode asks for the change with it (manual mode starts there); later
-        // ones leave it to the VBlank-IN after their END (service_swap).
-        PTMR = saturn::core::kVdp1PtmrPlotNow;
+        // Draw into the back framebuffer now; the VBlank-IN after the list's
+        // END asks for the change (service_swap). The first list after 1-cycle
+        // mode enters manual mode first, without a change: a change requested
+        // with the list would stop it at the next field if it plots longer.
         if (!g_manual_mode) {
-            FBCR = saturn::core::kVdp1FbcrManualChange;
+            FBCR = saturn::core::kVdp1FbcrManualHold;
             g_manual_mode = true;
-            g_swap_state = kSwapImmediate;
-        } else {
-            g_swap_state = kSwapPending;
         }
+        PTMR = saturn::core::kVdp1PtmrPlotNow;
+        g_swap_state = kSwapPending;
     }
 }
 

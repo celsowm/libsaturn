@@ -9,6 +9,24 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- Longword `DATATRNS` reads use `SAT_CD_BLOCK_DTR32` (0x25818000), outside the CD Block's register window. At
+  `SAT_CD_BLOCK_DTR` (0x25890000) Mednafen takes one FIFO word for a 32-bit read instead of two (it says this was
+  tested on hardware), so half of every sector was lost and the first file read failed with `SAT_ERR_IO`. Mednafen
+  boots ADX and CD-DA builds again; Ymir reads the same either way.
+- VDP1 `ON_SUBMIT`: the first list after 1-cycle mode enters manual mode with FCM alone
+  (`kVdp1FbcrManualHold`), and its change is asked for by the VBlank-IN after the list's END, like every other list.
+  Asking for the change with the list let the next field's swap stop a list still plotting (Mednafen stops the draw
+  there), so COPR never reached END and `submit` waited for ever. `kSwapImmediate` is gone.
+- Seamless streams time a half's refill from the previous look, the earliest the half can have flipped, and each
+  slice writes up to where the next look may land (as far off as the last look was). A program that services
+  once per image, at 3-7 fields an image, finished a 22.05 kHz half (11 fields) after it had started playing
+  again. Host test: a look every 4 fields, the flip just after one, the half whole within 11 fields.
+- The disc scheduler delivers a second slice of the music segment in a visit when the playing rings are under
+  `music_reserve`: one 2,048-frame ADX slice a visit cannot keep 22.05 kHz playing below about 10.8 visits a second.
+  Mednafen, Tekken 3 ADX fight (about 20 images a second, a few images of 6 fields and more): 47 underruns before
+  these two changes, 14 after the refill timing alone, 0 with both (minimum fill 2,048), at the same image rate.
+  Ymir: 30.68 images a second, 0 underruns.
+
 - Disc scheduler segments sized by the program: `sat_disc_stream_init_segments(s, block, segments, sectors)` takes
   1..8-sector segments in caller storage, and the object then needs only `SAT_DISC_STREAM_HEAD_BYTES`
   (`SAT_DISC_STREAM_SEGMENTS_BYTES(sectors)` for the buffers). `sat_disc_stream_init` keeps the two 16 KiB

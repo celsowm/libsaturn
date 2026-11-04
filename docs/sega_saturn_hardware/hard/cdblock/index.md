@@ -184,7 +184,14 @@ Register access: CPU DMA and software transfers must access `DATATRNS` as **32-b
 `volatile`. libsaturn reads longwords (`transfer_words` in `src/hal/cd/block.cpp`) whenever the
 destination is 4-byte aligned and the size a multiple of 4 (every whole-sector transfer), else 16-bit
 words. On Ymir a Tekken 3 fight streaming ADX through the scheduler went from 29.35 to 29.82 images per
-second with the same decoded output; not yet run on Mednafen or hardware.
+second with the same decoded output.
+
+The longword reads go to `SAT_CD_BLOCK_DTR32` (0x25818000), not to `DATATRNS` in the register window
+(0x25890000). Mednafen 1.32.1 (`src/ss/ss.cpp`, CS2 bus) ignores the second half of a 32-bit read at an
+address with bit 0x80000 set, so a longword read there takes one FIFO word, not two; its source says this
+was tested on hardware. At 0x25818000 both halves read the FIFO. Ymir reads two words at either address.
+Read through the register window, half of every sector was lost and the first file read failed. Not yet
+run on hardware.
 
 **SCU-DMA:** SCU-DMA *indirect mode must not be used* for the CD Block data register; only a 4-byte
 address increment is possible there, and direct mode has no such limit (SCU manual note and CDC

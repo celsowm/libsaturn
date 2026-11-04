@@ -578,8 +578,14 @@ sat_result_t service_once(sat_disc_stream_t* s) {
         if (remaining == 0u) (void)land(s);
     }
 
-    /* 2. one slice of the music segment being delivered */
-    if (s->deliv_active != 0u) (void)deliver_slice(s);
+    /* 2. one slice of the music segment being delivered, and a second while the playing rings are under
+     * `music_reserve`: a visit per image of 5.5 fields or more plays more than one slice of 22.05 kHz ADX */
+    if (s->deliv_active != 0u) {
+        (void)deliver_slice(s);
+        if (s->deliv_active != 0u && s->deliv_owner == 0u && s->music_ops != nullptr &&
+            s->music_ops->buffered(s->music_user) < s->music_reserve)
+            (void)deliver_slice(s);
+    }
     if (s->in_flight != kFlightNone) return SAT_OK;
 
     /* 3. start the next segment: the music first, then the data in the gaps */

@@ -14,6 +14,9 @@ extern "C" {
  * CD Block and reads 2048-byte user-data sectors. */
 #define SAT_CD_BLOCK_BASE 0x25890000u
 #define SAT_CD_BLOCK_DTR (SAT_CD_BLOCK_BASE + 0x00u)
+/* DATATRNS for 32-bit reads, outside the register window. A longword read at SAT_CD_BLOCK_DTR takes one word from
+ * the FIFO, not two (Mednafen, tested on hardware; Ymir reads two), so half of every sector would be lost. */
+#define SAT_CD_BLOCK_DTR32 0x25818000u
 #define SAT_CD_BLOCK_HIRQ (SAT_CD_BLOCK_BASE + 0x08u)
 #define SAT_CD_BLOCK_HIRQ_MASK (SAT_CD_BLOCK_BASE + 0x0Cu)
 #define SAT_CD_BLOCK_CR1 (SAT_CD_BLOCK_BASE + 0x18u)

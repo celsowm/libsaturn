@@ -348,6 +348,10 @@ inline uint16_t compose_polygon_pmod(uint16_t flags) {
  * next field and only then; PTMR 01 starts plotting when written (VDP1
  * manual 4.2, 4.3). 1-cycle mode is FBCR 0 with PTMR 10. */
 constexpr uint16_t kVdp1FbcrManualChange = 0x0003u;
+/* FCM=1 FCT=0: manual mode with no change requested. Leaving 1-cycle mode this way stops the per-field swaps without
+ * asking for one: a swap stops a list still plotting (Mednafen ends the draw there and restarts it only for PTMR 10),
+ * so the first list must not have its change requested with it. */
+constexpr uint16_t kVdp1FbcrManualHold = 0x0002u;
 constexpr uint16_t kVdp1PtmrPlotNow = 0x0001u;
 constexpr uint16_t kVdp1PtmrPlotAtSwap = 0x0002u;
 
