@@ -22,6 +22,13 @@ The version is defined once, in the `VERSION` file.
   unchanged: a host test compares 16,000 random stereo frames (clamping scales, both coefficient signs) and the
   int32 ends of the shift with an exact 64-bit reference. Ymir, 44.1 kHz stereo in a fight: 4,670 to about 2,900
   cycles per stereo block.
+- ADX on the SH-2: a channel's 32 samples are decoded by `sat_adx_decode_channel_s16be` (assembly in
+  `src/audio/music/codecs/adx_sh2.cpp`): coefficients, history, floor bias and clamp bounds in registers, MULS.W
+  products, halfword stores, clamps that fall through in range; about 23 instructions a sample against GCC's 38.
+  The scale's 16 steps are built once per frame (`steps[n ^ 8]`), and the per-sample helpers are forced inline for
+  the C path, which the host and odd destinations keep. On Ymir a self-test of 3,000 random frames (clamping
+  scales, extreme coefficients and history) matched the C arithmetic exactly; a Tekken 3 fight streaming 22.05 kHz
+  stereo went from 28.21 to 29.35 images per second.
 - VDP1 command tables and Gouraud tables are written in VRAM, not staged in Work RAM and copied at submit. Two banks
   (2048 commands and 2048 Gouraud tables each, 80 KiB per bank) alternate between frames; VRAM 0..31 is a root that
   names the bank the VDP1 draws. Links and CMDGRDA are absolute. `begin_frame(capacity)` (0: the whole bank) takes no

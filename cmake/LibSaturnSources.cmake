@@ -104,6 +104,7 @@ set(LIBSATURN_AUDIO_SOURCES
     src/audio/effects/api.cpp
     src/audio/playback/api.cpp
     src/audio/music/codecs/ima.cpp
+    src/audio/music/codecs/adx_sh2.cpp
     src/audio/music/player.cpp
     src/audio/music/open.cpp
     src/audio/music/decoder.cpp
