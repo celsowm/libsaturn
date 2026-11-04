@@ -29,6 +29,22 @@ The Tekken source has no matching direct access; it uses SMPC pad reads and
 `sat_exec`, including the keep-display variant. DMA may also be used through
 library paths; this audit did not trace every runtime transfer.
 
+## When the remaining write runs (2026-11-04)
+
+`clear_smpc_ist` runs only before a CONTINUE, so only for a report longer than
+one 32-byte chunk. In 15-byte mode on both ports (`intback_ireg1`, IREG1
+0x0A), a pad, 3D pad or mouse on each port fits one chunk. Ymir probe, Tekken 3
+fight, frames 1600-2400, `--watch-write 0x25FE00A4:4:1600`:
+
+| Port 1 | Port 2 | IST writes after frame 1600 |
+| --- | --- | --- |
+| 3D pad (`analog`) | 3D pad (`analog`) | 0 on both CPUs |
+| `test-tap` (six devices) | pad | 1, Master, PC in `finish_peripheral_read`, value 0xFFFFFF7F |
+
+So a program without a multitap never writes IST from the library; the BIOS
+dispatcher's own writes (above) are outside its control. The replacement
+remains open: it can only be shown safe with a multitap on a console.
+
 ## Follow-up and validation
 
 1. Define ownership and acknowledgement of each interrupt using the SCU and
