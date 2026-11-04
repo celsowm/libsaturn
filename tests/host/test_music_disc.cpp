@@ -456,6 +456,10 @@ sat_result_t open_test_music(sat_music_t* out, const char* name, bool use_disc =
     return sat_music_open(out, &desc);
 }
 
+/* 0: the scheduler's default segments; otherwise fresh() gives it segments of this many sectors. */
+uint32_t g_segment_sectors = 0u;
+alignas(4) uint8_t g_small_segments[SAT_DISC_STREAM_SEGMENTS_BYTES(SAT_DISC_STREAM_SEGMENT_SECTORS)];
+
 void fresh(uint32_t latency = 3u) {
     saturn::core::audio_stream_registry_reset(saturn::core::g_audio_streams);
     saturn::core::music_runtime_reset();
@@ -468,7 +472,9 @@ void fresh(uint32_t latency = 3u) {
     g_overlap = false;
     g_asset_reads = 0;
     g_played = Played{};
-    CHECK(sat_disc_stream_init(&g_disc, reinterpret_cast<sat_cd_block_t*>(&g_disc)) == SAT_OK);
+    sat_cd_block_t* const block = reinterpret_cast<sat_cd_block_t*>(&g_disc);
+    CHECK((g_segment_sectors == 0u ? sat_disc_stream_init(&g_disc, block)
+           : sat_disc_stream_init_segments(&g_disc, block, g_small_segments, g_segment_sectors)) == SAT_OK);
     /* most tests prefetch behind a playing track, which the library only does when asked to */
     sat_music_set_prefetch_while_playing(1u);
 }
@@ -596,6 +602,19 @@ void test_adx_minimum_ring(const char* path, uint32_t fields) {
     check_played(*t, 0u);
     CHECK(sat_music_close(g_music) == SAT_OK);
     CHECK(g_disc.music_ops == nullptr && g_disc.music_wanted == 0u);
+}
+
+/* The scheduler on caller segments of 4 and 1 sectors (sat_disc_stream_init_segments): ADX still plays in the
+ * minimum ring, whole and in order, with every read that size or smaller. */
+void test_adx_small_segments() {
+    for (uint32_t sectors : {4u, 1u}) {
+        g_segment_sectors = sectors;
+        steady_state("music/adx-stereo", 1500);
+        CHECK(g_drive.max_poll_sectors <= sectors);
+        test_adx_minimum_ring("music/adx-stereo", 400u);
+        CHECK(g_drive.max_poll_sectors <= sectors);
+    }
+    g_segment_sectors = 0u;
 }
 
 void test_seek(const char* path, uint32_t frame) {
@@ -1163,6 +1182,7 @@ int main() {
     /* ADX from the disc plays as in the full program; every other format and source is UNSUPPORTED. */
     steady_state("music/adx-stereo", 1500);
     test_adx_minimum_ring("music/adx-stereo", 400u);
+    test_adx_small_segments();
     for (const char* name : {"music/s16-stereo", "music/s8-mono", "music/adpcm-stereo", "music/adpcm-mono",
                              "music/ram", "music/other-reader"}) {
         fresh(3u);
@@ -1182,6 +1202,7 @@ int main() {
     steady_state("music/adpcm-mono", 1500);
     steady_state("music/adx-stereo", 1500);
     test_adx_minimum_ring("music/adx-stereo", 400u);
+    test_adx_small_segments();
 
     test_seek("music/s16-stereo", 1000u);
     test_seek("music/s8-mono", 12345u);

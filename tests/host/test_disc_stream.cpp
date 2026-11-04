@@ -262,10 +262,15 @@ void sink_done(void*, uint32_t, sat_result_t result) {
 const sat_disc_job_ops_t k_ops = {sink_begin, sink_chunk, sink_done};
 const sat_disc_job_ops_t k_ops_no_begin = {nullptr, sink_chunk, sink_done};
 
-void start_stream() {
+alignas(4) uint8_t g_small_segments[SAT_DISC_STREAM_SEGMENTS_BYTES(SAT_DISC_STREAM_SEGMENT_SECTORS)];
+
+/* sectors 0: the default segments in the object; otherwise segments of `sectors` in g_small_segments. */
+void start_stream(uint32_t sectors = 0u) {
     reset_fakes();
     g_sink = Sink{};
-    CHECK(sat_disc_stream_init(&g_stream, reinterpret_cast<sat_cd_block_t*>(&g_stream)) == SAT_OK);
+    sat_cd_block_t* block = reinterpret_cast<sat_cd_block_t*>(&g_stream);
+    CHECK((sectors == 0u ? sat_disc_stream_init(&g_stream, block)
+                         : sat_disc_stream_init_segments(&g_stream, block, g_small_segments, sectors)) == SAT_OK);
 }
 
 sat_disc_job_t data_job(uint32_t offset = 0u, uint32_t bytes = 0u) {
@@ -394,6 +399,43 @@ void test_data_alone() {
     CHECK(g_stream.stats.jobs_done == 1u && g_stream.stats.bytes == kDataBytes && g_stream.stats.segments == 3u);
     CHECK(g_stream.stats.last_error == SAT_OK);
     CHECK(g_drive.busy_hits == 0u);
+}
+
+/* Two-sector segments in caller storage: the same bytes in more, smaller reads, and the scheduler
+ * writes nothing past SAT_DISC_STREAM_HEAD_BYTES of its object. */
+void test_data_small_segments() {
+    alignas(8) static uint8_t mem[SAT_DISC_STREAM_HEAD_BYTES + 64u];
+    std::memset(mem, 0xA5, sizeof(mem));
+    sat_disc_stream_t* s = reinterpret_cast<sat_disc_stream_t*>(mem);
+    reset_fakes();
+    g_sink = Sink{};
+    g_drive.latency = 2u;
+    sat_cd_block_t* block = reinterpret_cast<sat_cd_block_t*>(&g_stream);
+    CHECK(sat_disc_stream_init_segments(s, block, g_small_segments, 2u) == SAT_OK);
+    CHECK(sat_disc_stream_segment_bytes(s) == 2u * kSector);
+    sat_disc_job_t job = data_job();
+    CHECK(sat_disc_stream_queue(s, &job) == SAT_OK);
+    for (uint32_t i = 0; i < 200u && sat_disc_stream_busy(s); ++i) (void)sat_disc_stream_service(s);
+    CHECK(sat_disc_stream_busy(s) == 0u && g_sink.done_result == SAT_OK);
+    CHECK(g_sink.got.size() == kDataBytes);
+    for (uint32_t i = 0; i < kDataBytes; ++i) CHECK(g_sink.got[i] == disc_byte(static_cast<uint64_t>(kDataLba) * kSector + i));
+    CHECK(g_sink.max_chunk == 2u * kSector);
+    CHECK(g_sink.chunk_calls == 10u && s->stats.segments == 10u);   /* 20 sectors, 2 at a time */
+    CHECK(g_drive.max_poll_sectors <= 2u);
+    for (uint32_t i = SAT_DISC_STREAM_HEAD_BYTES; i < sizeof(mem); ++i) CHECK(mem[i] == 0xA5u);
+}
+
+void test_segment_argument_checks() {
+    sat_cd_block_t* block = reinterpret_cast<sat_cd_block_t*>(&g_stream);
+    CHECK(sat_disc_stream_init_segments(&g_stream, block, g_small_segments, 0u) == SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_init_segments(&g_stream, block, g_small_segments, SAT_DISC_STREAM_SEGMENT_SECTORS + 1u) ==
+          SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_init_segments(&g_stream, block, g_small_segments + 2, 1u) == SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_init_segments(&g_stream, block, nullptr, 1u) == SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_init_segments(&g_stream, nullptr, g_small_segments, 1u) == SAT_ERR_INVALID_ARG);
+    CHECK(sat_disc_stream_init(&g_stream, block) == SAT_OK);
+    CHECK(sat_disc_stream_segment_bytes(&g_stream) == SAT_DISC_STREAM_SEGMENT_BYTES);
+    CHECK(g_stream.buffer == g_stream.storage && g_stream.split == g_stream.storage + SAT_DISC_STREAM_SEGMENT_BYTES);
 }
 
 void test_data_extent() {
@@ -609,7 +651,8 @@ sat_disc_music_feed_ops_t g_feed_ops;
 
 uint32_t feed_segment() {
     const uint32_t left = kMusicBytes - g_feed.file_pos;
-    return left < SAT_DISC_STREAM_SEGMENT_BYTES ? left : SAT_DISC_STREAM_SEGMENT_BYTES;
+    const uint32_t seg = sat_disc_stream_segment_bytes(&g_stream);
+    return left < seg ? left : seg;
 }
 
 uint8_t feed_next(void*, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {
@@ -654,8 +697,8 @@ sat_result_t feed_deliver(void*, const uint8_t* data, uint32_t bytes, uint32_t* 
 uint32_t feed_buffered(void*) { return g_feed.buffered_frames; }
 void feed_tick(void*) { ++g_feed.ticks; }
 
-void start_feed(bool pipelined, uint32_t want, uint32_t latency = 3u) {
-    start_stream();
+void start_feed(bool pipelined, uint32_t want, uint32_t latency = 3u, uint32_t sectors = 0u) {
+    start_stream(sectors);
     g_drive.latency = latency;
     g_feed.reset();
     g_feed.want = want;
@@ -695,6 +738,18 @@ void test_feed_pipelined() {
     CHECK(g_stream.stats.last_error == SAT_OK);
     sat_disc_stream_music_detach(&g_stream);
     CHECK(g_stream.music_ops == nullptr && g_stream.music_wanted == 0u);
+}
+
+/* A pipelined feed on four-sector segments: both buffers alternate in caller storage. */
+void test_feed_pipelined_small_segments() {
+    start_feed(true, 30u, 3u, 4u);
+    bool overlap = false;
+    run_feed(&overlap);
+    CHECK(g_feed.got == g_feed.expect && g_feed.segments_done == 30u);
+    CHECK(overlap && g_feed.max_pending == 2u);
+    CHECK(g_drive.max_poll_sectors <= 4u);
+    CHECK(g_drive.busy_hits == 0u && g_stream.stats.last_error == SAT_OK);
+    sat_disc_stream_music_detach(&g_stream);
 }
 
 void test_feed_not_pipelined() {
@@ -820,6 +875,8 @@ int main() {
     test_music_loops_without_underrun(2u);
     test_music_loops_without_underrun(1u);
     test_data_alone();
+    test_data_small_segments();
+    test_segment_argument_checks();
     test_data_extent();
     test_job_without_begin_hook();
     test_skip_job();
@@ -834,6 +891,7 @@ int main() {
     test_finish_pumps_and_keeps_music_fed();
     test_music_argument_checks();
     test_feed_pipelined();
+    test_feed_pipelined_small_segments();
     test_feed_not_pipelined();
     test_feed_abort();
     test_feed_attach_rules();

@@ -18,10 +18,10 @@ constexpr uint32_t kSectorBytes = 2048u;
 constexpr uint32_t kAdpcmSegmentBlocks = 8u;      // ADPCM reads stay near 8k frames: two must fit a ring
 
 /* The most one read can be. IMA segments are cut to whole sectors near 8 blocks, since ADPCM expands 4:1 and a
- * 16 KiB read would be most of a ring. ADX segments keep the full 16 KiB: they wait compressed in their buffer
- * until the ring has room for their blocks, so the ring never has to hold them decoded. */
-uint32_t async_segment_cap(uint8_t format, uint8_t channels) {
-    uint32_t cap = SAT_DISC_STREAM_SEGMENT_BYTES;
+ * 16 KiB read would be most of a ring. ADX segments keep the scheduler's whole segment: they wait compressed in
+ * their buffer until the ring has room for their blocks, so the ring never has to hold them decoded. */
+uint32_t async_segment_cap(const sat_disc_stream_t* disc, uint8_t format, uint8_t channels) {
+    uint32_t cap = sat_disc_stream_segment_bytes(disc);
     if (format == SAT_AUDIO_IMA_ADPCM) {
         namespace codec = saturn::core::audio::ima_adpcm;
         uint32_t sectors = kAdpcmSegmentBlocks * codec::block_bytes(channels) / kSectorBytes;
@@ -33,7 +33,7 @@ uint32_t async_segment_cap(uint8_t format, uint8_t channels) {
 
 /* Bytes of the next segment: a whole one, or what is left of the file. */
 uint32_t async_segment_bytes(const MusicSlot& slot) {
-    const uint32_t cap = async_segment_cap(slot.format, slot.channels);
+    const uint32_t cap = async_segment_cap(g_disc, slot.format, slot.channels);
     const uint32_t left = slot.src_bytes - slot.file_pos;
     return left < cap ? left : cap;
 }
@@ -66,14 +66,14 @@ uint32_t async_segment_bound(const MusicSlot& slot, uint32_t segment) {
 /* The smallest ring a disc track can start in. The SCSP stream starts when both its Sound RAM halves are written
  * (2 chunks of frames), and the feed starts it when no further whole segment fits the ring: a ring under
  * 2 chunks + one segment never reaches both, and the track stays silent. */
-uint32_t async_min_ring_frames(uint8_t format, uint8_t channels) {
+uint32_t async_min_ring_frames(const sat_disc_stream_t* disc, uint8_t format, uint8_t channels) {
     if (format == SAT_AUDIO_ADX_ADPCM) {
         // A compressed segment decodes one block at a time: the ring needs room for one block, not the segment.
         namespace codec = saturn::core::audio::adx_adpcm;
         return 2u * saturn::core::kAudioStreamChunkFrames + codec::kBlockFrames;
     }
     return 2u * saturn::core::kAudioStreamChunkFrames +
-           async_payload_frames(format, channels, async_segment_cap(format, channels));
+           async_payload_frames(format, channels, async_segment_cap(disc, format, channels));
 }
 
 uint8_t async_next(void* user, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes) {
@@ -125,7 +125,6 @@ sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
     if (room > kMusicFeedFrames) room = kMusicFeedFrames;
     uint32_t frames_out = 0u;
     uint32_t used = 0u;
-    uint8_t pcm_block[2u * codec::kChannelBytes] = {};
     const uint32_t right_offset = kMusicFeedFrames * 2u;
 
     while (used < bytes && frames_out + codec::kBlockFrames <= room) {
@@ -150,17 +149,14 @@ sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
             used = bytes;
             break;
         }
-        if (!codec::decode_block(source, slot.channels, slot.adx_state,
-                                 pcm_block)) return SAT_ERR_IO;
+        // Straight into the staging halves: frames_out + one block <= room <= kMusicFeedFrames, so a whole block
+        // fits even when the track's last one is cut short (the frames past `take` are not written on).
+        uint8_t* const left = slot.staging_split + frames_out * 2u;
+        if (!codec::decode_block_to(source, slot.channels, slot.adx_state, left, left + right_offset))
+            return SAT_ERR_IO;
         uint32_t take = codec::kBlockFrames;
         if (take > slot.sample_count - slot.position_frame)
             take = slot.sample_count - slot.position_frame;
-        for (uint32_t i = 0u; i < take * 2u; ++i)
-            slot.staging_split[frames_out * 2u + i] = pcm_block[i];
-        if (slot.channels == 2u)
-            for (uint32_t i = 0u; i < take * 2u; ++i)
-                slot.staging_split[right_offset + frames_out * 2u + i] =
-                    pcm_block[codec::kChannelBytes + i];
         slot.position_frame += take;
         frames_out += take;
         if (slot.position_frame == slot.sample_count) {

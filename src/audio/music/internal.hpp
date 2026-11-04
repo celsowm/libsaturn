@@ -84,7 +84,7 @@ void async_wrote(MusicSlot& slot, uint32_t frames);
 
 extern const sat_disc_music_feed_ops_t kAsyncFeed;
 bool async_primed(const MusicSlot& slot);
-uint32_t async_min_ring_frames(uint8_t format, uint8_t channels);
+uint32_t async_min_ring_frames(const sat_disc_stream_t* disc, uint8_t format, uint8_t channels);
 uint32_t ring_buffered(const MusicSlot& slot);
 bool prefetch_ready(const MusicSlot& slot);
 void start_streams(MusicSlot& slot);

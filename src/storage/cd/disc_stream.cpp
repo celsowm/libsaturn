@@ -44,7 +44,8 @@ uint32_t music_frames(const sat_disc_stream_t* s, uint32_t bytes) {
 /* Bytes of the next music segment: a whole segment, or what is left of the file. */
 uint32_t music_segment_bytes(const sat_disc_stream_t* s) {
     const uint32_t left = s->music_bytes - s->music_pos;
-    return left < SAT_DISC_STREAM_SEGMENT_BYTES ? left : SAT_DISC_STREAM_SEGMENT_BYTES;
+    const uint32_t seg = sat_disc_stream_segment_bytes(s);
+    return left < seg ? left : seg;
 }
 
 /* The built-in feed: a looping raw interleaved stereo file split into the scheduler's own two rings. */
@@ -157,7 +158,7 @@ MusicBegin begin_music(sat_disc_stream_t* s, uint8_t owner) {
     const sat_cdfs_file_t* file = nullptr;
     uint32_t offset = 0u, bytes = 0u;
     if (ops->next(user, &file, &offset, &bytes) == 0u) return kMusicNotWanted;
-    if (file == nullptr || bytes == 0u || bytes > SAT_DISC_STREAM_SEGMENT_BYTES) {
+    if (file == nullptr || bytes == 0u || bytes > sat_disc_stream_segment_bytes(s)) {
         note(s, SAT_ERR_INVALID_ARG);
         return kMusicBlocked;
     }
@@ -312,8 +313,20 @@ sat_result_t land(sat_disc_stream_t* s) {
 }  // namespace
 
 extern "C" sat_result_t sat_disc_stream_init(sat_disc_stream_t* s, sat_cd_block_t* block) {
-    if (s == nullptr || block == nullptr) return SAT_ERR_INVALID_ARG;
-    __builtin_memset(s, 0, sizeof(*s));
+    if (s == nullptr) return SAT_ERR_INVALID_ARG;
+    return sat_disc_stream_init_segments(s, block, s->storage, SAT_DISC_STREAM_SEGMENT_SECTORS);
+}
+
+extern "C" sat_result_t sat_disc_stream_init_segments(sat_disc_stream_t* s, sat_cd_block_t* block, void* segments,
+                                                      uint32_t sectors) {
+    if (s == nullptr || block == nullptr || segments == nullptr || sectors == 0u ||
+        sectors > SAT_DISC_STREAM_SEGMENT_SECTORS || (reinterpret_cast<uintptr_t>(segments) & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    __builtin_memset(s, 0, SAT_DISC_STREAM_HEAD_BYTES);
+    s->segment_sectors = sectors;
+    s->buffer = static_cast<uint8_t*>(segments);
+    s->split = s->buffer + sectors * kSector;
     s->block = block;
     s->music_reserve = SAT_DISC_MUSIC_RESERVE_FRAMES;
     s->standby_floor = SAT_DISC_STANDBY_FLOOR_FRAMES;
@@ -338,7 +351,7 @@ extern "C" uint8_t sat_disc_stream_busy(const sat_disc_stream_t* s) {
 extern "C" sat_result_t sat_disc_stream_music_start(sat_disc_stream_t* s, sat_disc_music_rings_t* rings,
                                                     const sat_cdfs_file_t* file, uint32_t bytes,
                                                     uint32_t sample_rate, uint32_t sample_bytes) {
-    if (s == nullptr || rings == nullptr || file == nullptr || bytes < SAT_DISC_STREAM_SEGMENT_BYTES ||
+    if (s == nullptr || rings == nullptr || file == nullptr || bytes < sat_disc_stream_segment_bytes(s) ||
         (sample_bytes != 1u && sample_bytes != 2u) || (bytes % (2u * sample_bytes)) != 0u ||
         s->in_flight != kFlightNone || s->music_open != 0u || s->music_ops != nullptr || s->standby_ops != nullptr) {
         return SAT_ERR_INVALID_ARG;
@@ -602,7 +615,7 @@ sat_result_t service_once(sat_disc_stream_t* s) {
     if (s->running != 0u && s->sectors_left != 0u) {
         const int buf = free_buffer(s, any_pipelined(s));
         if (buf < 0) return SAT_OK;
-        const uint32_t seg = s->sectors_left < SAT_DISC_STREAM_SEGMENT_SECTORS ? s->sectors_left : SAT_DISC_STREAM_SEGMENT_SECTORS;
+        const uint32_t seg = s->sectors_left < s->segment_sectors ? s->sectors_left : s->segment_sectors;
         const sat_result_t r = sat_cd_stream_begin(s->block, s->lba, seg, segment_buffer(s, static_cast<uint8_t>(buf)));
         if (r == SAT_ERR_BUSY) return SAT_OK;             /* the drive is in use: try next frame */
         if (r != SAT_OK) {

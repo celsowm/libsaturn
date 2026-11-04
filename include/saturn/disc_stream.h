@@ -43,10 +43,13 @@
  * ~12 ms for a whole half; the driver writes it a slice per update, see saturn/audio.h) is not part
  * of this module but lands in whichever frame it falls in, including one that also polls.
  *
- * Nothing here allocates. The segment buffers are part of sat_disc_stream_t and the music rings are
- * a caller-owned sat_disc_music_rings_t (put both in .wram_l: 32 KiB and 64 KiB). Not
- * thread-safe; call from the main loop. */
+ * Nothing here allocates. sat_disc_stream_init uses the two 16 KiB segment buffers at the end of
+ * sat_disc_stream_t, and the music rings are a caller-owned sat_disc_music_rings_t (put both in
+ * .wram_l: 32 KiB and 64 KiB). A program short of RAM calls sat_disc_stream_init_segments instead:
+ * smaller segments in its own storage, and only SAT_DISC_STREAM_HEAD_BYTES of the object are used.
+ * Not thread-safe; call from the main loop. */
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "saturn/audio.h"
@@ -58,8 +61,10 @@
 extern "C" {
 #endif
 
-#define SAT_DISC_STREAM_SEGMENT_SECTORS 8u
+#define SAT_DISC_STREAM_SEGMENT_SECTORS 8u     /* the default segment, and the largest */
 #define SAT_DISC_STREAM_SEGMENT_BYTES (SAT_DISC_STREAM_SEGMENT_SECTORS * 2048u)
+/* Storage sat_disc_stream_init_segments needs for two segments of `sectors` sectors. */
+#define SAT_DISC_STREAM_SEGMENTS_BYTES(sectors) (2u * (sectors) * 2048u)
 #define SAT_DISC_STREAM_QUEUE 8u
 #define SAT_DISC_MUSIC_RING_FRAMES 16384u
 #define SAT_DISC_MUSIC_RESERVE_FRAMES 8192u    /* default `music_reserve` */
@@ -122,7 +127,7 @@ typedef struct sat_disc_stream_stats {
  * segment lands. */
 typedef struct sat_disc_music_feed_ops {
     /* The next read, or 0 when none is wanted now (rings full, paused). `*offset` is a sector
-     * multiple, `*bytes` at most SAT_DISC_STREAM_SEGMENT_BYTES and inside the file. Must not
+     * multiple, `*bytes` at most sat_disc_stream_segment_bytes and inside the file. Must not
      * change the feed: `started` commits it. With pipelining, the room it tests must already
      * count the segments started and not yet delivered. */
     uint8_t (*next)(void* user, const sat_cdfs_file_t** file, uint32_t* offset, uint32_t* bytes);
@@ -208,13 +213,29 @@ typedef struct sat_disc_stream {
     void* pump_context;
 
     sat_disc_stream_stats_t stats;
-    uint8_t buffer[SAT_DISC_STREAM_SEGMENT_BYTES] __attribute__((aligned(4)));
+    uint32_t segment_sectors;    /* sectors of a whole segment */
+    uint8_t* buffer;
     /* The built-in music splits into it (L then R); a pipelined feed lands the second segment here. */
-    uint8_t split[SAT_DISC_STREAM_SEGMENT_BYTES] __attribute__((aligned(4)));
+    uint8_t* split;
+    /* The default segment buffers. Must stay last: sat_disc_stream_init_segments never touches it. */
+    uint8_t storage[2u * SAT_DISC_STREAM_SEGMENT_BYTES] __attribute__((aligned(4)));
 } sat_disc_stream_t;
 
-/* `block` is an initialized CD Block (sat_cd_block_init). Clears everything. */
+/* The bytes of a sat_disc_stream_t that sat_disc_stream_init_segments uses (4-byte aligned). */
+#define SAT_DISC_STREAM_HEAD_BYTES offsetof(sat_disc_stream_t, storage)
+
+/* `block` is an initialized CD Block (sat_cd_block_init). Clears everything; segments of
+ * SAT_DISC_STREAM_SEGMENT_SECTORS in the object's own storage. */
 sat_result_t sat_disc_stream_init(sat_disc_stream_t* s, sat_cd_block_t* block);
+/* As sat_disc_stream_init, with segments of `sectors` (1..SAT_DISC_STREAM_SEGMENT_SECTORS) in
+ * `segments` (4-byte aligned, SAT_DISC_STREAM_SEGMENTS_BYTES(sectors) long). `s` need only hold
+ * SAT_DISC_STREAM_HEAD_BYTES. A smaller segment costs more drive commands per second of music,
+ * not ring margin. */
+sat_result_t sat_disc_stream_init_segments(sat_disc_stream_t* s, sat_cd_block_t* block, void* segments,
+                                           uint32_t sectors);
+static inline uint32_t sat_disc_stream_segment_bytes(const sat_disc_stream_t* s) {
+    return s->segment_sectors * 2048u;
+}
 
 static inline void sat_disc_stream_set_pump(sat_disc_stream_t* s, void (*pump)(void*), void* context) {
     s->pump = pump;

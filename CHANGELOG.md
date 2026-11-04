@@ -9,6 +9,19 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- Disc scheduler segments sized by the program: `sat_disc_stream_init_segments(s, block, segments, sectors)` takes
+  1..8-sector segments in caller storage, and the object then needs only `SAT_DISC_STREAM_HEAD_BYTES`
+  (`SAT_DISC_STREAM_SEGMENTS_BYTES(sectors)` for the buffers). `sat_disc_stream_init` keeps the two 16 KiB
+  segments, now in the object's trailing `storage`; `buffer` and `split` are pointers. Music feeds read at most
+  `sat_disc_stream_segment_bytes`. Host tests: data jobs on 2-sector segments write nothing past the head,
+  pipelined feeds on 4 sectors, ADX through `sat_music` on 4- and 1-sector segments in the minimum ring.
+- ADX decoding: the predictor's floor shift is a biased logical shift (`floor_div_4096`), so GCC no longer calls
+  `__ashiftrt_r4_12` for every sample (it did at `-Os`, where `disc_feed.cpp` inlines the decoder), and the nibbles
+  of a byte are decoded together. `decode_block_to` writes each channel to its own destination: the disc feed
+  decodes straight into its staging halves instead of through a block buffer and two byte loops. Output is
+  unchanged: a host test compares 16,000 random stereo frames (clamping scales, both coefficient signs) and the
+  int32 ends of the shift with an exact 64-bit reference. Ymir, 44.1 kHz stereo in a fight: 4,670 to about 2,900
+  cycles per stereo block.
 - VDP1 command tables and Gouraud tables are written in VRAM, not staged in Work RAM and copied at submit. Two banks
   (2048 commands and 2048 Gouraud tables each, 80 KiB per bank) alternate between frames; VRAM 0..31 is a root that
   names the bank the VDP1 draws. Links and CMDGRDA are absolute. `begin_frame(capacity)` (0: the whole bank) takes no
