@@ -22,6 +22,10 @@ The version is defined once, in the `VERSION` file.
   unchanged: a host test compares 16,000 random stereo frames (clamping scales, both coefficient signs) and the
   int32 ends of the shift with an exact 64-bit reference. Ymir, 44.1 kHz stereo in a fight: 4,670 to about 2,900
   cycles per stereo block.
+- The ADX disc feed decodes straight into the streams' Work RAM rings when each has a block's room before it wraps
+  (`audio_stream_write_span` / `audio_stream_commit`), and falls back to the staging halves and a copy otherwise:
+  the staging-to-ring copy (about 1% of a fight's Master time) is gone in the common case. Ymir ADX fight: 30.08
+  to 30.53 images per second, 0 underruns, the same frames consumed.
 - The ADX assembly decoder takes the whole frame: it reads the scale, builds the 16 steps unrolled on its own stack
   and loads the coefficients and history straight from the decoder state, so `decode_block_to` no longer builds a
   table or copies a context per channel. A new Ymir self-test (3,000 random frames, odd and even frame addresses)

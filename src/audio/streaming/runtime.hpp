@@ -173,6 +173,22 @@ inline void audio_stream_copy_in(
     audio_stream_update_fill_stats(ring);
 }
 
+/* For a producer that writes the ring in place (the ADX disc feed decodes into it): the free frames from the write
+ * cursor to the free space's end or the ring's, whichever comes first, and where they start. */
+inline uint8_t* audio_stream_write_span(AudioStreamRing& ring, uint32_t* frames) {
+    const uint32_t free_frames = ring.capacity_frames - ring.buffered_frames;
+    const uint32_t to_end = ring.capacity_frames - ring.write_frame;
+    *frames = free_frames < to_end ? free_frames : to_end;
+    return ring.buffer + ring.write_frame * ring.frame_bytes;
+}
+
+/* Makes frame_count frames written in place at the write cursor buffered; frame_count <= the span's frames. */
+inline void audio_stream_commit(AudioStreamRing& ring, uint32_t frame_count) {
+    ring.write_frame = (ring.write_frame + frame_count) % ring.capacity_frames;
+    ring.buffered_frames += frame_count;
+    audio_stream_update_fill_stats(ring);
+}
+
 /* Copies up to frame_count frames starting skip_frames past the read cursor
  * without consuming them, so a failed transfer loses nothing. Returns the
  * frames copied: fewer when fewer are buffered past skip_frames. */

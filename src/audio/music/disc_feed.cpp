@@ -1,6 +1,8 @@
 #include "src/audio/music/internal.hpp"
 #include "saturn/music_codecs.h"
 
+#include <stddef.h>
+
 namespace saturn::core::music {
 
 constexpr uint32_t kSectorBytes = 2048u;
@@ -125,7 +127,32 @@ sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
     if (room > kMusicFeedFrames) room = kMusicFeedFrames;
     uint32_t frames_out = 0u;
     uint32_t used = 0u;
-    const uint32_t right_offset = kMusicFeedFrames * 2u;
+    // Decode straight into the rings when each has a block's room before it wraps; else into the staging halves,
+    // copied in after.
+    uint8_t* left_base = slot.staging_split;
+    ptrdiff_t right_offset = kMusicFeedFrames * 2u;
+    saturn::core::AudioStreamSlot* const left_stream =
+        saturn::core::audio_stream_resolve(saturn::core::g_audio_streams, slot.stream);
+    saturn::core::AudioStreamSlot* const right_stream = slot.channels == 2u
+        ? saturn::core::audio_stream_resolve(saturn::core::g_audio_streams, slot.stream_r) : nullptr;
+    bool direct = false;
+    if (left_stream != nullptr && left_stream->ring.frame_bytes == 2u &&
+        (slot.channels == 1u || (right_stream != nullptr && right_stream->ring.frame_bytes == 2u))) {
+        uint32_t span = 0u;
+        uint8_t* const left_ring = saturn::core::audio_stream_write_span(left_stream->ring, &span);
+        uint8_t* right_ring = nullptr;
+        if (slot.channels == 2u) {
+            uint32_t span_r = 0u;
+            right_ring = saturn::core::audio_stream_write_span(right_stream->ring, &span_r);
+            if (span_r < span) span = span_r;
+        }
+        if (span >= codec::kBlockFrames) {
+            direct = true;
+            if (room > span) room = span;
+            left_base = left_ring;
+            right_offset = right_ring - left_ring;   // unused when mono
+        }
+    }
 
     while (used < bytes && frames_out + codec::kBlockFrames <= room) {
         const uint8_t* source = nullptr;
@@ -149,9 +176,9 @@ sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
             used = bytes;
             break;
         }
-        // Straight into the staging halves: frames_out + one block <= room <= kMusicFeedFrames, so a whole block
+        // frames_out + one block <= room, which is within the staging halves or the rings' spans, so a whole block
         // fits even when the track's last one is cut short (the frames past `take` are not written on).
-        uint8_t* const left = slot.staging_split + frames_out * 2u;
+        uint8_t* const left = left_base + frames_out * 2u;
         if (!codec::decode_block_to(source, slot.channels, slot.adx_state, left, left + right_offset))
             return SAT_ERR_IO;
         uint32_t take = codec::kBlockFrames;
@@ -166,6 +193,12 @@ sat_result_t async_deliver_adx(MusicSlot& slot, const uint8_t* data,
     }
     *consumed = used;
     if (frames_out == 0u) return SAT_OK;
+    if (direct) {
+        saturn::core::audio_stream_commit(left_stream->ring, frames_out);
+        if (slot.channels == 2u) saturn::core::audio_stream_commit(right_stream->ring, frames_out);
+        async_wrote(slot, frames_out);
+        return SAT_OK;
+    }
     SAT_TRY(write_channel(slot, 0u, slot.staging_split, frames_out));
     if (slot.channels == 2u)
         SAT_TRY(write_channel(slot, 1u, slot.staging_split + right_offset, frames_out));
