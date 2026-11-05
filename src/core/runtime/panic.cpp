@@ -4,6 +4,7 @@
 #include "saturn/video.h"
 
 #include "src/core/runtime/panic_logic.hpp"
+#include "src/core/runtime/refusal.hpp"
 #include "src/core/runtime/state.hpp"
 
 using namespace saturn::core::panic;
@@ -14,6 +15,10 @@ volatile sat_panic_info_t g_sat_last_panic;
 
 const char* sat_result_name(sat_result_t st) {
     return result_name(st);
+}
+
+sat_result_t sat_refuse(sat_result_t st, const char* file, int line) {
+    return saturn::core::refuse(st, file, line);
 }
 
 }  /* extern "C" */
@@ -76,13 +81,23 @@ extern "C" void sat_panic(sat_result_t st, const char* file, int line) {
         g_sat_last_panic.file[i] = base[i];
     }
     g_sat_last_panic.file[i] = '\0';
+    /* A refusal with another code is unrelated to this stop. */
+    const char* origin = saturn::core::g_refusal.code == static_cast<int32_t>(st)
+        ? saturn::core::g_refusal.file : nullptr;
+    const int32_t origin_line = origin != nullptr ? saturn::core::g_refusal.line : 0;
+    g_sat_last_panic.origin_line = origin_line;
+    const char* origin_base = basename(origin);
+    for (i = 0u; i + 1u < SAT_PANIC_FILE_MAX && origin_base[i] != '\0'; ++i) {
+        g_sat_last_panic.origin_file[i] = origin_base[i];
+    }
+    g_sat_last_panic.origin_file[i] = '\0';
 
     /* A failure while drawing the report must not re-enter and loop forever
      * on the same bad state: the second entry goes straight to the spin. */
     if (entered == 0u) {
         entered = 1u;
         char lines[kLineCount][kLineChars + 1u];
-        build_report(lines, st, file, line);
+        build_report(lines, st, file, line, origin, origin_line);
         /* Dark backdrop and an opaque VDP1 erase so VDP2 layers do not hide
          * the report. Errors here are ignored: they only mean "not
          * initialised", and then there is nothing to draw on anyway. */

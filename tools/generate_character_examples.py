@@ -204,6 +204,20 @@ def palette(red=False):
             colors.append(0x8000|(min(31,rgb[0]//8))|(min(31,rgb[1]//8)<<5)|(min(31,rgb[2]//8)<<10))
     return colors+[0]*(256-len(colors))
 
+def lut4_variant(render):
+    """The same asset as a version 2 archive: one 16-colour table per texture
+    (fixture only: colours past the sixteenth fold back onto the first ones)."""
+    variant=copy.copy(render); luts=[]; textures=[]
+    for tex in render.textures:
+        distinct=sorted(set(tex['pixels']))
+        codes=[distinct.index(p)%16 for p in tex['pixels']]
+        table=[render.palette_rgb555[d] for d in distinct[:16]]
+        luts+=table+[0]*(16-len(table))
+        textures.append(dict(tex,pixels=bytes(a<<4|b for a,b in zip(codes[::2],codes[1::2])),
+                             flags=tex.get('flags',1)|0x8000,palette_slot=len(luts)//16-1))
+    variant.textures=textures; variant.luts_rgb555=luts
+    return variant
+
 def render_asset(model,exp,quads,materials,red=False):
     textures=[]
     for material in range(MATERIAL_COUNT):
@@ -256,6 +270,7 @@ def generate(destination):
             (disc/((detail+'_red' if red else detail+'_blue')+'.ska')).write_bytes(payload)
             if detail=='high' and not red:
                 high_exp,high_render=exp,render; archive=payload
+                (disc/'high_lut4.ska').write_bytes(encode(exp,lut4_variant(variant),[j[0] for j in JOINTS],events,roots))
         reports[detail]={'vertices':len(exp.skin.source_vertex),'faces':len(quads),
                          'joints':len(JOINTS),'blend_vertices':len(exp.skin.blend),
                          'archive_bytes':len(payload),'runtime':sx.size_report(exp),

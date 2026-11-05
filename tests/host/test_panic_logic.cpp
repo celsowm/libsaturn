@@ -50,6 +50,16 @@ TEST(report_lines) {
     ASSERT_STR(lines[3], "LINE 528  CODE -7");
 }
 
+TEST(report_names_the_refusing_check) {
+    char lines[kLineCount][kLineChars + 1u];
+    build_report(lines, SAT_ERR_INVALID_ARG, "src/saturn/main.c", 1394,
+                 "src/graphics/3d/rendering/indexed.cpp", 33);
+    ASSERT_STR(lines[3], "LINE 1394  CODE -1");
+    ASSERT_STR(lines[4], "FROM INDEXED.CPP 33");
+    build_report(lines, SAT_ERR_INVALID_ARG, "main.c", 1);
+    ASSERT_STR(lines[4], "");
+}
+
 TEST(report_truncates_long_file_names) {
     char lines[kLineCount][kLineChars + 1u];
     const char* huge =
@@ -142,6 +152,7 @@ int main() {
     result_names_cover_every_code();
     basename_handles_both_separators();
     report_lines();
+    report_names_the_refusing_check();
     report_truncates_long_file_names();
     report_handles_extreme_numbers();
     font_run_merging_and_geometry();

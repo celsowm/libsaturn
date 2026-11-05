@@ -211,6 +211,10 @@ void wait_swap_requested();
  * into [kTextureBase, arena cursor) after the VDP1 finished its last list. */
 sat_result_t reserve_texture_region(uint32_t bytes, uint32_t* out_offset);
 sat_result_t write_texture_region(uint32_t offset, const void* src, uint32_t bytes);
+/* vram() + offset for a range inside the allocated texture arena, else null. */
+volatile void* texture_region_address(uint32_t offset, uint32_t bytes);
+/* Bytes between the texture arena's cursor and the end of VRAM. */
+uint32_t texture_arena_free_bytes();
 
 /* Every check update_texture_indexed8_pitched / _rect perform before
  * writing, without writing: callers preflight a multi-transfer update so it

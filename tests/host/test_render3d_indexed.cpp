@@ -651,11 +651,14 @@ static void direct_draws_queue_into_an_open_capture() {
     EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_SOLID);
     CHECK(g_captured_material.texture==&g_texture[1]);
     EQ(g_captured_material.color_calc_slot,3u);
-    p.sprite_flags=SAT_SPRITE_FLAG_MESH;
+    /* The flags a scene material may carry, so its near-clipped faces
+     * (drawn through here) keep them. */
+    p.sprite_flags=SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK;
     EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[0],&out),SAT_OK);
     EQ(out,1u);
     EQ(g_captured_material.kind,SAT_SCENE3D_INDEXED_TEXTURED);
-    EQ(g_captured_material.sprite_flags,SAT_SPRITE_FLAG_MESH);
+    EQ(g_captured_material.sprite_flags,SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK);
+    p.sprite_flags=SAT_SPRITE_FLAG_MESH;
     out=0u;
     EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&out),SAT_OK);
     EQ(out,1u);

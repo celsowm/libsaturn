@@ -34,9 +34,11 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
         return SAT_ERR_INVALID_ARG;
     auto* data=static_cast<uint8_t*>(storage);
     uint32_t h[SAT_CHARACTER_HEADER_WORDS]; for (uint32_t i=0;i<SAT_CHARACTER_HEADER_WORDS;++i) h[i]=be32(data+i*4);
-    if (h[SAT_CHAR_MAGIC]!=SAT_CHARACTER_ARCHIVE_MAGIC || h[SAT_CHAR_VERSION]!=SAT_CHARACTER_ARCHIVE_VERSION || h[SAT_CHAR_SIZE]!=bytes || !h[SAT_CHAR_JOINTS] || h[SAT_CHAR_JOINTS]>SAT_CHARACTER_MAX_JOINTS ||
+    const bool lut4=h[SAT_CHAR_VERSION]==SAT_CHARACTER_ARCHIVE_VERSION_LUT4;
+    if (h[SAT_CHAR_MAGIC]!=SAT_CHARACTER_ARCHIVE_MAGIC || (h[SAT_CHAR_VERSION]!=SAT_CHARACTER_ARCHIVE_VERSION && !lut4) || h[SAT_CHAR_SIZE]!=bytes || !h[SAT_CHAR_JOINTS] || h[SAT_CHAR_JOINTS]>SAT_CHARACTER_MAX_JOINTS ||
         h[SAT_CHAR_RIGID]+h[SAT_CHAR_BLEND]!=h[SAT_CHAR_VERTICES] || h[SAT_CHAR_VERTICES]>65535 || !h[SAT_CHAR_FACES] || h[SAT_CHAR_FACES]>65535 ||
-        !h[SAT_CHAR_TEXTURES] || h[SAT_CHAR_TEXTURES]>65535 || h[SAT_CHAR_PALETTES]!=1 || !h[SAT_CHAR_CLIPS] || h[SAT_CHAR_CLIPS]>65535 ||
+        !h[SAT_CHAR_TEXTURES] || h[SAT_CHAR_TEXTURES]>65535 || !h[SAT_CHAR_PALETTES] ||
+        h[SAT_CHAR_PALETTES]>(lut4?SAT_CHARACTER_MAX_LUT_BLOCKS:1u) || !h[SAT_CHAR_CLIPS] || h[SAT_CHAR_CLIPS]>65535 ||
         h[SAT_CHAR_POS_SHIFT]>SAT_CHARACTER_MAX_POS_SHIFT || h[SAT_CHAR_MAX_JOINT]>=h[SAT_CHAR_JOINTS]) return SAT_ERR_INVALID_ARG;
     if (h[SAT_CHAR_TEXTURES]>texture_capacity || h[SAT_CHAR_CLIPS]>clip_capacity) return SAT_ERR_CAPACITY;
     const uint32_t units[SAT_CHAR_TABLE_COUNT]={SAT_CHARACTER_JOINT_BYTES,SAT_CHARACTER_RIGID_BYTES,SAT_CHARACTER_BLEND_BYTES,SAT_CHARACTER_VERTEX_BYTES,SAT_CHARACTER_FACE_BYTES,sizeof(uint16_t),SAT_CHARACTER_TEXTURE_BYTES,SAT_CHARACTER_PALETTE_BYTES,SAT_CHARACTER_CLIP_BYTES,sizeof(uint32_t),2*SAT_CHARACTER_VERTEX_BYTES};
@@ -48,6 +50,8 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
             if (counts[i] && counts[j] && h[SAT_CHAR_JOINT_OFFSET+i]<h[SAT_CHAR_JOINT_OFFSET+j]+counts[j]*units[j] &&
                 h[SAT_CHAR_JOINT_OFFSET+j]<h[SAT_CHAR_JOINT_OFFSET+i]+counts[i]*units[i]) return SAT_ERR_INVALID_ARG;
     }
+    // A texture's payload bytes: two texels per byte in a LUT4 archive.
+    const auto payload=[&](const uint8_t* t) { return lut4?be32(t+SAT_CHAR_TEXTURE_PIXEL_COUNT)/2u:be32(t+SAT_CHAR_TEXTURE_PIXEL_COUNT); };
     const auto overlaps_fixed=[&](uint32_t offset,uint32_t length) {
         for (uint32_t table=0;table<SAT_CHAR_TABLE_COUNT;++table)
             if (counts[table] && offset<h[SAT_CHAR_JOINT_OFFSET+table]+counts[table]*units[table] &&
@@ -73,12 +77,15 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
     for (uint32_t i=0;i<h[SAT_CHAR_TEXTURES];++i) {
         const uint8_t* t=data+h[SAT_CHAR_TEXTURE_OFFSET]+i*SAT_CHARACTER_TEXTURE_BYTES;
         const uint32_t w=be16(t+SAT_CHAR_TEXTURE_WIDTH), height=be16(t+SAT_CHAR_TEXTURE_HEIGHT), n=be32(t+SAT_CHAR_TEXTURE_PIXEL_COUNT);
-        if (be16(t+SAT_CHAR_TEXTURE_PALETTE_BASE)>7 ||
+        if (lut4) {
+            if (!(be16(t+SAT_CHAR_TEXTURE_FLAGS)&SAT_MODEL_TEXTURE_LUT4) ||
+                be16(t+SAT_CHAR_TEXTURE_PALETTE_BASE)>=h[SAT_CHAR_PALETTES]*16u) return SAT_ERR_INVALID_ARG;
+        } else if (be16(t+SAT_CHAR_TEXTURE_PALETTE_BASE)>7 ||
             be16(t+SAT_CHAR_TEXTURE_PALETTE_BASE)!=be16(data+h[SAT_CHAR_TEXTURE_OFFSET]+SAT_CHAR_TEXTURE_PALETTE_BASE))
             return SAT_ERR_INVALID_ARG;
         if (!w || w>504 || w%8 || !height || height>255 || n!=w*height ||
-            !region(be32(t),n,1,bytes,8)) return SAT_ERR_INVALID_ARG;
-        if (overlaps_fixed(be32(t),n)) return SAT_ERR_INVALID_ARG;
+            !region(be32(t),payload(t),1,bytes,8)) return SAT_ERR_INVALID_ARG;
+        if (overlaps_fixed(be32(t),payload(t))) return SAT_ERR_INVALID_ARG;
     }
     for (uint32_t i=0;i<h[SAT_CHAR_CLIPS];++i) {
         const uint8_t* c=data+h[SAT_CHAR_CLIP_OFFSET]+i*SAT_CHARACTER_CLIP_BYTES;
@@ -105,7 +112,7 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
         }
         for (uint32_t tex=0;tex<h[SAT_CHAR_TEXTURES];++tex) {
             const uint8_t* t=data+h[SAT_CHAR_TEXTURE_OFFSET]+tex*SAT_CHARACTER_TEXTURE_BYTES;
-            const uint32_t start=be32(t),length=be32(t+SAT_CHAR_TEXTURE_PIXEL_COUNT);
+            const uint32_t start=be32(t),length=payload(t);
             if ((pose_offset<start+length && start<pose_offset+pose_bytes) ||
                 (events && event_offset<start+length && start<event_offset+event_bytes)) return SAT_ERR_INVALID_ARG;
         }
@@ -125,7 +132,7 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
     for (uint32_t i=0;i<h[SAT_CHAR_RIGID];++i) native16(data+h[SAT_CHAR_RIGID_OFFSET]+i*8,3);
     for (uint32_t i=0;i<h[SAT_CHAR_BLEND];++i) native16(data+h[SAT_CHAR_BLEND_OFFSET]+i*SAT_CHARACTER_BLEND_BYTES+4,11);
     native32(data+h[SAT_CHAR_VERTEX_OFFSET],h[SAT_CHAR_VERTICES]*sizeof(sat_vec3_t)/sizeof(uint32_t)); native16(data+h[SAT_CHAR_FACE_OFFSET],h[SAT_CHAR_FACES]*4);
-    native16(data+h[SAT_CHAR_SELECTOR_OFFSET],h[SAT_CHAR_FACES]); native16(data+h[SAT_CHAR_PALETTE_OFFSET],256);
+    native16(data+h[SAT_CHAR_SELECTOR_OFFSET],h[SAT_CHAR_FACES]); native16(data+h[SAT_CHAR_PALETTE_OFFSET],256u*h[SAT_CHAR_PALETTES]);
     native32(data+h[SAT_CHAR_NAME_OFFSET],h[SAT_CHAR_JOINTS]); native32(data+h[SAT_CHAR_BOUNDS_OFFSET],6);
     result.skeleton={reinterpret_cast<const sat_skeleton_joint_t*>(data+h[SAT_CHAR_JOINT_OFFSET]),(uint16_t)h[SAT_CHAR_JOINTS],0};
     result.skin={reinterpret_cast<const sat_skin_rigid_t*>(data+h[SAT_CHAR_RIGID_OFFSET]),
@@ -133,7 +140,8 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
         (uint16_t)h[SAT_CHAR_RIGID],(uint16_t)h[SAT_CHAR_BLEND],(uint16_t)h[SAT_CHAR_JOINTS],(uint8_t)h[SAT_CHAR_POS_SHIFT],(uint8_t)h[SAT_CHAR_MAX_JOINT]};
     for (uint32_t i=0;i<h[SAT_CHAR_TEXTURES];++i) {
         const uint8_t* t=data+h[SAT_CHAR_TEXTURE_OFFSET]+i*SAT_CHARACTER_TEXTURE_BYTES;
-        textures[i]={data+be32(t),be16(t+SAT_CHAR_TEXTURE_WIDTH),be16(t+SAT_CHAR_TEXTURE_HEIGHT),0,be16(t+SAT_CHAR_TEXTURE_FLAGS),be32(t+SAT_CHAR_TEXTURE_PIXEL_COUNT)};
+        textures[i]={data+be32(t),be16(t+SAT_CHAR_TEXTURE_WIDTH),be16(t+SAT_CHAR_TEXTURE_HEIGHT),
+            (uint16_t)(lut4?be16(t+SAT_CHAR_TEXTURE_PALETTE_BASE):0u),be16(t+SAT_CHAR_TEXTURE_FLAGS),be32(t+SAT_CHAR_TEXTURE_PIXEL_COUNT)};
     }
     for (uint32_t i=0;i<h[SAT_CHAR_CLIPS];++i) {
         const uint8_t* c=data+h[SAT_CHAR_CLIP_OFFSET]+i*SAT_CHARACTER_CLIP_BYTES;
@@ -151,6 +159,13 @@ extern "C" sat_result_t sat_character_asset_decode(void* storage, uint32_t bytes
         reinterpret_cast<const uint16_t*>(data+h[SAT_CHAR_SELECTOR_OFFSET]),textures,(uint16_t)h[SAT_CHAR_TEXTURES],
         reinterpret_cast<const uint16_t*>(data+h[SAT_CHAR_PALETTE_OFFSET]),1,
         be16(data+h[SAT_CHAR_TEXTURE_OFFSET]+SAT_CHAR_TEXTURE_PALETTE_BASE),0,nullptr,0,nullptr,nullptr,0};
+    if (lut4) {
+        result.model.luts_rgb555=result.model.palettes_rgb555;
+        result.model.lut_count=(uint16_t)(h[SAT_CHAR_PALETTES]*16u);
+        result.model.palettes_rgb555=nullptr;
+        result.model.palette_count=0;
+        result.model.palette_base=0;
+    }
     result.clips=clips; result.clip_count=(uint16_t)h[SAT_CHAR_CLIPS]; result.storage=data;
     result.storage_bytes=bytes; result.joint_names=reinterpret_cast<const uint32_t*>(data+h[SAT_CHAR_NAME_OFFSET]);
     result.clip_directory=data+h[SAT_CHAR_CLIP_OFFSET];
@@ -242,6 +257,7 @@ extern "C" sat_result_t sat_character_asset_compact(sat_character_asset_t* asset
     asset->model.indices=reinterpret_cast<const uint16_t*>(moved(asset->model.indices));
     asset->model.face_texture_indices=reinterpret_cast<const uint16_t*>(moved(asset->model.face_texture_indices));
     asset->model.palettes_rgb555=reinterpret_cast<const uint16_t*>(moved(asset->model.palettes_rgb555));
+    asset->model.luts_rgb555=reinterpret_cast<const uint16_t*>(moved(asset->model.luts_rgb555));
     asset->model.textures=nullptr;
     asset->joint_names=reinterpret_cast<const uint32_t*>(moved(asset->joint_names));
     for (uint16_t i=0;i<asset->skeleton.joint_count;++i) /* native since the decode */

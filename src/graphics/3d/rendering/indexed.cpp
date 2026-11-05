@@ -1,5 +1,6 @@
 #include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1_color_calc.h"
+#include "src/core/runtime/refusal.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
 
@@ -29,7 +30,8 @@ bool valid_camera(const sat_indexed_solid_render3d_t* p) {
 }
 
 bool valid_render(const sat_indexed_solid_render3d_t* p) {
-    return valid_camera(p) && (p->sprite_flags & ~SAT_SPRITE_FLAG_MESH)==0u &&
+    return valid_camera(p) &&
+           (p->sprite_flags & ~(SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK))==0u &&
            (p->color_calc_slot == SAT_INDEXED_SOLID_OPAQUE ||
             p->color_calc_slot < 8u || p->color_calc_slot == SAT_VDP2_SPRITE_ADD);
 }
@@ -93,7 +95,7 @@ extern "C" sat_result_t sat_draw_indexed_solid_quad3(
     const sat_vdp1_texture_t* texture
 ) {
     if (quad==nullptr || texture==nullptr || !valid_render(p))
-        return SAT_ERR_INVALID_ARG;
+        return SAT_REFUSE_HERE(SAT_ERR_INVALID_ARG);
     sat_result_t queued;
     if (captured(quad,SAT_SCENE3D_INDEXED_SOLID,0u,texture,nullptr,
                  p->color_calc_slot,nullptr,&queued,p->sprite_flags))
@@ -295,7 +297,7 @@ extern "C" sat_result_t sat_draw_indexed_box3(
     const sat_indexed_box3_t* box,
     const sat_indexed_solid_render3d_t* p
 ) {
-    if (!valid_render(p)) return SAT_ERR_INVALID_ARG;
+    if (!valid_render(p)) return SAT_REFUSE_HERE(SAT_ERR_INVALID_ARG);
     sat_quad3_t faces[3]={};
     const sat_vdp1_texture_t* materials[3]={};
     uint8_t count=0u;
@@ -316,7 +318,7 @@ static sat_result_t draw_textured_quad(
     if(out_drawn!=nullptr) *out_drawn=0u;
     if(quad==nullptr || texture==nullptr || !valid_render(p) ||
        p->width<2u || p->height<2u || p->width>2048u || p->height>2048u)
-        return SAT_ERR_INVALID_ARG;
+        return SAT_REFUSE_HERE(SAT_ERR_INVALID_ARG);
     sat_result_t queued;
     if(captured(quad,SAT_SCENE3D_INDEXED_TEXTURED,0u,texture,nullptr,
                 p->color_calc_slot,gouraud,&queued,p->sprite_flags)) {
@@ -472,7 +474,7 @@ extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
 ) {
     if(out_submitted!=nullptr) *out_submitted=0u;
     if(quad==nullptr || !valid_render(params) || !valid_tiled_regions(regions))
-        return SAT_ERR_INVALID_ARG;
+        return SAT_REFUSE_HERE(SAT_ERR_INVALID_ARG);
     sat_result_t queued;
     if(captured(quad,SAT_SCENE3D_INDEXED_TILED,0u,nullptr,regions,
                 params->color_calc_slot,nullptr,&queued,params->sprite_flags)) {

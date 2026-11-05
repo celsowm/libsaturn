@@ -141,6 +141,15 @@ extern "C" sat_result_t sat_vdp1_vram_reserve(uint32_t bytes, uint32_t* out_offs
     return saturn::hal::vdp1::reserve_texture_region(bytes, out_offset);
 }
 
+extern "C" uint32_t sat_vdp1_vram_free_bytes(void) {
+    return saturn::hal::vdp1::texture_arena_free_bytes();
+}
+
+extern "C" volatile void* sat_vdp1_vram_address(uint32_t offset, uint32_t bytes) {
+    if (saturn::core::require_initialized() != SAT_OK) return nullptr;
+    return saturn::hal::vdp1::texture_region_address(offset, bytes);
+}
+
 extern "C" sat_result_t sat_vdp1_vram_write(uint32_t offset, const void* src, uint32_t bytes) {
     SAT_TRY(saturn::core::require_initialized());
     return saturn::hal::vdp1::write_texture_region(offset, src, bytes);

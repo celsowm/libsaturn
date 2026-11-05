@@ -94,7 +94,7 @@ int main() {
         for(uint16_t i=0;i<2u;++i) {
             std::memcpy(hot[i].xy,corners[i],sizeof(hot[i].xy));
             hot[i].program=&program;
-            hot[i].kind=SAT_SCENE3D_PROJECTED_PROGRAM;
+            hot[i].kind=SAT_SCENE3D_PROJECTED_PROGRAM;hot[i].reserved=0u; // unshaded
             keys[i]=100u-i; // the second face is nearer and paints last
         }
         scene.count=2u;
@@ -109,5 +109,54 @@ int main() {
             assert(c.xc==e[4] && c.yc==e[5] && c.xd==e[6] && c.yd==e[7]);
         }
     }
-    puts("Native staged scene: stable painter links, coordinates, residency and rollback OK");
+    // Per-face CMDGRDA on a compiled instance: a face with a nonzero word is
+    // drawn Gouraud-shaded with that table, whether written in place to a
+    // native slot or emitted from the projected queue at flush; the others
+    // stay unshaded.
+    for(int native=1;native>=0;--native) {
+        vd::begin_frame(64u);
+        vd::Command* const frame=vd::frame_commands();
+        sat_scene3d_faces_t lit{};
+        sat_scene3d_face_t lit_cold[16]{};sat_scene3d_projected_face_t lit_hot[16]{};
+        uint32_t lit_keys[16]{};uint16_t lit_order[16]{};
+        assert(sat_scene3d_faces_init(&lit,lit_cold,lit_keys,lit_order,16)==SAT_OK);
+        assert(sat_scene3d_faces_use_projected_storage(&lit,lit_hot,16)==SAT_OK);
+        sat_vdp1_command_batch_t shaded{};
+        if(native)assert(vd::command_batch_reserve(16,&shaded)==SAT_OK);
+        assert(sat_scene3d_faces_begin(&lit,&vp,&eye,&forward,SAT_FX16_ONE,320,224)==SAT_OK);
+        if(native)assert(sat_scene3d_faces_bind_native_commands(&lit,&shaded)==SAT_OK);
+        sat_vdp1_texture_t lut4{31,8,8,0x180,1,SAT_VDP1_TEXTURE_LUT4};
+        sat_scene3d_material_t skin{};skin.kind=SAT_SCENE3D_INDEXED_TEXTURED;
+        skin.texture=&lut4;skin.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+        sat_scene3d_material_programs_t table{};sat_scene3d_material_program_t program{};
+        assert(sat_scene3d_material_programs_init(&table,&skin,1,&program,1)==SAT_OK);
+        sat_quad3_t world=quad(2);
+        uint16_t indices[64],map[16]{},grda[16]{};
+        for(unsigned i=0;i<64;++i)indices[i]=static_cast<uint16_t>(i%4u);
+        for(unsigned i=0;i<12;++i)grda[i]=static_cast<uint16_t>(0x2000u+i);
+        sat_mesh_t mesh{};mesh.vertices=world.v;mesh.indices=indices;
+        mesh.vertex_count=mesh.vertex_cap=4;mesh.face_count=mesh.face_cap=16;
+        sat_scene3d_instance_binding_t binding{};
+        assert(sat_scene3d_instance_binding_init(&binding,&mesh,&skin,1,map)==SAT_OK);
+        binding.programs=&table;
+        sat_scene3d_instance_t instance{};instance.mesh=&mesh;instance.materials=&skin;
+        instance.material_count=1;instance.face_materials=map;instance.validated_binding=&binding;
+        instance.face_gouraud=grda;
+        sat_projected_vertex_t screen[4]{};
+        assert(sat_scene3d_faces_submit_instance(&lit,&instance,SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_OK);
+        uint16_t used=0,capacity=0,reserved=0;bool overlay=false;
+        vd::command_stats(used,capacity,reserved,overlay);
+        const uint16_t first=used;
+        assert(sat_scene3d_faces_flush(&lit)==SAT_OK);
+        for(uint16_t i=0;i<16u;++i) {
+            // Equal depths keep source order: queued command first+i is face i.
+            const uint16_t pmod=native?shaded.commands[i].pmod:frame[first+i].pmod;
+            const uint16_t word=native?shaded.commands[i].grda:frame[first+i].grda;
+            const uint16_t colr=native?shaded.commands[i].colr:frame[first+i].colr;
+            assert(colr==program.command[3] && (pmod&~7u)==(program.command[2]&~7u));
+            if(i<12u)assert((pmod&7u)==4u && word==grda[i]);
+            else assert(pmod==program.command[2] && word==0u);
+        }
+    }
+    puts("Native staged scene: stable painter links, coordinates, residency, shading and rollback OK");
 }

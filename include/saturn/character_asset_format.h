@@ -1,10 +1,17 @@
 #ifndef SATURN_CHARACTER_ASSET_FORMAT_H
 #define SATURN_CHARACTER_ASSET_FORMAT_H
 /* SKA1 wire sizes are fixed, independent of native pointer sizes and padding.
- * tools/model_pipeline/skeletal_binary.py writes this versioned format. */
+ * tools/model_pipeline/skeletal_binary.py writes this versioned format.
+ * Version 1: INDEXED8 textures and one 256-colour palette.
+ * Version 2: LUT4 textures only. The palette table holds SAT_CHAR_PALETTES
+ * blocks of 256 RGB555 entries, read as 16 lookup tables of 16 each; a
+ * texture's palette-base field is its table index and its payload is
+ * pixel_count / 2 bytes (two texels per byte, leftmost in the high nibble). */
 enum {
     SAT_CHARACTER_ARCHIVE_MAGIC = 0x534b4131u,
     SAT_CHARACTER_ARCHIVE_VERSION = 1u,
+    SAT_CHARACTER_ARCHIVE_VERSION_LUT4 = 2u,
+    SAT_CHARACTER_MAX_LUT_BLOCKS = 64u,
     SAT_CHARACTER_HEADER_WORDS = 24u,
     SAT_CHARACTER_HEADER_BYTES = SAT_CHARACTER_HEADER_WORDS * 4u,
     SAT_CHARACTER_JOINT_BYTES = 36u,

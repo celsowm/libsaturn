@@ -4,6 +4,7 @@
 #include "src/hal/scu/scu.hpp"
 #include "src/hal/vdp2/vdp2.hpp"
 #include "src/core/runtime/logic.hpp"
+#include "src/core/runtime/refusal.hpp"
 #include "src/core/memory/section.hpp"
 #include "saturn/vdp1.h"
 #include "src/graphics/3d/scene/test_metrics.h"
@@ -557,6 +558,7 @@ sat_result_t command_batch_reserve(uint16_t capacity,sat_vdp1_command_batch_t* o
     return SAT_OK;
 }
 
+
 sat_result_t command_batch_link(sat_vdp1_command_batch_t* b,uint16_t index) {
     if(!current_batch(b) || index<b->checkpoint.used || index>=g_cmd_count)
         return SAT_ERR_INVALID_ARG;
@@ -649,7 +651,8 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
-    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
+    if (const sat_result_t st = saturn::core::validate_indexed8_sprite_effects(req.flags); st != SAT_OK)
+        return SAT_REFUSE_HERE(st);
     if ((req.flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
         req.format != SAT_VDP1_TEXTURE_INDEXED8) {
         return SAT_ERR_UNSUPPORTED; /* no color-bank MSB to preserve */
@@ -890,7 +893,8 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
-    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
+    if (const sat_result_t st = saturn::core::validate_indexed8_sprite_effects(req.flags); st != SAT_OK)
+        return SAT_REFUSE_HERE(st);
     if ((req.flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
         req.format != SAT_VDP1_TEXTURE_INDEXED8) {
         return SAT_ERR_UNSUPPORTED;
@@ -992,7 +996,8 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
     }
-    SAT_TRY(saturn::core::validate_indexed8_sprite_effects(req.flags));
+    if (const sat_result_t st = saturn::core::validate_indexed8_sprite_effects(req.flags); st != SAT_OK)
+        return SAT_REFUSE_HERE(st);
     if ((req.flags & SAT_SPRITE_FLAG_MSB_ON) != 0u &&
         req.format != SAT_VDP1_TEXTURE_INDEXED8) {
         return SAT_ERR_UNSUPPORTED;
@@ -1510,6 +1515,16 @@ sat_result_t reserve_texture_region(uint32_t bytes, uint32_t* out_offset) {
     SAT_TRY(arena_take(bytes, 8u, &start));
     *out_offset = start;
     return SAT_OK;
+}
+
+uint32_t texture_arena_free_bytes() {
+    return g_texture_arena.limit() - g_texture_arena.cursor();
+}
+
+volatile void* texture_region_address(uint32_t offset, uint32_t bytes) {
+    if (bytes == 0u || offset < kTextureBase || offset + bytes > g_texture_arena.cursor() ||
+        offset + bytes < offset) return nullptr;
+    return vram() + offset;
 }
 
 sat_result_t write_texture_region(uint32_t offset, const void* src, uint32_t bytes) {

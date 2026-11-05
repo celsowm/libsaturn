@@ -18,7 +18,7 @@
 namespace saturn::core::panic {
 
 constexpr uint8_t kLineChars = 38u;   /* 38 cells x 8 px = 304 px at scale 2 */
-constexpr uint8_t kLineCount = 4u;
+constexpr uint8_t kLineCount = 5u;
 
 inline const char* result_name(sat_result_t st) {
     switch (st) {
@@ -82,7 +82,8 @@ inline uint8_t append_i32(char* out, uint8_t pos, int32_t value) {
  * Each row is a kLineChars + 1 byte NUL-terminated string. */
 inline void build_report(
     char lines[kLineCount][kLineChars + 1u],
-    sat_result_t st, const char* file, int32_t line
+    sat_result_t st, const char* file, int32_t line,
+    const char* origin_file = nullptr, int32_t origin_line = 0
 ) {
     for (uint8_t i = 0u; i < kLineCount; ++i) lines[i][0] = '\0';
     append(lines[0], 0u, "FATAL ERROR");
@@ -92,6 +93,13 @@ inline void build_report(
     pos = append_i32(lines[3], pos, line);
     pos = append(lines[3], pos, "  CODE ");
     append_i32(lines[3], pos, static_cast<int32_t>(st));
+    /* The check that refused, when SAT_REFUSE recorded one. */
+    if (origin_file != nullptr && origin_line != 0) {
+        pos = append(lines[4], 0u, "FROM ");
+        pos = append(lines[4], pos, basename(origin_file));
+        pos = append(lines[4], pos, " ");
+        append_i32(lines[4], pos, origin_line);
+    }
 }
 
 /* 3x5 glyphs: five rows, top first, each a 3-bit mask whose highest bit is

@@ -39,6 +39,15 @@ int main() {
     assert(vd::write_texture_region(first, nullptr, 16u) == SAT_ERR_INVALID_ARG);
     assert(vd::write_texture_region(first, source, 0u) == SAT_ERR_INVALID_ARG);
 
+    // Mapped access covers exactly the same ranges, at consecutive addresses.
+    volatile uint8_t* const mapped = static_cast<volatile uint8_t*>(vd::texture_region_address(first, 1000u));
+    assert(mapped != nullptr);
+    assert(vd::texture_region_address(second, 13u) == mapped + (second - first));
+    assert(vd::texture_region_address(0u, 16u) == nullptr);
+    assert(vd::texture_region_address(first, 512u * 1024u) == nullptr);
+    assert(vd::texture_region_address(0xFFFFFFF0u, 32u) == nullptr);
+    assert(vd::texture_region_address(first, 0u) == nullptr);
+
     // Bad arguments and an arena that cannot fit the request.
     uint32_t unused = 0u;
     assert(vd::reserve_texture_region(0u, &unused) == SAT_ERR_INVALID_ARG);

@@ -124,6 +124,8 @@ typedef struct sat_scene3d_projected_face {
     };
     uint8_t kind;
     uint8_t cached_projected;
+    /* 1: written in place to a native command slot. Otherwise the face's
+     * CMDGRDA (sat_scene3d_instance_t::face_gouraud), 0 for none. */
     uint16_t reserved;
 } sat_scene3d_projected_face_t;
 
@@ -401,6 +403,12 @@ typedef struct sat_scene3d_instance {
      * the caller submits world vertices instead. sat_scene_submit_instance
      * does not record that refusal as a frame error. */
     uint8_t pre_projected;
+    /* Optional per-face CMDGRDA: a nonzero word draws that face Gouraud-shaded
+     * with the caller's table at that VDP1 VRAM address / 8 (saturn/vdp1.h
+     * format; tables may be shared and rewritten between frames). It applies
+     * to faces drawn from compiled programs (the native and projected hot
+     * queues); a face that needs the clipping fallback is drawn unshaded. */
+    const uint16_t* face_gouraud;
 } sat_scene3d_instance_t;
 
 /* Compiled publication plan for immutable topology/material resources.

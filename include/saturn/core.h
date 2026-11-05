@@ -156,6 +156,10 @@ typedef struct sat_panic_info {
     int32_t code;
     int32_t line;
     char file[SAT_PANIC_FILE_MAX];
+    /* The last SAT_REFUSE site with the same code, if any (origin_line 0
+     * and an empty name when none). */
+    int32_t origin_line;
+    char origin_file[SAT_PANIC_FILE_MAX];
 } sat_panic_info_t;
 extern volatile sat_panic_info_t g_sat_last_panic;
 
@@ -167,6 +171,13 @@ extern volatile sat_panic_info_t g_sat_last_panic;
 __attribute__((noreturn, cold))
 #endif
 void sat_panic(sat_result_t st, const char* file, int line);
+
+/* Returns `st` after recording this file and line as the last refusal. Use it
+ * where a check refuses (`return SAT_REFUSE(SAT_ERR_INVALID_ARG);`): when the
+ * code reaches a sat_panic unchanged, the report adds "FROM <file> <line>",
+ * the refusing check rather than only the caller that gave up. */
+sat_result_t sat_refuse(sat_result_t st, const char* file, int line);
+#define SAT_REFUSE(st) sat_refuse((st), __FILE__, __LINE__)
 
 /* Stops with an on-screen report on any non-OK result. Statement-like, safe
  * in an unbraced if/else, and evaluates `expr` exactly once. */

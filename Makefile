@@ -368,7 +368,7 @@ endif
 
 # Generate compiled-in assets for examples that point at build/generated.
 CHARACTER_EXAMPLE_GEN := $(GENERATED_DIR)/character_examples
-CHARACTER_EXAMPLE_OUTPUTS := $(addprefix $(CHARACTER_EXAMPLE_GEN)/,fighter_high.c fighter_medium.c fighter_low.c fighter_assets.c fighter_high.h fighter_medium.h fighter_low.h fighter_assets.h report.json) $(addprefix $(CHARACTER_EXAMPLE_GEN)/disc/,high_blue.ska high_red.ska medium_blue.ska medium_red.ska low_blue.ska low_red.ska)
+CHARACTER_EXAMPLE_OUTPUTS := $(addprefix $(CHARACTER_EXAMPLE_GEN)/,fighter_high.c fighter_medium.c fighter_low.c fighter_assets.c fighter_high.h fighter_medium.h fighter_low.h fighter_assets.h report.json) $(addprefix $(CHARACTER_EXAMPLE_GEN)/disc/,high_blue.ska high_red.ska medium_blue.ska medium_red.ska low_blue.ska low_red.ska high_lut4.ska)
 $(CHARACTER_EXAMPLE_OUTPUTS) &: tools/generate_character_examples.py tools/model_pipeline/skeletal_binary.py tools/model_pipeline/skeletal_export.py tools/model_pipeline/skeletal_textures.py tools/model_pipeline/model.py tools/model_pipeline/animation.py
 	$(PYTHON) tools/generate_character_examples.py --output $(CHARACTER_EXAMPLE_GEN)
 
@@ -799,11 +799,11 @@ HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)
 HOST_TEST_EXTRA_test_skin3d := $(HOST_TEST_EXTRA_test_skeleton3d) src/graphics/3d/animation/skin.cpp
 HOST_TEST_EXTRA_test_skin_scene := src/graphics/3d/scene/faces.cpp src/graphics/3d/animation/skin.cpp
 HOST_TEST_EXTRA_test_skin_present := src/graphics/3d/animation/character.cpp $(HOST_TEST_EXTRA_test_skin3d)
-HOST_TEST_EXTRA_test_character_asset := src/graphics/3d/animation/character_asset.cpp $(HOST_TEST_EXTRA_test_skin3d)
+HOST_TEST_EXTRA_test_character_asset := src/graphics/3d/animation/character_asset.cpp src/graphics/3d/geometry/model.cpp $(HOST_TEST_EXTRA_test_skin3d)
 HOST_TEST_EXTRA_test_character_combat := examples/characters/combat.c
 HOST_TEST_EXTRA_test_skin_parallel := src/graphics/3d/animation/skin_parallel.cpp $(HOST_TEST_EXTRA_test_skin3d)
 
-build/tests/test_character_asset: build/generated/character_examples/disc/high_blue.ska build/generated/character_examples/disc/high_red.ska
+build/tests/test_character_asset: build/generated/character_examples/disc/high_blue.ska build/generated/character_examples/disc/high_red.ska build/generated/character_examples/disc/high_lut4.ska
 HOST_TEST_EXTRA_test_anim3d_logic := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_anim3d_async_lifetime := src/graphics/3d/animation/api.cpp src/graphics/3d/geometry/model.cpp src/graphics/3d/geometry/mesh.cpp src/core/geometry/mesh_api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_pacman_game := examples/pacman/pacman_game.c examples/pacman/pacman_level.c examples/pacman/pacman_stages.c src/physics/2d/grid.cpp src/physics/2d/collision.cpp src/core/math3d/api.cpp

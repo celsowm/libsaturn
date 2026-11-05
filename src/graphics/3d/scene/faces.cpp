@@ -87,7 +87,7 @@ sat_scene3d_projected_face_t& append_projected(sat_scene3d_faces_t* scene) {
 }
 
 bool valid_material(const sat_scene3d_material_t& m) {
-    if ((m.sprite_flags & ~SAT_SPRITE_FLAG_MESH) != 0u ||
+    if ((m.sprite_flags & ~(SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK)) != 0u ||
         (m.sprite_flags && m.kind==SAT_SCENE3D_RGB)) return false;
     // Indexed8 palette texels do not support the RGB Gouraud arithmetic path.
     if (m.vertex_gouraud && m.kind!=SAT_SCENE3D_RGB &&
@@ -426,7 +426,7 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
  * entire instance. Only opaque/unshaded compiled entries select this path. */
 [[gnu::always_inline]] inline void append_program_body(sat_scene3d_faces_t* scene,
     const sat_projected_vertex_t* projected,const uint16_t indices[4],
-    const sat_scene3d_material_program_t* program,uint16_t pass) {
+    const sat_scene3d_material_program_t* program,uint16_t pass,uint16_t grda=0u) {
     if(scene->projected_entries) {
         auto& item=append_projected(scene);
         uint32_t w[4];
@@ -434,12 +434,13 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
         if(scene->native_commands) {
             auto& cmd=scene->native_commands[scene->count+scene->projected_gap];
             const uint16_t* h=program->command;
-            cmd.ctrl=h[0];cmd.link=0;cmd.pmod=h[2];cmd.colr=h[3];cmd.srca=h[4];cmd.size=h[5];
+            const uint16_t pmod=grda?saturn::core::compose_gouraud_pmod(h[2]):h[2];
+            cmd.ctrl=h[0];cmd.link=0;cmd.pmod=pmod;cmd.colr=h[3];cmd.srca=h[4];cmd.size=h[5];
             const auto& a=projected[indices[0]];const auto& b=projected[indices[1]];
             const auto& c=projected[indices[2]];const auto& d=projected[indices[3]];
             cmd.xa=a.x;cmd.ya=a.y;cmd.xb=b.x;cmd.yb=b.y;
             cmd.xc=c.x;cmd.yc=c.y;cmd.xd=d.x;cmd.yd=d.y;
-            cmd.grda=0;asm volatile("" ::: "memory");cmd.pad=1u;
+            cmd.grda=grda;asm volatile("" ::: "memory");cmd.pad=1u;
             item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
             item.cached_projected=0;item.reserved=1u;
             scene->keys[scene->count]=painter_key_positive(
@@ -455,7 +456,7 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
             w[c]=static_cast<uint32_t>(vertex.w);
         }
         item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
-        item.cached_projected=0;item.reserved=0;
+        item.cached_projected=0;item.reserved=grda;
         scene->keys[scene->count]=painter_key_positive(w[0],w[1],w[2],w[3],pass);++scene->count;
         return;
     }
@@ -471,8 +472,9 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
 }
 
 void append_program(sat_scene3d_faces_t* scene,const sat_projected_vertex_t* projected,
-    const uint16_t indices[4],const sat_scene3d_material_program_t* program,uint16_t pass) {
-    append_program_body(scene,projected,indices,program,pass);
+    const uint16_t indices[4],const sat_scene3d_material_program_t* program,uint16_t pass,
+    uint16_t grda) {
+    append_program_body(scene,projected,indices,program,pass,grda);
 }
 
 /* Copies the fields a queued face actually carries: `gouraud` only when
@@ -605,6 +607,11 @@ sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t or
         out[5]=hot.xy[2];
         out[6]=hot.xy[3];
         out[7]=0u;
+        if(hot.reserved) {
+            // A shaded face: the caller's table at CMDGRDA.
+            out[1]=command_pair(saturn::core::compose_gouraud_pmod(prefix[2]),prefix[3]);
+            out[7]=command_pair(hot.reserved,0u);
+        }
         out+=8;
         ++n;
         if(hot.cached_projected)++cached;
@@ -723,8 +730,7 @@ extern "C" sat_result_t sat_scene3d_faces_get(
     const auto& hot=projected_at(scene,index);
     if(hot.kind>SAT_SCENE3D_PROJECTED_COLD)return SAT_ERR_INVALID_ARG;
     if(hot.kind==SAT_SCENE3D_PROJECTED_COLD) {copy_face(*out,*hot.cold);return SAT_OK;}
-    if(hot.reserved==1u) {
-        if(!scene->native_commands)return SAT_ERR_INVALID_ARG;
+    if(scene->native_commands && hot.reserved==1u) {
         const auto& c=scene->native_commands[scene->projected_indices?scene->projected_indices[index]:index];
         out->projected={{c.xa,c.xb,c.xc,c.xd},{c.ya,c.yb,c.yc,c.yd}};
     } else out->projected=quad_of_pairs(hot.xy);
@@ -1285,6 +1291,7 @@ static sat_result_t submit_instance(
     const bool compiled_instance=programs && !override_slot && all_safe_indexed &&
         binding->programs->all_compiled;
     const bool fast=compiled_instance && all_positive && mesh->face_count<=0x7FFFu;
+    const uint16_t* const face_gouraud=instance->face_gouraud;
     if (instance->pre_projected && (!fast ||
             (instance->cull_backfaces && instance->cull_backfaces!=SAT_SCENE3D_CULL_SCREEN)))
         return SAT_ERR_UNSUPPORTED;
@@ -1310,7 +1317,8 @@ static sat_result_t submit_instance(
                         continue;
                     }
                 }
-                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass);
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass,
+                    face_gouraud?face_gouraud[f]:0u);
             }
             scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
 #if SAT_PROFILE_METRICS
@@ -1371,7 +1379,8 @@ static sat_result_t submit_instance(
                         continue;
                     }
                 }
-                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass);
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass,
+                    face_gouraud?face_gouraud[f]:0u);
             }
             scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
         }
@@ -1411,7 +1420,8 @@ static sat_result_t submit_instance(
             continue;
         }
         if (compiled_instance) {
-            append_program(scene,screen_scratch,idx,&programs[face_materials[f]],instance->pass);
+            append_program(scene,screen_scratch,idx,&programs[face_materials[f]],instance->pass,
+                face_gouraud?face_gouraud[f]:0u);
             continue;
         }
         const sat_scene3d_material_t& base=materials[face_materials[f]];
@@ -1423,7 +1433,8 @@ static sat_result_t submit_instance(
             const auto* program=&programs[face_materials[f]];
             if (program->texture &&
                 (known_safe || safe_projection(*scene,screen_scratch,idx,false))) {
-                append_program(scene,screen_scratch,idx,program,instance->pass);
+                append_program(scene,screen_scratch,idx,program,instance->pass,
+                    face_gouraud?face_gouraud[f]:0u);
                 continue;
             }
         }

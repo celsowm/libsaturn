@@ -99,5 +99,27 @@ int main() {
         textures[0].data(),TextureCapacity,&sentinel)==SAT_ERR_INVALID_ARG);
     assert(sat_character_asset_load("blue",blue.data(),SAT_CHARACTER_HEADER_BYTES,
         clips[0].data(),ClipCapacity,textures[0].data(),TextureCapacity,&sentinel)==SAT_ERR_CAPACITY);
-    std::puts("test_character_asset: two independent >64 KiB loads, random clips, release and malformed archives passed");
+    {
+        /* Version 2: LUT4 textures index the 16-entry tables the palette table holds. */
+        load_fixture("build/generated/character_examples/disc/high_lut4.ska");
+        std::vector<uint32_t> lut((payload.size()+3)/4),small(payload.size()/4+1);
+        std::memcpy(lut.data(),payload.data(),payload.size());
+        assert(fixture_count(SAT_CHAR_VERSION)==SAT_CHARACTER_ARCHIVE_VERSION_LUT4);
+        sat_character_asset_t asset{};
+        assert(sat_character_asset_decode(lut.data(),(uint32_t)payload.size(),clips[0].data(),ClipCapacity,
+            textures[0].data(),TextureCapacity,&asset)==SAT_OK);
+        const sat_model_asset_t& m=asset.model;
+        assert(!m.palette_count && !m.palettes_rgb555 && m.luts_rgb555 && m.lut_count>=m.texture_count);
+        for(uint16_t t=0;t<m.texture_count;++t)
+            assert((m.textures[t].flags&SAT_MODEL_TEXTURE_LUT4) && m.textures[t].palette_slot==t);
+        assert(sat_model_validate(&m)==SAT_OK);
+        const uint16_t last=m.luts_rgb555[(m.texture_count-1u)*16u];
+        assert(sat_character_asset_compact(&asset,small.data(),(uint32_t)(small.size()*4),nullptr)==SAT_OK);
+        assert(asset.model.luts_rgb555[(m.texture_count-1u)*16u]==last);
+        std::memcpy(lut.data(),payload.data(),payload.size());
+        write32(lut,SAT_CHAR_PALETTES,SAT_CHARACTER_MAX_LUT_BLOCKS+1u);
+        assert(sat_character_asset_decode(lut.data(),(uint32_t)payload.size(),clips[0].data(),ClipCapacity,
+            textures[0].data(),TextureCapacity,&asset)==SAT_ERR_INVALID_ARG);
+    }
+    std::puts("test_character_asset: two independent >64 KiB loads, random clips, release, LUT4 and malformed archives passed");
 }

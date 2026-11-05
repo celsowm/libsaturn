@@ -9,6 +9,9 @@ import time
 
 MAGIC = 0x534B4131
 VERSION = 1
+VERSION_LUT4 = 2   # LUT4 textures; the palette table holds 16 lookup tables per 256-entry block
+LUT4_FLAG = 0x8000
+MAX_LUT_BLOCKS = 64
 HEADER_WORDS = 24
 HEADER_BYTES = HEADER_WORDS * struct.calcsize('>I')
 JOINT = struct.Struct('>HH3i4h3i')
@@ -19,8 +22,24 @@ TEXTURE = struct.Struct('>IHHHHI')
 CLIP = struct.Struct('>III6H')
 
 def encode(exp, render, joint_names=None, events=None, root_flags=None):
-    if render.luts_rgb555:
-        raise ValueError("SKA1 does not store RGB CLUTs; use generated C for LUT4 skeletal assets")
+    """With render.luts_rgb555 the archive is version 2: every texture is LUT4
+    (flags carry LUT4_FLAG, 'palette_slot' names its table, 'pixels' holds width*height/2
+    packed bytes, leftmost texel in the high nibble)."""
+    lut4 = bool(render.luts_rgb555)
+    if lut4:
+        luts = list(render.luts_rgb555)
+        if len(luts) % 16:
+            raise ValueError("LUT4 tables are 16 entries each")
+        blocks = max(1, (len(luts) + 255) // 256)
+        if blocks > MAX_LUT_BLOCKS:
+            raise ValueError(f"{len(luts) // 16} LUT4 tables exceed {MAX_LUT_BLOCKS * 16}")
+        palette = luts + [0] * (blocks * 256 - len(luts))
+        for tex in render.textures:
+            if not tex.get('flags', 0) & LUT4_FLAG or not 0 <= tex['palette_slot'] < len(luts) // 16 or \
+                    len(tex['pixels']) * 2 != tex['pixel_count']:
+                raise ValueError("a version 2 archive takes packed LUT4 textures only")
+    else:
+        blocks, palette = 1, list(render.palette_rgb555)
     blob = bytearray(HEADER_BYTES)
     def add(payload, alignment=4):
         blob.extend(bytes((-len(blob)) % alignment))
@@ -41,7 +60,7 @@ def encode(exp, render, joint_names=None, events=None, root_flags=None):
                                     *render.face_texture_indices)))
     texture_meta = add(bytes(TEXTURE.size*len(render.textures)))
     offsets.append(texture_meta)
-    offsets.append(add(struct.pack('>256H',*render.palette_rgb555)))
+    offsets.append(add(struct.pack(f'>{len(palette)}H',*palette)))
     clip_meta = add(bytes(CLIP.size*len(exp.clips)))
     offsets.append(clip_meta)
     name_meta = add(bytes(struct.calcsize('>I')*len(skel.parent)))
@@ -54,7 +73,7 @@ def encode(exp, render, joint_names=None, events=None, root_flags=None):
     for i,tex in enumerate(render.textures):
         off=add(bytes(tex['pixels']),8)
         TEXTURE.pack_into(blob,texture_meta+i*TEXTURE.size,off,tex['width'],tex['height'],
-                          tex.get('flags',1),render.palette_base,tex['pixel_count'])
+                          tex.get('flags',1),tex['palette_slot'] if lut4 else render.palette_base,tex['pixel_count'])
     for i,clip in enumerate(exp.clips):
         off=add(b''.join(POSE.pack(*t,*q) for row in clip.frames for t,q in row))
         ev=(events or {}).get(clip.name,[])
@@ -63,8 +82,8 @@ def encode(exp, render, joint_names=None, events=None, root_flags=None):
         flags=(1 if clip.loop else 0)|(root_flags or {}).get(clip.name,0)
         CLIP.pack_into(blob,clip_meta+i*CLIP.size,off,ev_offset,name_offset,
                        clip.frame_count,len(skel.parent),len(ev),clip.rate,1,flags)
-    values=[MAGIC,VERSION,len(blob),len(skel.parent),len(skin.rigid),len(skin.blend),
-            len(skin.source_vertex),len(render.indices_abcd),len(render.textures),1,
+    values=[MAGIC,VERSION_LUT4 if lut4 else VERSION,len(blob),len(skel.parent),len(skin.rigid),len(skin.blend),
+            len(skin.source_vertex),len(render.indices_abcd),len(render.textures),blocks,
             len(exp.clips),skin.pos_shift,skin.max_joint,*offsets]
     struct.pack_into('>'+str(HEADER_WORDS)+'I',blob,0,*values)
     return bytes(blob)

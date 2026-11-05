@@ -204,9 +204,20 @@ TEST(sprite_pmod_base_matches_normal_sprite) {
 TEST(sprite_pmod_opaque_flag) {
     using namespace saturn::core;
     ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_OPAQUE), 0x00E0);
-    /* Every flag but OPAQUE: mesh (bit 8), shadow (colour calc 001B) and
-     * MSB-on (bit 15). */
-    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x81A1);
+    /* Every flag but OPAQUE: mesh (bit 8), shadow (colour calc 001B),
+     * high-speed shrink (bit 12) and MSB-on (bit 15). */
+    ASSERT_EQ(compose_sprite_pmod(0xFFFEu), 0x91A1);
+}
+
+TEST(sprite_pmod_high_speed_shrink) {
+    using namespace saturn::core;
+    /* CMDPMOD bit 12 on both texture formats; every sprite path (including a
+     * scene face's near-clip fallback) accepts it. */
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK), 0x10A0);
+    ASSERT_EQ(compose_sprite_pmod(SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK, SAT_VDP1_TEXTURE_LUT4), 0x1088);
+    ASSERT_EQ(validate_indexed8_sprite_effects(SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK), SAT_OK);
+    ASSERT_EQ(validate_indexed8_sprite_effects(
+        SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK | SAT_SPRITE_FLAG_MESH), SAT_OK);
 }
 
 TEST(sprite_pmod_shadow_flag) {

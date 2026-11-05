@@ -80,6 +80,13 @@ typedef struct sat_vdp1_projected_program {
  * then this pass over the same shape. Palette (INDEXED8) textures only; the
  * manual says MSB-on cannot be combined with VDP1 colour calculation. */
 #define SAT_SPRITE_FLAG_MSB_ON 0x0100u
+/* Sprite commands only (normal, scaled, distorted): CMDPMOD bit 12, HSS
+ * (VDP1 manual 6.31). A line drawn at less than 1:1 reads only the even
+ * texels of the source (FBCR EOS=0), so the VDP1 no longer steps through
+ * texels it then overwrites: a large texture on a small face costs about
+ * what a texture matched to its size does. Thin features one texel wide
+ * may drop out while shrunk. */
+#define SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK 0x0200u
 
 /* ------------------------------------------------------------------ */
 /* Sprite command                                                      */
@@ -185,6 +192,19 @@ sat_result_t sat_vdp1_vram_reserve(uint32_t bytes, uint32_t* out_offset);
  * reserved or uploaded so far is refused with SAT_ERR_INVALID_ARG, nothing
  * written; SAT_ERR_TIMEOUT if the VDP1 never finished. */
 sat_result_t sat_vdp1_vram_write(uint32_t offset, const void* src, uint32_t bytes);
+
+/* The CPU address of `bytes` of reserved texture VRAM at byte `offset`, or
+ * NULL when the range is not inside the arena reserved or uploaded so far.
+ * Writes through it do not wait for the VDP1: the list it is drawing may
+ * read old and new data alike. Use it for data that tolerates that and is
+ * rewritten often, such as Gouraud tables relit every image; prefer
+ * sat_vdp1_vram_write otherwise. Either CPU may write (the region is not
+ * cached). */
+volatile void* sat_vdp1_vram_address(uint32_t offset, uint32_t bytes);
+
+/* Texture VRAM still untouched past the arena's cursor, in bytes: what later
+ * uploads and reservations can take without reusing a freed span. */
+uint32_t sat_vdp1_vram_free_bytes(void);
 
 /* Call immediately after sat_begin_frame to reserve command-list slots for
  * an overlay/HUD drawn AFTER the world. In the world pass the shared VDP1

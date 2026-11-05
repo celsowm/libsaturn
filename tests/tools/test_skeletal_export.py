@@ -282,8 +282,10 @@ class SkeletalExportTests(unittest.TestCase):
         self.assertTrue(all(color==0 or color&0x8000 for color in render.luts_rgb555))
         _,source=emit_render_tables(render,'fixture')
         self.assertIn('fixture_luts','\n'.join(source))
-        with self.assertRaisesRegex(ValueError,'SKA1'):
-            encode(exp,render)
+        # LUT4 textures make a version 2 archive (saturn/character_asset_format.h).
+        blob=encode(exp,render)
+        self.assertEqual(blob[:4],b'SKA1')
+        self.assertEqual(int.from_bytes(blob[4:8],'big'),2)
 
     def test_lut4_preserves_transparent_texels(self):
         from unittest.mock import patch
