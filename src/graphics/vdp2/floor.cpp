@@ -82,23 +82,33 @@ extern "C" sat_result_t sat_vdp2_floor_from_view(const sat_vdp2_floor_t* floor, 
     const int64_t whole = hk / focal_px, rest = hk % focal_px;
     const int64_t scaled = whole > (int64_t{127} << 34) / floor->density
         ? INT64_MAX : whole * floor->density + rest * floor->density / focal_px;
+    /* The near and range tests do not change along the screen: for a whole
+     * n = -dir_y > 0, hk >= near_z n is n <= hk / near_z, scaled >= n is
+     * n <= scaled, and scaled < 127 kOne n is n > scaled / (127 kOne). */
+    int64_t most = hk / near_z;
+    if (scaled < most) most = scaled;
+    if (most > INT32_MAX) most = INT32_MAX;
+    const int64_t least = scaled / (127 * kOne);
     uint16_t far_index = 0, far_count = 0;
     for (uint16_t y = 0; y < floor->height; ++y, dir -= dir_step) {
         const int64_t dir_y = dir >> 16;
         int32_t k = 0;
         bool hidden = true;
-        int64_t far = far_z;
+        int32_t far = far_z;
         if (floor->far_lines != nullptr) {
             const sat_fx16_t line_far = floor->far_lines[far_index];
             if (line_far > 0 && line_far < far) far = line_far;
             if (++far_count == floor->far_step) { far_count = 0; ++far_index; }
         }
         /* w = hk / -dir_y (truncated) within [near_z, far], and the
-         * coefficient in (0, 127). */
-        if (dir_y < 0 && hk >= near_z * -dir_y && hk < (far + 1) * -dir_y &&
-            scaled >= -dir_y && scaled < 127 * kOne * -dir_y) {
-            k = saturn::core::math3d::div_s64_s32(scaled, static_cast<int32_t>(-dir_y));
-            hidden = false;
+         * coefficient in (0, 127). With n in 32 bits, (far + 1) n is one
+         * 32x32 product. */
+        if (dir_y < 0 && -dir_y <= most && -dir_y > least) {
+            const int32_t n = static_cast<int32_t>(-dir_y);
+            if (hk < static_cast<int64_t>(far) * n + n) {
+                k = saturn::core::math3d::div_s64_s32(scaled, n);
+                hidden = false;
+            }
         }
         coefficients[y] = rot::encode_coefficient(k, hidden);
     }
