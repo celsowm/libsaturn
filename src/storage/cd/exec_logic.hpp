@@ -16,8 +16,8 @@ constexpr uint32_t kWorkRamLowBase = 0x00200000u;
 constexpr uint32_t kWorkRamLowEnd = 0x00300000u;
 constexpr uint32_t kReservedBase = 0x002FFE00u;
 constexpr uint32_t kTrampolineBase = kReservedBase;
-constexpr uint32_t kTrampolineMax = 0x1E0u;
-constexpr uint32_t kHandoffBase = 0x002FFFE0u;
+constexpr uint32_t kTrampolineMax = 0x190u;
+constexpr uint32_t kHandoffBase = 0x002FFFB0u;
 constexpr uint32_t kCacheThroughBit = 0x20000000u;
 constexpr uint32_t kSectorBytes = 2048u;
 
@@ -37,7 +37,8 @@ inline uint32_t sectors_for(uint32_t bytes) {
     return (bytes + kSectorBytes - 1u) / kSectorBytes;
 }
 
-/* 32 bytes at kHandoffBase. `check` covers bytes and data, so neither a cold
+/* 16 bytes of header and SAT_EXEC_ARG_MAX of data at kHandoffBase, the end of
+ * Work RAM Low. `check` covers bytes and data, so neither a cold
  * boot's leftover RAM nor a hand-off already read passes for a fresh one. */
 struct Handoff {
     uint32_t magic;
@@ -46,7 +47,8 @@ struct Handoff {
     uint32_t reserved;
     uint8_t data[SAT_EXEC_ARG_MAX];
 };
-static_assert(sizeof(Handoff) == 32u, "hand-off block is 32 bytes");
+static_assert(sizeof(Handoff) == 16u + SAT_EXEC_ARG_MAX, "hand-off block is a 16-byte header and the data");
+static_assert(kHandoffBase + sizeof(Handoff) == kWorkRamLowEnd, "hand-off ends Work RAM Low");
 
 constexpr uint32_t kMagic = 0x53455843u; /* 'SEXC' */
 

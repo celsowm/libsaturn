@@ -32,7 +32,7 @@ extern "C" {
 /* Largest image: the same limit libsaturn_split_cart_image enforces. */
 #define SAT_EXEC_MAX_BYTES 0x000F0000u
 /* Bytes a program can hand to the next one (sat_exec_arg). */
-#define SAT_EXEC_ARG_MAX 16u
+#define SAT_EXEC_ARG_MAX 64u
 
 /* Runs `disc_path`, passing `arg_bytes` bytes of `arg` (NULL with 0 for none).
  * Returns only when nothing has been stopped yet: SAT_ERR_INVALID_ARG (bad
