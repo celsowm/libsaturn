@@ -64,6 +64,20 @@ static_assert(offsetof(sat_projected_vertex_t,x)==0 && offsetof(sat_projected_ve
     alignof(sat_projected_vertex_t)>=4,"a vertex's x and y must be one aligned word");
 static_assert(offsetof(sat_vdp1_projected_program_t,command)==0 &&
     alignof(sat_vdp1_projected_program_t)>=4,"command[2] and command[4] must be aligned words");
+/* An entry's kind, cached_projected and reserved as the one word they share:
+ * Work RAM is written through the cache, so one store, not three. */
+static_assert(offsetof(sat_scene3d_projected_face_t,kind)%4u==0 &&
+    offsetof(sat_scene3d_projected_face_t,cached_projected)==offsetof(sat_scene3d_projected_face_t,kind)+1u &&
+    offsetof(sat_scene3d_projected_face_t,reserved)==offsetof(sat_scene3d_projected_face_t,kind)+2u,
+    "kind, cached_projected and reserved must be one aligned word");
+inline void store_kind(sat_scene3d_projected_face_t& item,uint8_t kind,uint8_t cached,uint16_t reserved) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__==__ORDER_LITTLE_ENDIAN__
+    const uint32_t word=static_cast<uint32_t>(reserved)<<16|static_cast<uint32_t>(cached)<<8|kind;
+#else
+    const uint32_t word=static_cast<uint32_t>(kind)<<24|static_cast<uint32_t>(cached)<<16|reserved;
+#endif
+    *reinterpret_cast<aligned_pair_t*>(&item.kind)=word;
+}
 inline sat_quad2_t quad_of_pairs(const uint32_t xy[4]) {
     sat_quad2_t quad;
     for(uint8_t c=0;c<4u;++c) {
@@ -455,8 +469,8 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
             item.xy[c]=load_pair(&vertex.x);
             w[c]=static_cast<uint32_t>(vertex.w);
         }
-        item.kind=SAT_SCENE3D_PROJECTED_PROGRAM;item.program=program;
-        item.cached_projected=0;item.reserved=grda;
+        item.program=program;
+        store_kind(item,SAT_SCENE3D_PROJECTED_PROGRAM,0u,grda);
         scene->keys[scene->count]=painter_key_positive(w[0],w[1],w[2],w[3],pass);++scene->count;
         return;
     }
