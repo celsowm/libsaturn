@@ -436,6 +436,48 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
     return ((kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits)|depth;
 }
 
+/* The screen-culled fast path into projected entries, as the loop in
+ * submit_instance with append_program_body, but with the queue's count, gap,
+ * entries, keys and order in locals: a store through order may alias
+ * scene->count, so the inline version reloads them and stores the count
+ * after every face (Work RAM is written through). Same entries, keys, order
+ * and count; the count is stored once. Returns the culled faces. */
+[[gnu::noinline]] uint16_t append_screen_culled(sat_scene3d_faces_t* scene,
+    const sat_projected_vertex_t* projected,const uint16_t* indices,uint16_t face_count,
+    const uint8_t* double_sided,const sat_scene3d_material_program_t* programs,
+    const uint16_t* face_materials,const uint16_t* face_gouraud,uint16_t pass) {
+    uint16_t count=scene->count;
+    const uint16_t gap=scene->projected_gap;
+    sat_scene3d_projected_face_t* const entries=scene->projected_entries;
+    uint16_t* const order=scene->projected_indices;
+    uint32_t* const keys=scene->keys;
+    uint16_t culled=0u;
+    for(uint16_t f=0;f<face_count;++f) {
+        const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
+        const sat_projected_vertex_t& a=projected[idx[0]];
+        const sat_projected_vertex_t& b=projected[idx[1]];
+        const sat_projected_vertex_t& c=projected[idx[2]];
+        const sat_projected_vertex_t& d=projected[idx[3]];
+        if((!double_sided || !double_sided[f]) &&
+           saturn::core::render3d::corner_area2(a.x,a.y,b.x,b.y,c.x,c.y,d.x,d.y)<=0) {
+            ++culled;
+            continue;
+        }
+        const uint16_t physical=static_cast<uint16_t>(count+gap);
+        if(order)order[count]=physical;
+        sat_scene3d_projected_face_t& item=entries[physical];
+        item.xy[0]=load_pair(&a.x);item.xy[1]=load_pair(&b.x);
+        item.xy[2]=load_pair(&c.x);item.xy[3]=load_pair(&d.x);
+        item.program=&programs[face_materials[f]];
+        store_kind(item,SAT_SCENE3D_PROJECTED_PROGRAM,0u,face_gouraud?face_gouraud[f]:0u);
+        keys[count]=painter_key_positive(static_cast<uint32_t>(a.w),static_cast<uint32_t>(b.w),
+            static_cast<uint32_t>(c.w),static_cast<uint32_t>(d.w),pass);
+        ++count;
+    }
+    scene->count=count;
+    return culled;
+}
+
 /* The caller proved positive depths, coordinate bounds and capacity for the
  * entire instance. Only opaque/unshaded compiled entries select this path. */
 [[gnu::always_inline]] inline void append_program_body(sat_scene3d_faces_t* scene,
@@ -1318,7 +1360,15 @@ static sat_result_t submit_instance(
             const uint8_t* const double_sided=instance->double_sided_faces;
             const uint16_t pass=instance->pass;
             uint16_t culled=0u;
-            for(uint16_t f=0;f<mesh->face_count;++f) {
+#if SAT_NATIVE_SCENE_COMMANDS
+            const bool own_loop=scene->projected_entries && !scene->native_commands;
+#else
+            const bool own_loop=scene->projected_entries!=nullptr;
+#endif
+            if(own_loop)
+                culled=append_screen_culled(scene,screen_scratch,indices,mesh->face_count,double_sided,
+                    programs,face_materials,face_gouraud,pass);
+            else for(uint16_t f=0;f<mesh->face_count;++f) {
                 const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
                 if((!double_sided || !double_sided[f])) {
                     const sat_projected_vertex_t& a=screen_scratch[idx[0]];
