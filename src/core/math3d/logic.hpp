@@ -29,13 +29,6 @@ inline sat_fx16_t fx_mul(sat_fx16_t a, sat_fx16_t b) {
         (static_cast<int64_t>(a) * static_cast<int64_t>(b)) >> 16);
 }
 
-inline sat_fx16_t fx_div(sat_fx16_t a, sat_fx16_t b) {
-    if (b == 0) {
-        return 0;
-    }
-    return static_cast<sat_fx16_t>(
-        ((static_cast<int64_t>(a) << 16) / static_cast<int64_t>(b)));
-}
 
 inline sat_fx16_t fx_from_int(int32_t v) {
     return static_cast<sat_fx16_t>(v << 16);
@@ -75,6 +68,25 @@ inline int32_t div_s64_s32(int64_t num, int32_t den) {
 #else
     return static_cast<int32_t>(num / den);
 #endif
+}
+
+/* a / b in 16.16, truncated toward zero; 0 for b == 0. The int64 quotient is
+ * kept to 32 bits as before. On the SH-2 a quotient of magnitude at most
+ * INT32_MAX - 1 goes to the divider, where it cannot overflow (SH7604 10.3.3:
+ * also not the two-negatives case at the maximum); a wider one keeps
+ * __divdi3 and its wrap. */
+inline sat_fx16_t fx_div(sat_fx16_t a, sat_fx16_t b) {
+    if (b == 0) {
+        return 0;
+    }
+    const int64_t num = static_cast<int64_t>(a) << 16;
+#if defined(__sh__)
+    const uint64_t mag_num = num < 0 ? 0u - static_cast<uint64_t>(num) : static_cast<uint64_t>(num);
+    const uint64_t mag_den = b < 0 ? 0u - static_cast<uint64_t>(static_cast<int64_t>(b))
+                                   : static_cast<uint64_t>(b);
+    if (mag_num <= static_cast<uint64_t>(INT32_MAX - 1) * mag_den) return div_s64_s32(num, b);
+#endif
+    return static_cast<sat_fx16_t>(num / static_cast<int64_t>(b));
 }
 
 /* Exact integer square root, bit by bit. Used where the value whose root is

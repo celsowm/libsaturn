@@ -36,7 +36,8 @@ set(_load "0x${_load}")
 file(SIZE "${APP_BIN}" _app_size)
 
 set(_ip "${OUT_DIR}/${NAME}.IP.BIN")
-set(_root "${OUT_DIR}/iso_root")
+# Per disc: several discs can share OUT_DIR and build in parallel.
+set(_root "${OUT_DIR}/${NAME}.iso_root")
 set(_iso "${OUT_DIR}/${NAME}.iso")
 set(_bin "${OUT_DIR}/${NAME}.bin")
 set(_cue "${OUT_DIR}/${NAME}.cue")
@@ -49,10 +50,10 @@ if(BOOT_KIND STREQUAL "native")
     if(NOT _trace_rc EQUAL 0)
         message(FATAL_ERROR "could not resolve native trace symbol")
     endif()
-    _disc_run("assemble native AIP" "${SH2_CC}" -m2 -mb "-Wa,--defsym,AIP_TRACE_ADDRESS=${_trace}" -c "${AIP_SOURCE}" -o "${OUT_DIR}/aip.o")
-    _disc_run("extract native AIP" "${SH2_OBJCOPY}" -O binary -j .text.aip "${OUT_DIR}/aip.o" "${OUT_DIR}/aip.bin")
+    _disc_run("assemble native AIP" "${SH2_CC}" -m2 -mb "-Wa,--defsym,AIP_TRACE_ADDRESS=${_trace}" -c "${AIP_SOURCE}" -o "${OUT_DIR}/${NAME}.aip.o")
+    _disc_run("extract native AIP" "${SH2_OBJCOPY}" -O binary -j .text.aip "${OUT_DIR}/${NAME}.aip.o" "${OUT_DIR}/${NAME}.aip.bin")
     _disc_run("compose native IP" "${PYTHON}" "${TOOLS_DIR}/build_native_ip.py"
-        --payloads "${BOOT_PAYLOADS}" --aip "${OUT_DIR}/aip.bin" --app "${APP_BIN}"
+        --payloads "${BOOT_PAYLOADS}" --aip "${OUT_DIR}/${NAME}.aip.bin" --app "${APP_BIN}"
         --profile "${PROFILE}" --output "${_ip}")
     _disc_run("validate native IP" "${PYTHON}" "${TOOLS_DIR}/check_native_ip.py"
         --ip "${_ip}" --app "${APP_BIN}" --payloads "${BOOT_PAYLOADS}")
