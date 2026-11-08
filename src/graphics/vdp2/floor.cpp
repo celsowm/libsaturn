@@ -55,11 +55,14 @@ extern "C" sat_result_t sat_vdp2_floor_from_view(const sat_vdp2_floor_t* floor, 
     const int32_t* m = view_proj->m;
     const int64_t fx = length(m), fy = length(m + 4), fl = length(m + 12);
     if (fx == 0 || fy == 0 || fl == 0) return SAT_ERR_UNSUPPORTED;
-    /* Unit axes; the focal terms against a unit forward axis. */
-    const int64_t right[3] = {m[0] * kOne / fx, m[1] * kOne / fx, m[2] * kOne / fx};
-    const int64_t up[3] = {m[4] * kOne / fy, m[5] * kOne / fy, m[6] * kOne / fy};
-    const int64_t forward[3] = {m[12] * kOne / fl, m[13] * kOne / fl, m[14] * kOne / fl};
-    const int64_t focal_x = fx * kOne / fl, focal_y = fy * kOne / fl;
+    /* Unit axes; the focal terms against a unit forward axis. Every division
+     * by a variable is div (the divider when it provably fits, else C). */
+    using saturn::core::math3d::div_s64_fast;
+    const auto div = div_s64_fast;
+    const int64_t right[3] = {div(m[0] * kOne, fx), div(m[1] * kOne, fx), div(m[2] * kOne, fx)};
+    const int64_t up[3] = {div(m[4] * kOne, fy), div(m[5] * kOne, fy), div(m[6] * kOne, fy)};
+    const int64_t forward[3] = {div(m[12] * kOne, fl), div(m[13] * kOne, fl), div(m[14] * kOne, fl)};
+    const int64_t focal_x = div(fx * kOne, fl), focal_y = div(fy * kOne, fl);
     const int64_t height = static_cast<int64_t>(eye->y) - floor->plane_y;
     if (right[1] > kRollLimit || right[1] < -kRollLimit || height <= 0) return SAT_ERR_UNSUPPORTED;
     const int64_t g[2] = {right[2], -right[0]};   /* x, z */
@@ -74,21 +77,21 @@ extern "C" sat_result_t sat_vdp2_floor_from_view(const sat_vdp2_floor_t* floor, 
      * focal_px = scaled / -dir_y, so a line costs one 64/32 division (the
      * SH-2's divider) and the depth tests are multiplications. */
     const int64_t hk = height * kOne;
-    const int64_t dir_step = up[1] * (kOne << 16) / (focal_y * half_h);
+    const int64_t dir_step = div(up[1] * (kOne << 16), focal_y * half_h);
     int64_t dir = forward[1] * kOne + half_h * dir_step;
     /* scaled = hk density / focal_px, split so it cannot overflow. Past
      * 127 << 34 every line's coefficient reaches 127 (|dir_y| stays below 4
      * short of a 150-degree view). */
-    const int64_t whole = hk / focal_px, rest = hk % focal_px;
-    const int64_t scaled = whole > (int64_t{127} << 34) / floor->density
-        ? INT64_MAX : whole * floor->density + rest * floor->density / focal_px;
+    const int64_t whole = div(hk, focal_px), rest = hk - whole * focal_px;
+    const int64_t scaled = whole > div(int64_t{127} << 34, floor->density)
+        ? INT64_MAX : whole * floor->density + div(rest * floor->density, focal_px);
     /* The near and range tests do not change along the screen: for a whole
      * n = -dir_y > 0, hk >= near_z n is n <= hk / near_z, scaled >= n is
      * n <= scaled, and scaled < 127 kOne n is n > scaled / (127 kOne). */
-    int64_t most = hk / near_z;
+    int64_t most = div(hk, near_z);
     if (scaled < most) most = scaled;
     if (most > INT32_MAX) most = INT32_MAX;
-    const int64_t least = scaled / (127 * kOne);
+    const int64_t least = div(scaled, 127 * kOne);
     uint16_t far_index = 0, far_count = 0;
     for (uint16_t y = 0; y < floor->height; ++y, dir -= dir_step) {
         const int64_t dir_y = dir >> 16;
@@ -115,8 +118,8 @@ extern "C" sat_result_t sat_vdp2_floor_from_view(const sat_vdp2_floor_t* floor, 
     *params = sat_vdp2_rotation_params_t{};
     params->xst = static_cast<int32_t>(-half_w * kOne);
     params->dx = static_cast<int32_t>(kOne);
-    params->yst = static_cast<int32_t>(focal_px * (f_h + u_h * kOne / focal_y) / kOne);
-    params->dyst = static_cast<int32_t>(-focal_px * u_h / (focal_y * half_h));
+    params->yst = static_cast<int32_t>(focal_px * (f_h + div(u_h * kOne, focal_y)) / kOne);
+    params->dyst = static_cast<int32_t>(div(-focal_px * u_h, focal_y * half_h));
     params->matrix[0] = static_cast<int32_t>(right[0]);
     params->matrix[1] = static_cast<int32_t>(g[0]);
     params->matrix[3] = static_cast<int32_t>(right[2]);

@@ -70,6 +70,22 @@ inline int32_t div_s64_s32(int64_t num, int32_t den) {
 #endif
 }
 
+/* n / d for any int64 operands with d != 0, exactly as C. On the SH-2, a
+ * divisor that fits 32 bits with a quotient of magnitude at most
+ * INT32_MAX - 1 (no divider overflow, SH7604 10.3.3) goes to the divider; the
+ * bound is one 32x32 product. Anything wider keeps __divdi3. */
+inline int64_t div_s64_fast(int64_t n, int64_t d) {
+#if defined(__sh__)
+    if (d != 0 && d >= -INT32_MAX && d <= INT32_MAX) {
+        const uint32_t mag_den = d < 0 ? static_cast<uint32_t>(-d) : static_cast<uint32_t>(d);
+        const uint64_t mag_num = n < 0 ? 0u - static_cast<uint64_t>(n) : static_cast<uint64_t>(n);
+        if (mag_num <= static_cast<uint64_t>(static_cast<uint32_t>(INT32_MAX - 1)) * mag_den)
+            return div_s64_s32(n, static_cast<int32_t>(d));
+    }
+#endif
+    return n / d;
+}
+
 /* a / b in 16.16, truncated toward zero; 0 for b == 0. The int64 quotient is
  * kept to 32 bits as before. On the SH-2 a quotient of magnitude at most
  * INT32_MAX - 1 goes to the divider, where it cannot overflow (SH7604 10.3.3:
