@@ -796,6 +796,7 @@ build/tests/test_scene_native_commands: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMM
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_world_lod3d := src/graphics/3d/scene/world_lod.cpp
 HOST_TEST_EXTRA_test_world_lod_fade3d := src/graphics/3d/scene/world_lod_fade.cpp src/graphics/3d/rendering/fade.cpp
+HOST_TEST_EXTRA_test_world_lod3d_governor := src/graphics/3d/scene/world_lod_governor.cpp
 HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/graphics/3d/animation/clip.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)
 HOST_TEST_EXTRA_test_skin3d := $(HOST_TEST_EXTRA_test_skeleton3d) src/graphics/3d/animation/skin.cpp

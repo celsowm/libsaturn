@@ -133,6 +133,50 @@ Screenshots at fields 1,000 and 1,350 are byte-identical at SHA-256
 the stationary initial viewpoint without temporal flicker. This is an emulator
 render check, not a stock-hardware fill-rate or frame-cadence measurement.
 
+## M3 — Budget governor and scene instrumentation
+
+**Date:** 2026-11-10  
+**Status:** governor API and host/target validation complete. The per-frame
+consumer HUD/harness wiring is being delivered with M4, when `city_walk` moves
+to the generic planner; no duplicate temporary integration into the legacy
+planner was added.
+
+### Implementation
+
+- Added the opt-in `sat_world_lod3d_governor_step()` API. It consumes completed
+  scene statistics and caller-measured field/CPU intervals, applies persistent
+  overload confirmation and cooldown, degrades in bounded steps, then recovers
+  more slowly after sustained headroom. Defaults are disabled; it never changes
+  collision, HUD reservation, or pinned-geometry policy.
+- Independently bounds face, command, and texture budgets. VDP1 command capacity
+  deducts commands that were already used before the scene flush as well as the
+  explicit overlay reservation. It validates the scene snapshot before any
+  output or caller state changes.
+- Reports field/CPU EWMA, transitions, overload reasons, actual scene result,
+  used/usable world commands, budget-blocked/clipped/fallback/rejected faces,
+  and whether CPU profiling was available. Zero/unavailable profile samples do
+  not count as free CPU time.
+- Added the source to Make/CMake manifests and the public umbrella header.
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `gmake -B -j4 build/tests/test_world_lod3d_governor && build/tests/test_world_lod3d_governor` | Passed: 9 groups, including persistent overload, cooldown, slow recovery, pause, wrapped field count, capacity reservations and malformed-stat atomicity. |
+| AddressSanitizer + UndefinedBehaviorSanitizer build of the governor host test | Passed: 9 groups. |
+| Public C11 and C++20 umbrella-header compile with `-Werror` | Passed. |
+| `python3 tests/tools/test_library_source_manifest.py` | Passed: 174 library sources and 3 startup objects. |
+| `cmake --preset host-tests && cmake --build build/host-tests --parallel 4 && ctest --preset host-tests` | Passed: 3/3. |
+| Focused world planner, fade bridge, fade logic, city walk and scene API host tests | Passed: 17, 5, 34 groups/tests respectively where counted; the fade logic and scene API executables passed. Existing missing-field initializer warnings remain in `test_scene3d_faces_api.cpp`. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed: SH-2 ELF, boot-memory, IP, ISO and disc-image checks. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh skybridge_3d` | Passed: SH-2 ELF, 317,952 initialized bytes, IP, ISO and disc-image checks. Existing initializer warnings remain in `audio.c` and `gems.c`. |
+
+No emulator run is attributed to the M3 governor: neither current game calls
+this API yet, so running an unchanged executable would not exercise its
+behavior. City HUD/harness telemetry will be validated with the M4 consumer
+migration. CPU/field telemetry is caller-measured; no stock Saturn frame-rate
+claim is made.
+
 ## M1 — Pure planner and capacity-safe API
 
 **Date:** 2026-11-10

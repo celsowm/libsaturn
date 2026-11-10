@@ -57,6 +57,7 @@
 #include "saturn/world_lod_fade3d.h"
 #include "saturn/scene3d_material_pool.h"
 #include "saturn/world_lod3d.h"
+#include "saturn/world_lod3d_governor.h"
 #include "saturn/scene.h"
 #include "saturn/view_cache.h"
 #include "saturn/sprite_anim.h"
