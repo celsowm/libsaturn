@@ -65,7 +65,9 @@ LOD_FACE_CAP = (256, 64, 24)
 LOD_SLOT_BYTES = (5664, 1536, 1024)
 # Spend VDP1 VRAM where the player can inspect it. Middle/far rings are already
 # smaller on screen and fading, so move their bytes to the close ring.
-LOD_TEXTURE_BYTES = (28672, 4096, 1024)
+# Keep the 83 direct-mapped residency slots inside VDP1's texture arena while
+# leaving room for the shared ASCII font uploaded before city residency starts.
+LOD_TEXTURE_BYTES = (16384, 5120, 1536)
 LOD2_BOX_CAP = 24
 
 

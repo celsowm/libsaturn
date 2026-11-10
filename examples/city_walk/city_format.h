@@ -79,9 +79,9 @@
 #define CITY_SLOT_BYTES_LOD1 1536u
 #define CITY_SLOT_BYTES_LOD2 1024u
 /* VDP1 VRAM per ring slot for its texture block. */
-#define CITY_TEX_BYTES_LOD0 28672u
-#define CITY_TEX_BYTES_LOD1 4096u
-#define CITY_TEX_BYTES_LOD2 1024u
+#define CITY_TEX_BYTES_LOD0 16384u
+#define CITY_TEX_BYTES_LOD1 5120u
+#define CITY_TEX_BYTES_LOD2 1536u
 
 typedef struct city_header {
     uint16_t version, flags;

@@ -112,9 +112,12 @@ extern "C" sat_result_t sat_scene3d_solid_pool_register(
     if (pool->count>=pool->capacity) return SAT_ERR_CAPACITY;
     const uint16_t index=pool->count;
     const uint8_t palette_index=static_cast<uint8_t>(index+1u);
-    for (uint16_t i=0;i<64u;++i) pool->pixels[i]=palette_index;
+    /* The solid fill repeats one palette index along every scanline. A single
+     * 8-pixel row is sufficient for the distorted sprite and cuts each
+     * material's permanent VDP1 allocation from 64 bytes to 8. */
+    for (uint16_t i=0;i<8u;++i) pool->pixels[i]=palette_index;
     const sat_result_t st=sat_tex_upload_indexed8_pixels(
-        &pool->textures[index],pool->pixels,8u,8u,pool->palette_bank);
+        &pool->textures[index],pool->pixels,8u,1u,pool->palette_bank);
     if (st!=SAT_OK) return st;
     pool->colors[index]=rgb555;
     sat_scene3d_material_t material={};

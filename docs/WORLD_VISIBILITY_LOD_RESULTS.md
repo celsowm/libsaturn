@@ -8,8 +8,9 @@ results are not inferred from host tests or static source inspection.
 
 **Date:** 2026-11-10  
 **Starting `main` SHA:** `c9374c5b65b2dc75d73c722a5db568f58bcc6fd5`  
-**Status:** complete; host gates and SH-2 builds passed; Ymir captures recorded. A
-pre-existing `city_walk` startup capacity failure prevents a world-scene baseline.
+**Status:** complete; host gates and SH-2 builds passed; Ymir captures recorded.
+The baseline `city_walk` startup capacity failure was fixed after M0; see the
+follow-up below.
 
 ### Environment
 
@@ -88,4 +89,47 @@ These are hashes of the rebuilt guest app binaries, not screenshots:
 
 - `build/city_walk.app.bin`: `0e3bc3fd6bf4affc364c7a487cc90ae4d6d300bdd254310e2568fa24f8ad804a`
 - `build/skybridge_3d.app.bin`: `9104c7b5e8177d54eccd0ebe420d5804939202f535fe02322798e72323eefa24`
+
+## Post-M0 bug fix — city VDP1 texture capacity
+
+The first post-baseline Ymir retry still failed at `residency.c:105`. Reducing
+the 83 city slot caps to the values already described by the example (16 / 5 /
+1.5 KiB) brought their fixed reservation to 350,720 bytes, but the city also
+kept a separate 8x8 texture for each of 220 solid palette materials, in
+addition to the 96-glyph 8x8 font. Those earlier allocations left too little
+space for the city pool.
+
+The solid-material pool now stores each uniform fill as an 8x1 INDEX8 texture,
+which is sufficient for a distorted solid sprite and reduces each material
+from 64 to 8 VRAM bytes. Runtime caps and the offline archive generator now
+agree at 16,384 / 5,120 / 1,536 bytes per LOD. For this archive:
+
+| VDP1 texture allocation | Bytes |
+| --- | ---: |
+| City fixed residency spans | 350,720 |
+| 96 ASCII glyphs, 8x8 INDEX8 | 6,144 |
+| 220 solid colors, 8x1 INDEX8 | 1,760 |
+| Total | 358,624 |
+| Available after command/Gouraud banks | 360,416 |
+| Remaining | 1,792 |
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `gmake -B -j4 build/tests/test_city_walk && build/tests/test_city_walk` | Passed: 34 tests. |
+| `build/tests/test_city_walk build/generated/city_walk/iso/CITY.BIN` | Passed: 301 blobs (301 textured, 15,534 textures), 467 empty entries, worst coordinate magnitude 99.9 units. |
+| `gmake -B -j4 build/tests/test_scene3d_material_pool && build/tests/test_scene3d_material_pool` | Passed; checks one-row solid texture uploads and palette behavior. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed; regenerated the archive and completed the SH-2 ELF, boot-memory, ISO, and disc-image checks. |
+| `./harness/run-harness.sh city_walk --bios bios/firmware/mpr-17933.bin --ram-cart 4m --frames 1400 --out harness/build/world-lod-baseline/city_walk_vram_fix2.json -- --screenshot 1000:harness/build/world-lod-baseline/city_walk_vram_fix2_f1000.png --screenshot 1350:harness/build/world-lod-baseline/city_walk_vram_fix2_f1350.png` | Passed: 1,400 fields, 0 misaligned SH-2 data accesses. The fatal capacity screen is gone; the scene and HUD are visible. The HUD sample shows 160 faces and 111 commands. |
+
+The generated archive reports maximum texture blocks of exactly 16,384 / 5,120
+/ 1,536 bytes. Its SHA-256 is
+`4c1b853a689fa50c8efa390d0174a77e1eaab60e46281ad3fd53b5b73b59484b`; the
+rebuilt application SHA-256 is
+`45ca7c3b85516bea93f9942bc1eec6c2c3237cdc76867966e793f46f172bc639`.
+Screenshots at fields 1,000 and 1,350 are byte-identical at SHA-256
+`dd11401b9e1ab3a8bf991a0d50116e0d70c9da2c846ba915b1e43d06fbde980a`, showing
+the stationary initial viewpoint without temporal flicker. This is an emulator
+render check, not a stock-hardware fill-rate or frame-cadence measurement.
 

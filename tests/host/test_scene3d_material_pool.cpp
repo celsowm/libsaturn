@@ -11,11 +11,13 @@ static uint16_t uploaded_colors[256]={};
 extern "C" sat_result_t sat_tex_upload_indexed8_pixels(
     sat_vdp1_texture_t* texture,const uint8_t* pixels,
     uint16_t width,uint16_t height,uint16_t bank) {
-    assert(width==8u && height==8u && bank==4u);
+    assert(width==8u && height==1u && bank==4u);
     assert(upload_count<16u);
-    for (uint16_t i=1;i<64u;++i) assert(pixels[i]==pixels[0]);
+    for (uint16_t i=1;i<8u;++i) assert(pixels[i]==pixels[0]);
     pixel_indices[upload_count]=pixels[0];
     texture->valid=1u;
+    texture->width=width;
+    texture->height=height;
     texture->srca=static_cast<uint16_t>(100u+upload_count++);
     return SAT_OK;
 }
@@ -42,6 +44,7 @@ int main() {
     assert(upload_count==2u && pool.count==2u);
     assert(pixel_indices[0]==1u && pixel_indices[1]==2u);
     assert(materials[a].texture==&textures[a]);
+    assert(textures[a].width==8u && textures[a].height==1u);
     assert(materials[a].kind==SAT_SCENE3D_INDEXED_SOLID);
     assert(materials[a].color_calc_slot==SAT_INDEXED_SOLID_OPAQUE);
     assert(sat_scene3d_solid_pool_register(&pool,0x8000u,&d)==SAT_OK);

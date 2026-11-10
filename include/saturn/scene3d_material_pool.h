@@ -10,7 +10,7 @@ extern "C" {
 
 /* Startup-only, caller-owned pool for VDP1 solid indexed sprites. Deduplicates
  * identical RGB555 colours across world, props and animated models. Every
- * unique colour receives ONE 8x8 INDEX8 texture and ONE palette entry; a
+ * unique colour receives ONE 8x1 INDEX8 texture and ONE palette entry; a
  * repeated colour returns its original handle without VRAM/CRAM upload.
  * Registration uses an embedded AVL index: O(log M) worst-case lookup/insert
  * and O(M log M) construction instead of repeatedly scanning O(M).
@@ -23,7 +23,7 @@ typedef struct sat_scene3d_solid_pool {
     sat_scene3d_material_t* materials;
     sat_vdp1_texture_t* textures;
     uint16_t* colors;
-    uint8_t* pixels; /* caller-owned 8x8 temporary upload buffer */
+    uint8_t* pixels; /* caller-owned 64-byte temporary upload buffer */
     uint16_t count, capacity, palette_bank;
     /* AVL metadata is indexed by material handle, so it stores no duplicate
      * colour key and requires no heap or extra caller buffer. At the maximum

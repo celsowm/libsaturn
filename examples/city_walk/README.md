@@ -91,7 +91,7 @@ renderer then falls back to a coarser level of detail instead of waiting.
   chunks around the player hold them, in fixed, direct-mapped slots: no
   allocator, no fragmentation, eviction is "this slot now belongs to another
   cell".
-* **Textures stream with the geometry.** 350 KiB of VDP1 VRAM is reserved once
+* **Textures stream with the geometry.** 342.5 KiB of VDP1 VRAM is reserved once
   (`sat_vdp1_vram_reserve`), one fixed span per ring slot. A page-in copies the
   blob to work RAM and its texture block straight from the cart to the slot's
   VRAM (`sat_vdp1_vram_write`), just before `sat_end_frame`: the VDP1 may still
@@ -143,7 +143,7 @@ Measured on the Ymir emulator (harness), NTSC, 320x224:
 | cart -> work RAM, one 4 KiB page | 0.34 ms (32-bit loads; 0.53 ms with 16-bit) |
 | frame rate | 30 fps (2 VBlanks) for the large majority of frames in every viewpoint tried; the rest are 20 fps |
 | residency in work RAM | 122.5 KiB of raw big-endian blobs |
-| facade textures | 350 KiB of VDP1 VRAM in 83 fixed slots; a page-in's block (4 KiB on average) goes cart -> VRAM in well under a millisecond (SCU DMA) |
+| facade textures | 342.5 KiB of VDP1 VRAM in 83 fixed slots; a page-in's block (4 KiB on average) goes cart -> VRAM in well under a millisecond (SCU DMA) |
 
 **These are emulator numbers, and one of them is a lower bound.** Ymir does not
 model VDP1 fill rate: the same number of faces costs the same whether they
