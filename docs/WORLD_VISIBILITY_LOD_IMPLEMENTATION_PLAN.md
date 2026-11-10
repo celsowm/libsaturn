@@ -2,7 +2,7 @@
 
 **Repository:** LibSaturn (reusable engine, not a game-specific feature)  
 **Target:** stock Sega Saturn, no mandatory expansion RAM  
-**Status:** implementation in progress — M0 complete; pre-M1 city VDP1 texture-capacity failure fixed; M1 not started
+**Status:** implementation in progress — M0 and M1 complete; pre-M1 city VDP1 texture-capacity failure fixed; M2 not started
 **Execution owner:** Codex  
 **Branch:** `main`, incremental validated commits (no parallel compatibility engine)
 

@@ -133,3 +133,52 @@ Screenshots at fields 1,000 and 1,350 are byte-identical at SHA-256
 the stationary initial viewpoint without temporal flicker. This is an emulator
 render check, not a stock-hardware fill-rate or frame-cadence measurement.
 
+## M1 — Pure planner and capacity-safe API
+
+**Date:** 2026-11-10
+**Status:** complete; planner is built into the library manifest and umbrella
+header. The runtime is not yet wired into a game consumer; that is M4.
+
+### Implementation
+
+- Added `sat_world_lod3d_plan()` with fixed-width C structs and caller-owned
+  object state, draw output, prefetch requests, statistics and scratch.
+- Planning uses camera-relative 16.16 AABBs, conservative plane support and
+  near-depth rejection, projected footprint thresholds, per-object/view
+  generation hysteresis, and stable-ID tie breaks.
+- Resident slot generations are checked before selection. Missing desired LODs
+  are returned as explicit requests, including when a finer resident LOD must
+  cover a missing target. The planner performs no IO or uploads.
+- Face, VDP1 command estimate and texture-byte budgets are independent. The
+  planner rechecks actual costs for non-monotonic LOD tables, degrades in
+  far/low-priority order, drops only optional unpinned objects, and returns
+  `SAT_ERR_CAPACITY` for an impossible protected baseline.
+- Optional empty LODs require explicit object permission and a far-radius cap.
+  `sat_scene_t` remains the only painter and command emitter.
+- Validation and output-capacity failures leave persistent states, draw and
+  request outputs, and statistics unchanged. Caller scratch is temporary and
+  may be overwritten during a failed plan.
+- Source audit and the SH-2 object symbol table found no allocator, VDP or IO
+  dependency. The only undefined symbols in the object are the compiler's
+  signed and unsigned 64-bit division helpers (`___divdi3`, `___udivdi3`);
+  their cost on stock SH-2 remains a performance item to measure after consumer
+  integration.
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `gmake -B -j4 build/tests/test_world_lod3d build/tests/test_city_walk build/tests/test_scene3d_material_pool && build/tests/test_world_lod3d && build/tests/test_city_walk && build/tests/test_scene3d_material_pool` | Passed: 17 planner groups, 34 city planner tests, and material-pool tests. Includes the missing-target request regression. |
+| ASan/UBSan build and run of `tests/host/test_world_lod3d.cpp` with `world_lod.cpp` | Passed: 17 planner groups; no sanitizer findings. |
+| `cmake --preset host-tests && cmake --build build/host-tests --parallel 4 && ctest --preset host-tests` | Passed: CTest 3/3. |
+| Standalone C11 compile of `saturn/world_lod3d.h` and C++20 compile of `saturn/saturn.h` with `-Wall -Wextra -Werror` | Passed. |
+| `python3 tests/tools/test_library_source_manifest.py` | Passed: 172 library sources, 3 startup objects. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed: SH-2 ELF, boot-memory, ISO and disc-image checks. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh skybridge_3d` | Passed: SH-2 ELF, boot-memory, ISO and disc-image checks. Existing example initializer warnings remain. |
+| `sh2eb-elf-nm -u .../world_lod.o` | Only `___divdi3` and `___udivdi3`; no allocation, VDP or IO symbols. |
+
+Ymir visual validation was not repeated for M1 because neither game submits
+through this planner yet; a screenshot would not exercise the new runtime path.
+The next integrated visual check belongs with fade composition and the M4
+`city_walk` migration. The SH-2 build confirms target compilation, not timing.
+

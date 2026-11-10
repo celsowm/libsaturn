@@ -79,6 +79,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/scene/transform.cpp
     src/graphics/3d/scene/view_cache.cpp
     src/graphics/3d/scene/view_cache_world.cpp
+    src/graphics/3d/scene/world_lod.cpp
     src/graphics/vdp1/api.cpp
     src/graphics/vdp1/color_calc.cpp
     src/graphics/vdp2/api.cpp

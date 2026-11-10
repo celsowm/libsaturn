@@ -794,6 +794,7 @@ HOST_TEST_EXTRA_test_scene3d_faces_api := src/graphics/3d/scene/faces.cpp
 HOST_TEST_EXTRA_test_scene_native_commands := src/graphics/3d/scene/faces.cpp src/hal/vdp1/vdp1.cpp tests/host_stubs/stub_scu_dma.cpp tests/host_stubs/stub_vdp1_clock.cpp
 build/tests/test_scene_native_commands: HOST_CXXFLAGS += -DSAT_NATIVE_SCENE_COMMANDS=1
 HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
+HOST_TEST_EXTRA_test_world_lod3d := src/graphics/3d/scene/world_lod.cpp
 HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/graphics/3d/animation/clip.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)
 HOST_TEST_EXTRA_test_skin3d := $(HOST_TEST_EXTRA_test_skeleton3d) src/graphics/3d/animation/skin.cpp

@@ -55,6 +55,7 @@
 #include "saturn/follow_camera3d.h"
 #include "saturn/scene3d_faces.h"
 #include "saturn/scene3d_material_pool.h"
+#include "saturn/world_lod3d.h"
 #include "saturn/scene.h"
 #include "saturn/view_cache.h"
 #include "saturn/sprite_anim.h"
