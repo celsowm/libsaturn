@@ -8,17 +8,19 @@ results are not inferred from host tests or static source inspection.
 
 **Date:** 2026-11-10  
 **Starting `main` SHA:** `c9374c5b65b2dc75d73c722a5db568f58bcc6fd5`  
-**Status:** complete; host gates and SH-2 builds passed; visual/runtime captures blocked.
+**Status:** complete; host gates and SH-2 builds passed; Ymir captures recorded. A
+pre-existing `city_walk` startup capacity failure prevents a world-scene baseline.
 
 ### Environment
 
 - macOS; CMake 4.4.4, Ninja 1.13.2, GNU Make 4.4.1, Python 3.15.0.
 - SH-2 compiler: `sh2eb-elf-gcc` GCC 13.2.0 at `/Users/celso/dev/saturn-tools/bin`.
-- Mednafen 1.32.1 is installed. `pwsh`, a Saturn BIOS (`mpr-17933.bin`), Ymir, and
-  the built Ymir harness probe are unavailable in this environment.
-- The normal `run-example.ps1` and `harness/run-harness.ps1` entry points could not
-  run because PowerShell Core is not installed. Direct Makefile builds and direct
-  Mednafen attempts were used as alternatives.
+- Mednafen 1.32.1 is installed. PowerShell Core is not installed, so the `.ps1`
+  wrappers could not run. A user-provided US/EU v1.01a BIOS is in ignored
+  `bios/firmware/mpr-17933.bin`; neither the BIOS nor its archive is tracked.
+- The Ymir harness fetched its pinned source and built in
+  `harness/build/ymir-baseline`. The 4 MiB `city_walk` run used a blank emulated
+  RAM cartridge and the direct-injection harness.
 
 ### Commands and results
 
@@ -35,8 +37,12 @@ results are not inferred from host tests or static source inspection.
 | `PATH="/Users/celso/dev/saturn-tools/bin:$PATH" gmake EXAMPLE=city_walk all` | Passed; SH-2 ELF, app binary, and disc image generated; boot-memory and ISO checks passed. |
 | `PATH="/Users/celso/dev/saturn-tools/bin:$PATH" gmake EXAMPLE=skybridge_3d all` | Passed; SH-2 ELF, app binary, and disc image generated; model quality, boot-memory, and ISO checks passed. Existing initializer warnings appeared in `audio.c` and `gems.c`. |
 | `pwsh -File ./run-example.ps1 -Example city_walk` | Blocked: `pwsh` is not installed (exit 127). |
-| `MEDNAFEN_HOME=/private/tmp/libsaturn-world-lod-mednafen SDL_VIDEODRIVER=dummy mednafen build/city_walk.cue` | Emulator opened the disc and selected the Saturn module, then stopped because `/private/tmp/libsaturn-world-lod-mednafen/firmware/mpr-17933.bin` is missing (exit 255). |
-| `MEDNAFEN_HOME=/private/tmp/libsaturn-world-lod-mednafen SDL_VIDEODRIVER=dummy mednafen build/skybridge_3d.cue` | Same BIOS blocker (exit 255). |
+| `cmake -S harness -B harness/build/ymir-baseline -G Ninja` | Initially blocked by sandbox DNS; succeeded after network approval and fetched pinned Ymir `5c571f680e3606de08813af4de43dc00e90cc6e3`. |
+| `cmake --build harness/build/ymir-baseline --parallel 4` | Passed; built Ymir core, `probe`, and harness tests (105 build steps). Two warnings came from vendored stb sources. |
+| `ctest --test-dir harness/build/ymir-baseline --output-on-failure` | Passed: 3/3 (`composited_video_observation`, `cpu_profile_accounting`, `cpu_profile_emulator`). |
+| Ymir `probe` on `skybridge_3d`, 120 fields, screenshot fields 30 and 119 | Passed; guest ran 120 fields, 0 misaligned SH-2 data accesses, screenshot at field 119 shows the rendered scene. |
+| Ymir `probe` on `city_walk`, 4 MiB cart, 1300 fields, screenshot fields 820 and 1250 | Probe completed, 0 misaligned SH-2 data accesses, but the game reached its fatal screen with `SAT_ERR_CAPACITY` from `sat_vdp1_vram_reserve()` in `examples/city_walk/residency.c:105` before rendering the city. This is a baseline defect to resolve during consumer migration. |
+| `MEDNAFEN_HOME=/Users/celso/dev/lib-saturn/bios SDL_VIDEODRIVER=dummy mednafen build/city_walk.cue` | Loaded the BIOS and Saturn module, initialized video at nominal 60 Hz, then was interrupted before a route/capture; no default audio device was available. Ymir provided the reproducible captures instead. |
 
 ### Baseline values and limits
 
@@ -46,14 +52,28 @@ results are not inferred from host tests or static source inspection.
 - `city_walk` reserves 711 VDP1 commands from its static formula:
   500 world-face budget + 160 HUD commands + 48 clipping slack + 3 setup commands.
   This is an admission reservation, not a measured `world_commands` count.
-- Actual visible faces, VDP1 world commands, per-frame field cadence, fade slot
-  behavior, VRAM residency, and visual occlusion were not measured: both emulator
-  boots stopped before guest execution. No screenshot was produced, so screenshot
-  hashes are **unavailable**.
-- The direct Mednafen attempt with its default state directory first hit the
-  sandbox's home-directory write restriction. Redirecting `MEDNAFEN_HOME` to
-  `/private/tmp` resolved that environment issue and exposed the actual BIOS
-  blocker. Mednafen/ emulator timings are not treated as hardware performance.
+- Ymir reports a nominal 60 Hz mode and ran the requested 120/1300 simulation
+  fields. It does not report elapsed wall time for these synchronous captures,
+  so this is not an FPS or hardware cadence measurement.
+- Actual world-command totals and scene statistics were not exported by this
+  baseline probe. `city_walk` produced no world scene because of the capacity
+  failure. The skybridge screenshot confirms visible VDP1 geometry over the VDP2
+  background, but does not by itself certify fade or wall-occlusion correctness.
+- Ymir uses a software VDP renderer; its frame timing cannot certify stock Saturn
+  pixel fill-rate. Mednafen's state directory was redirected into ignored `bios/`
+  to avoid the sandbox home-directory write restriction.
+
+### Screenshot hashes
+
+Screenshots are retained under the ignored `harness/build/world-lod-baseline/`.
+
+| Capture | SHA-256 | Observation |
+| --- | --- | --- |
+| `city_walk_f30.png` | `7ce3ea96c86ce5cab9112ffa03e31e9a88416218c0ddb4ce65818119ef967ca2` | `LOADING 2`. |
+| `city_walk_f820.png` | `4126edc7c6872dcb7f9cd5cac93d44823820ba3bc11f7e402c072e015f8b53e6` | Disc loading progress at 91%. |
+| `city_walk_f1250.png` | `c77b71f9d09799cf0617fa3ed56ccdd9fd1c8f91da86effeb1a686488ef7cfaa` | Fatal capacity screen during texture VRAM reservation. |
+| `skybridge_3d_f30.png` | `fad174f3e723b8803babbffe4099bd4fe7b013811e1481317221cc43cf0aed74` | Ocean generation/loading. |
+| `skybridge_3d_f119.png` | `b267bd6edfd91e4c98cb8e02d73dae43f9e9414b0c01e1a5b95dc938d2dcb812` | Rendered scene with VDP1 bridge/avatar and VDP2 ocean/sky. |
 
 ### Build artifact hashes
 
