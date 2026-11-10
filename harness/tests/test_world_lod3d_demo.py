@@ -54,6 +54,12 @@ class WorldLod3dDemoTests(unittest.TestCase):
         self.assertLessEqual(d["commands"], d["command_budget"])
         self.assertEqual(d["no_resident"], 0)
         self.assertGreater(d["frustum_rejected"], 0)
+        self.assertGreater(d["hlod_draws"], 0)
+        self.assertGreater(d["hlod_faces"], 0)
+        self.assertGreaterEqual(d["hlod_max_draws"], 4)
+        self.assertGreater(d["hlod_missing_lod_test_frames"], 0)
+        self.assertGreater(d["hlod_fallbacks"], 0)
+        self.assertEqual(d["hlod_lod0_missing"], 0)
 
     def test_route_exercised_reset_fade_governor_and_profile(self):
         d = self.data

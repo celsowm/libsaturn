@@ -203,6 +203,7 @@ The repository includes focused hardware examples, system tests, and larger demo
 | [`hello_world`](examples/hello_world) | Basic app lifecycle and text rendering |
 | [`runtime_2d`](examples/runtime_2d) | Reusable 2D frame/runtime systems |
 | [`runtime_3d`](examples/runtime_3d) | Scene-based 3D rendering |
+| [`world_lod3d_demo`](examples/world_lod3d_demo) | Outdoor visibility planning, adaptive LOD, fade composition, and generated static-scene HLOD |
 | [`dino_demo`](examples/dino_demo) | Imported 3D model and rendering pipeline |
 | [`skeletal_animation_3d`](examples/skeletal_animation_3d) | Skeletons, clips, and skinning |
 | [`killer_clown_demo`](examples/killer_clown_demo) | Two-character 3D gameplay and multiple subsystems in concert |

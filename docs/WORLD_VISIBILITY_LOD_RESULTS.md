@@ -373,3 +373,80 @@ free-camera consumer both exercise the generic planner and shared painter.
   The automated comparison confirms the supported world sprites change while
   the camera is stationary; it does not imply VDP1-on-VDP1 alpha blending.
 
+## M5 — Offline static-scene HLOD and package generation
+
+**Date:** 2026-11-10
+**Status:** complete. The outdoor example now consumes generated static-scene
+HLOD data; the converter remains host-only and reuses the existing model
+simplification and view-metric pipeline.
+
+### Implementation
+
+- Added `tools/model_pipeline/world_hlod.py` to clip source triangles across a
+  spatial grid, interpolate UVs, preserve winding/material identity, and build
+  LOD levels independently from each cell's original clipped source. Protected
+  door and window frame regions carry higher silhouette importance. The
+  converter reuses the model pipeline's `SourceModel`, `generate_lods()`, and
+  silhouette metrics rather than introducing a second simplifier.
+- Added a deterministic, endian-explicit `WLH1` package plus an independent
+  byte-level reader in tests. The package uses cell-relative signed 16.16
+  coordinates, validates VDP1 texture extents/material and UV references, and
+  rejects invalid quality/budget gates and fixed-point overflow. Texture images
+  are bound by the demo separately; package texture-byte totals are estimates,
+  not embedded image payload.
+- The generated original castle facade partitions into six cells. Its 127
+  source triangles produce 152 clipped LOD0 fragments with full source-area and
+  triangle coverage. Across cells, LOD face totals are 152 / 72 / 52. The
+  package is exactly 10,240 bytes: 44-byte header, 588-byte directory, and
+  9,608-byte payload. It accounts for 512 texture bytes; largest validated VDP1
+  sprite extent is 8x8. Source SHA-256 is
+  `03c8d56e1a8e36fcc68d128f416679cc135b755663cb5eddacd40cffd40222fd`.
+- The build generator embeds the package into generated C and emits fixed mesh
+  capacities and local-coordinate guards. At startup the demo checks package
+  lengths and level spans before decoding into static buffers. The runtime
+  submits six castle cells, sixteen trees, and a pinned avatar through the
+  shared `sat_scene_t` painter. VDP2 continues to supply sky and ground.
+- Added three fixed-camera facade view comparisons. Across all six cells, the
+  coarsest-level minimum IoU is 0.992479 at 96x96 pixels and maximum symmetric
+  contour chamfer is 0.12419 pixels. The existing twelve-direction metrics
+  report a worst LOD2 IoU of 0.988400 and maximum chamfer of 0.09893 pixels.
+  LOD0/LOD1 metrics match the partitioned source silhouette. These are
+  rasterized geometric silhouette metrics, not texture or hardware captures.
+- The Ymir route now explicitly removes finest-level residency for ten render
+  frames and checks coarser fallback, then resets the route to restore the
+  finest level. The reported texture invalidation and overflow cases are host
+  converter rejection tests, not runtime texture-streaming tests.
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `python3 tests/tools/test_world_hlod.py -v` | Passed: 9 tests for deterministic exact package accounting and independent readback, cell-boundary clipping/winding, UV seams/material cuts, texture/material/fixed-point validation, >181-unit logical origin, protected door/window silhouette metrics, and generator output. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh world_lod3d_demo` | Passed. The POSIX example workflow generated/staged the target artifacts; the generated package/report are under ignored `build/`. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./harness/run-world-lod3d-demo.sh` | Passed: SH-2 build and ISO checks, 400 Ymir fields, seven screenshots, VDP2 trace and High WRAM dump; master/slave misaligned accesses were zero. |
+| `harness.tests.test_world_lod3d_demo` (called by the runner) | Passed: 4 integration checks, including the ten-frame finest-LOD outage, fallback draws, restoration, bounded scene planning, camera movement and same-pose fade comparison. |
+
+### Measured HLOD route observations
+
+- The SH-2 application contains 133,976 initialized bytes for this build.
+- Final Ymir telemetry reports 23 considered objects, 5 frustum rejects,
+  wanted LOD counts 14/4/0, and selected LOD counts 4/10/4. Four HLOD cells
+  were drawn in the final snapshot (110 HLOD faces); the route observed 40
+  coarser-resident fallback draws across ten missing-finest-LOD frames.
+- The final snapshot submitted 254 of the 256 face budget and 182 world
+  commands against the 384-command estimate budget. The governor was enabled
+  with 38 samples and no transitions. All 192 render-loop frames spanned two
+  emulated fields. Mean measured loop time was 5,368 Ymir FRT ticks. This is
+  emulator telemetry and cannot certify physical Saturn cadence or pixel
+  fill-rate.
+- Screenshot hashes from the controlled route include field 30
+  `209123998bf98d52b31af5565e163dc9ec0d13c0631bfcc30321973f6b5f0d62`, field
+  100 `d9120c8efee43453603b8bd9d79150a244216f8bb498a07efd956dfa54e8aa7e`,
+  and same-pose fields 220/240
+  `7f2830ca052a8ba6e7d79c487afcb0a8fe770733a08f1af9c10a1c4fb4804e09` /
+  `7ae78d6abf52835937bc4f9ac12d33a80b0f8d3f00e8aad9bcb63660aa451f87`.
+  The latter pair records fade disabled/enabled at a fixed camera pose.
+- The VDP2 trace retained the established composition: `BGON=0x0111`,
+  `PRIR=5`, `PRISA=0x0607`, `PRINA=2`, `PRINB=3`, `CCCTL=0x0040`, and
+  `KTAOF=0`. This is a Ymir register snapshot.
+

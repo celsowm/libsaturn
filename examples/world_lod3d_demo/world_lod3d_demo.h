@@ -14,6 +14,12 @@ typedef struct world_lod3d_demo_telemetry {
     uint32_t dropped;
     uint32_t faces;
     uint32_t commands;
+    uint32_t hlod_draws;
+    uint32_t hlod_faces;
+    uint32_t hlod_max_draws;
+    uint32_t hlod_fallbacks;
+    uint32_t hlod_missing_lod_test_frames;
+    uint32_t hlod_lod0_missing;
     uint32_t face_budget;
     uint32_t command_budget;
     uint32_t considered;
