@@ -24,7 +24,8 @@ the VDP2 ground and sky.
   the planner's coarser-resident fallback; press X to reset the view and restore
   finest-level residency.
 - Y toggles the optional budget governor.
-- X resets the view and its planner/fade history.
+- X resets the view and zoom, restores finest-level residency, and clears
+  planner/fade history.
 
 Every object, LOD mesh, planner buffer, scene buffer and temporary array has
 fixed caller-owned storage. The scene has 23 logical objects: six generated

@@ -60,6 +60,8 @@ class WorldLod3dDemoTests(unittest.TestCase):
         self.assertGreater(d["hlod_missing_lod_test_frames"], 0)
         self.assertGreater(d["hlod_fallbacks"], 0)
         self.assertEqual(d["hlod_lod0_missing"], 0)
+        self.assertGreater(d["boundary_jitter_frames"], 0)
+        self.assertLessEqual(d["boundary_jitter_lod_changes"], 4)
 
     def test_route_exercised_reset_fade_governor_and_profile(self):
         d = self.data
@@ -68,6 +70,7 @@ class WorldLod3dDemoTests(unittest.TestCase):
         self.assertEqual(d["pitch_degrees"], 0)
         self.assertEqual(d["camera_x_fx"], 0)
         self.assertEqual(d["camera_z_fx"], 0)
+        self.assertEqual(d["camera_distance_fx"], 12 * 65536)
         self.assertEqual(d["fade_enabled"], 1)
         self.assertGreater(d["faded_objects"], 0)
         self.assertEqual(d["governor_enabled"], 1)

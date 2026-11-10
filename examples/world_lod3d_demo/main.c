@@ -46,10 +46,10 @@ enum {
     SCENERY_COUNT = TREE_COUNT + HLOD_CELL_COUNT,
     OBJECT_COUNT = SCENERY_COUNT + 1,
     MAX_LEVELS = OBJECT_COUNT * MESH_LODS,
-    MESH_VERTEX_CAPACITY = (SAT_WORLD_HLOD_DEMO_MAX_VERTICES > 64u ?
-                            SAT_WORLD_HLOD_DEMO_MAX_VERTICES : 64u),
-    MESH_FACE_CAPACITY = (SAT_WORLD_HLOD_DEMO_MAX_FACES > 30u ?
-                          SAT_WORLD_HLOD_DEMO_MAX_FACES : 30u),
+    MESH_VERTEX_CAPACITY = 64,
+    MESH_FACE_CAPACITY = 30,
+    INSTANCE_VERTEX_CAPACITY = (SAT_WORLD_HLOD_DEMO_MAX_VERTICES > 64u ?
+                                SAT_WORLD_HLOD_DEMO_MAX_VERTICES : 64u),
     CAMERA_TARGET_Y = 6,
     CAMERA_DISTANCE_DEFAULT = 12,
     CAMERA_DISTANCE_MIN = 8,
@@ -66,6 +66,9 @@ _Static_assert(SAT_WORLD_HLOD_DEMO_CELL_COUNT > 0u,
                "the synthetic world HLOD package must contain cells");
 _Static_assert(SAT_WORLD_HLOD_DEMO_MAX_LOCAL_COORD_FX16 <= 0x7FFFFFFFLL,
                "HLOD cell-relative coordinates must fit signed 16.16");
+_Static_assert(SAT_WORLD_HLOD_DEMO_TOTAL_VERTICES > 0u &&
+                   SAT_WORLD_HLOD_DEMO_TOTAL_FACES > 0u,
+               "generated HLOD storage must not be empty");
 
 typedef struct demo_object {
     sat_fx16_t x, y, z;
@@ -87,6 +90,12 @@ typedef struct demo_hlod_level {
     uint32_t data_offset;
     uint32_t data_bytes;
 } demo_hlod_level_t;
+
+typedef struct demo_hlod_mesh {
+    sat_mesh_t mesh;
+    sat_aabb3_t bounds;
+    uint16_t* face_materials;
+} demo_hlod_mesh_t;
 
 static const sat_vdp2_rbg0_ground_config_t g_ground_base = {
     512u, 256u, SCREEN_W / 2u, HORIZON, 3u, 1u, FOCAL_PX,
@@ -116,10 +125,13 @@ static sat_fade3d_slots_t g_fade = {
     SAT_FX16(2), 0u, 1u, 1u, 0u
 };
 static demo_mesh_t g_meshes[MESH_KINDS][MESH_LODS];
-static demo_mesh_t g_hlod_meshes[HLOD_CELL_COUNT][MESH_LODS];
+static demo_hlod_mesh_t g_hlod_meshes[HLOD_CELL_COUNT][MESH_LODS];
+static sat_vec3_t g_hlod_vertex_storage[SAT_WORLD_HLOD_DEMO_TOTAL_VERTICES];
+static uint16_t g_hlod_index_storage[SAT_WORLD_HLOD_DEMO_TOTAL_FACES * 4u];
+static uint16_t g_hlod_material_storage[SAT_WORLD_HLOD_DEMO_TOTAL_FACES];
 static sat_scene3d_material_t g_kind_materials[MATERIAL_KINDS];
 static sat_scene3d_material_t g_hlod_materials[5];
-static sat_scene3d_material_t g_hlod_instance_materials[HLOD_CELL_COUNT][MESH_LODS][5];
+static sat_scene3d_material_t g_hlod_instance_materials[5];
 static sat_vdp1_texture_t g_kind_textures[MATERIAL_KINDS];
 static sat_scene3d_material_t g_hlod_window_material;
 static sat_vdp1_texture_t g_hlod_window_texture;
@@ -129,11 +141,12 @@ static sat_scene3d_face_t g_scene_faces[SCENE_FACE_CAPACITY];
 static uint32_t g_scene_keys[SCENE_FACE_CAPACITY];
 static uint16_t g_scene_order[SCENE_FACE_CAPACITY];
 static uint16_t g_face_materials[MESH_FACE_CAPACITY];
-static uint16_t g_hlod_face_materials[HLOD_CELL_COUNT][MESH_LODS][MESH_FACE_CAPACITY];
 static sat_fx16_t g_hlod_origins[HLOD_CELL_COUNT][3];
-static uint16_t g_hlod_faces[HLOD_CELL_COUNT][MESH_LODS];
-static sat_projected_vertex_t g_projected[MESH_VERTEX_CAPACITY];
-static sat_vec3_t g_world_vertices[MESH_VERTEX_CAPACITY];
+static uint8_t g_previous_draw_valid[OBJECT_COUNT];
+static uint8_t g_previous_draw_lod[OBJECT_COUNT];
+static uint8_t g_current_draw_valid[OBJECT_COUNT];
+static sat_projected_vertex_t g_projected[INSTANCE_VERTEX_CAPACITY];
+static sat_vec3_t g_world_vertices[INSTANCE_VERTEX_CAPACITY];
 static sat_scene3d_instance_t g_instance;
 static sat_scene_t g_scene;
 static sat_camera3d_t g_camera;
@@ -157,6 +170,7 @@ static sat_fx16_t g_camera_distance = SAT_FX16(CAMERA_DISTANCE_DEFAULT);
 static uint16_t g_frame_start;
 static uint8_t g_fade_enabled = 1u;
 static uint8_t g_hlod_lod0_missing;
+static uint8_t g_boundary_jitter_active;
 static sat_fx16_t g_last_ground_pitch;
 static sat_fx16_t g_last_ground_eye_y;
 static uint8_t g_ground_coefficients_valid;
@@ -335,11 +349,13 @@ static void build_textures(void) {
 }
 
 static void build_hlod_meshes(void) {
-    static demo_hlod_level_t descriptors[HLOD_CELL_COUNT][MESH_LODS];
     const uint8_t* package = g_world_hlod_demo_package;
     const uint32_t package_size = g_world_hlod_demo_package_size;
     const uint32_t directory_end = 44u + HLOD_CELL_COUNT * (38u + MESH_LODS * 20u);
     uint32_t cursor = 44u;
+    uint32_t payload_cursor = directory_end;
+    uint32_t vertex_cursor = 0u;
+    uint32_t face_cursor = 0u;
 
     if (package_size != SAT_WORLD_HLOD_DEMO_PACKAGE_BYTES || package_size < 44u ||
         directory_end > package_size ||
@@ -368,7 +384,9 @@ static void build_hlod_meshes(void) {
             bounds[axis] = package_i32(package + cursor + 12u + axis * 4u);
         lod_count = package_u16(package + cursor + 36u);
         cursor += 38u;
-        if (lod_count != MESH_LODS || cursor + (uint32_t)lod_count * 20u > package_size)
+        if (bounds[0] > bounds[3] || bounds[1] > bounds[4] ||
+            bounds[2] > bounds[5] || lod_count != MESH_LODS ||
+            cursor + (uint32_t)lod_count * 20u > package_size)
             sat_example_must(SAT_ERR_INVALID_ARG);
 
         for (uint8_t axis = 0u; axis < 3u; ++axis) {
@@ -379,40 +397,44 @@ static void build_hlod_meshes(void) {
             g_hlod_origins[cell][axis] = (sat_fx16_t)origin_fx;
         }
         for (uint8_t lod = 0u; lod < MESH_LODS; ++lod) {
-            demo_hlod_level_t* desc = &descriptors[cell][lod];
+            demo_hlod_level_t desc;
             const uint8_t* record = package + cursor;
             uint32_t expected_bytes;
-            desc->vertex_count = package_u16(record);
-            desc->face_count = package_u16(record + 2u);
-            desc->data_offset = package_u32(record + 12u);
-            desc->data_bytes = package_u32(record + 16u);
-            expected_bytes = (uint32_t)desc->vertex_count * 20u +
-                             (uint32_t)desc->face_count * 8u;
-            if (desc->vertex_count == 0u || desc->face_count == 0u ||
-                desc->vertex_count > MESH_VERTEX_CAPACITY ||
-                desc->face_count > MESH_FACE_CAPACITY ||
-                desc->data_bytes != expected_bytes ||
-                desc->data_offset < directory_end ||
-                desc->data_offset > package_size ||
-                desc->data_bytes > package_size - desc->data_offset)
+            desc.vertex_count = package_u16(record);
+            desc.face_count = package_u16(record + 2u);
+            desc.data_offset = package_u32(record + 12u);
+            desc.data_bytes = package_u32(record + 16u);
+            expected_bytes = (uint32_t)desc.vertex_count * 20u +
+                             (uint32_t)desc.face_count * 8u;
+            if (desc.vertex_count == 0u || desc.face_count == 0u ||
+                desc.vertex_count > SAT_WORLD_HLOD_DEMO_MAX_VERTICES ||
+                desc.face_count > SAT_WORLD_HLOD_DEMO_MAX_FACES ||
+                vertex_cursor + desc.vertex_count > SAT_WORLD_HLOD_DEMO_TOTAL_VERTICES ||
+                face_cursor + desc.face_count > SAT_WORLD_HLOD_DEMO_TOTAL_FACES ||
+                desc.data_bytes != expected_bytes ||
+                desc.data_offset != payload_cursor ||
+                desc.data_offset > package_size ||
+                desc.data_bytes > package_size - desc.data_offset)
                 sat_example_must(SAT_ERR_INVALID_ARG);
             cursor += 20u;
+            payload_cursor += desc.data_bytes;
 
-            demo_mesh_t* mesh = &g_hlod_meshes[cell][lod];
-            sat_example_must(sat_mesh_init(&mesh->mesh, mesh->vertices,
-                                           MESH_VERTEX_CAPACITY, mesh->indices,
-                                           MESH_FACE_CAPACITY));
+            demo_hlod_mesh_t* mesh = &g_hlod_meshes[cell][lod];
+            mesh->face_materials = &g_hlod_material_storage[face_cursor];
+            sat_example_must(sat_mesh_init(
+                &mesh->mesh, &g_hlod_vertex_storage[vertex_cursor],
+                desc.vertex_count, &g_hlod_index_storage[face_cursor * 4u],
+                desc.face_count));
             mesh->bounds = (sat_aabb3_t){
                 {(sat_fx16_t)(((int64_t)bounds[0] + bounds[3]) / 2),
                  (sat_fx16_t)(((int64_t)bounds[1] + bounds[4]) / 2),
                  (sat_fx16_t)(((int64_t)bounds[2] + bounds[5]) / 2)},
-                {(sat_fx16_t)(((int64_t)bounds[3] - bounds[0]) / 2),
-                 (sat_fx16_t)(((int64_t)bounds[4] - bounds[1]) / 2),
-                 (sat_fx16_t)(((int64_t)bounds[5] - bounds[2]) / 2)}
+                {(sat_fx16_t)(((int64_t)bounds[3] - bounds[0] + 1) / 2),
+                 (sat_fx16_t)(((int64_t)bounds[4] - bounds[1] + 1) / 2),
+                 (sat_fx16_t)(((int64_t)bounds[5] - bounds[2] + 1) / 2)}
             };
-            g_hlod_faces[cell][lod] = desc->face_count;
-            for (uint16_t vertex = 0u; vertex < desc->vertex_count; ++vertex) {
-                const uint8_t* v = package + desc->data_offset + (uint32_t)vertex * 20u;
+            for (uint16_t vertex = 0u; vertex < desc.vertex_count; ++vertex) {
+                const uint8_t* v = package + desc.data_offset + (uint32_t)vertex * 20u;
                 uint16_t inserted;
                 const sat_fx16_t x = package_i32(v);
                 const sat_fx16_t y = package_i32(v + 4u);
@@ -420,26 +442,27 @@ static void build_hlod_meshes(void) {
                 sat_example_must(sat_mesh_add_vertex(&mesh->mesh, x, y, z, &inserted));
                 if (inserted != vertex) sat_example_must(SAT_ERR_INVALID_ARG);
             }
-            for (uint16_t face = 0u; face < desc->face_count; ++face) {
-                const uint8_t* f = package + desc->data_offset +
-                    (uint32_t)desc->vertex_count * 20u + (uint32_t)face * 8u;
+            for (uint16_t face = 0u; face < desc.face_count; ++face) {
+                const uint8_t* f = package + desc.data_offset +
+                    (uint32_t)desc.vertex_count * 20u + (uint32_t)face * 8u;
                 const uint16_t a = package_u16(f);
                 const uint16_t b = package_u16(f + 2u);
                 const uint16_t c = package_u16(f + 4u);
                 const uint16_t material = package_u16(f + 6u);
-                if (a >= desc->vertex_count || b >= desc->vertex_count ||
-                    c >= desc->vertex_count || material >= 5u)
+                if (a >= desc.vertex_count || b >= desc.vertex_count ||
+                    c >= desc.vertex_count || material >= 5u)
                     sat_example_must(SAT_ERR_INVALID_ARG);
                 sat_example_must(sat_mesh_add_face(&mesh->mesh, a, c, b, b));
-                g_hlod_face_materials[cell][lod][face] = material;
+                mesh->face_materials[face] = material;
             }
-            for (uint8_t material = 0u; material < 5u; ++material) {
-                g_hlod_instance_materials[cell][lod][material] = g_hlod_materials[material];
-                g_hlod_instance_materials[cell][lod][material].color_calc_slot =
-                    SAT_INDEXED_SOLID_OPAQUE;
-            }
+            vertex_cursor += desc.vertex_count;
+            face_cursor += desc.face_count;
         }
     }
+    if (cursor != directory_end || payload_cursor != package_size ||
+        vertex_cursor != SAT_WORLD_HLOD_DEMO_TOTAL_VERTICES ||
+        face_cursor != SAT_WORLD_HLOD_DEMO_TOTAL_FACES)
+        sat_example_must(SAT_ERR_INVALID_ARG);
 }
 
 static void build_objects(void) {
@@ -482,7 +505,7 @@ static void build_objects(void) {
             level->min_projected_radius_px_16_16 = i == 0u ? 0u :
                 (lod == 0u ? 42u << 16u : (lod == 1u ? 18u << 16u : 0u));
             level->faces = def->kind == KIND_HLOD ?
-                g_hlod_faces[def->cell_index][mesh_lod] :
+                g_hlod_meshes[def->cell_index][mesh_lod].mesh.face_count :
                 g_meshes[def->kind][mesh_lod].mesh.face_count;
             level->command_estimate = level->faces + (level->faces + 7u) / 8u;
             level->resident = 1u;
@@ -617,12 +640,23 @@ static void submit_plan(void) {
     uint32_t faded = 0u;
     uint32_t hlod_draws = 0u;
     uint32_t hlod_faces = 0u;
+    for (uint16_t object = 0u; object < OBJECT_COUNT; ++object)
+        g_current_draw_valid[object] = 0u;
     for (uint16_t i = 0u; i < g_planner_stats.draw_count; ++i) {
         const sat_world_lod3d_draw_t* draw = &g_draws[i];
+        if (draw->stable_id >= OBJECT_COUNT) sat_example_must(SAT_ERR_INVALID_ARG);
+        if (g_boundary_jitter_active != 0u &&
+            g_previous_draw_valid[draw->stable_id] != 0u &&
+            g_previous_draw_lod[draw->stable_id] != draw->lod)
+            ++g_demo.boundary_jitter_lod_changes;
+        g_previous_draw_valid[draw->stable_id] = 1u;
+        g_previous_draw_lod[draw->stable_id] = draw->lod;
+        g_current_draw_valid[draw->stable_id] = 1u;
         const uint8_t kind = object_kind(draw->stable_id);
         const uint8_t lod = (uint8_t)(draw->asset_id % MESH_LODS);
         const demo_object_t* def = &g_definitions[draw->stable_id];
-        demo_mesh_t* mesh;
+        sat_mesh_t* mesh;
+        const sat_aabb3_t* bounds;
         const sat_scene3d_material_t* materials;
         uint16_t material_count;
         const uint16_t* face_materials;
@@ -653,20 +687,24 @@ static void submit_plan(void) {
 
         if (kind == KIND_HLOD) {
             const uint8_t cell = def->cell_index;
-            mesh = &g_hlod_meshes[cell][lod];
+            demo_hlod_mesh_t* hlod_mesh = &g_hlod_meshes[cell][lod];
+            mesh = &hlod_mesh->mesh;
+            bounds = &hlod_mesh->bounds;
             ++hlod_draws;
-            hlod_faces += mesh->mesh.face_count;
+            hlod_faces += mesh->face_count;
             for (uint8_t material_index = 0u; material_index < 5u; ++material_index) {
-                g_hlod_instance_materials[cell][lod][material_index] =
+                g_hlod_instance_materials[material_index] =
                     g_hlod_materials[material_index];
-                g_hlod_instance_materials[cell][lod][material_index].color_calc_slot =
+                g_hlod_instance_materials[material_index].color_calc_slot =
                     fade_result.color_calc_slot;
             }
-            materials = g_hlod_instance_materials[cell][lod];
+            materials = g_hlod_instance_materials;
             material_count = 5u;
-            face_materials = g_hlod_face_materials[cell][lod];
+            face_materials = hlod_mesh->face_materials;
         } else {
-            mesh = &g_meshes[kind][lod];
+            demo_mesh_t* regular_mesh = &g_meshes[kind][lod];
+            mesh = &regular_mesh->mesh;
+            bounds = &regular_mesh->bounds;
             materials = &faded_material;
             material_count = 1u;
             face_materials = g_face_materials;
@@ -674,18 +712,23 @@ static void submit_plan(void) {
 
         sat_example_must(sat_mat4_translate(&world, x, y, z));
         g_instance = (sat_scene3d_instance_t){0};
-        g_instance.mesh = &mesh->mesh;
+        g_instance.mesh = mesh;
         g_instance.materials = materials;
         g_instance.material_count = material_count;
         g_instance.face_materials = face_materials;
         g_instance.world = &world;
         g_instance.pass = 0u;
         g_instance.cull_backfaces = 1u;
-        g_instance.bounds = &mesh->bounds;
+        g_instance.bounds = bounds;
         sat_example_must(sat_scene_submit_instance(
             &g_scene, &g_instance, SAT_SCENE3D_SLOT_INHERIT,
             g_projected, g_world_vertices));
     }
+    for (uint16_t object = 0u; object < OBJECT_COUNT; ++object) {
+        if (g_current_draw_valid[object] == 0u)
+            g_previous_draw_valid[object] = 0u;
+    }
+    if (g_boundary_jitter_active != 0u) ++g_demo.boundary_jitter_frames;
     g_demo.faded_objects = faded;
     g_demo.hlod_draws = hlod_draws;
     g_demo.hlod_faces = hlod_faces;
@@ -783,6 +826,8 @@ static void update_ground_and_sky(void) {
 
 static void update_controls(const sat_pad_state_t* pad) {
     const sat_fx16_t turn = SAT_FX16(2);
+    if ((pad->held & (SAT_PAD_A | SAT_PAD_B)) != 0u)
+        g_boundary_jitter_active = 1u;
     if (pad->held & SAT_PAD_LEFT) g_yaw -= turn;
     if (pad->held & SAT_PAD_RIGHT) g_yaw += turn;
     if (g_yaw < 0) g_yaw += SAT_FX16(360);
@@ -830,7 +875,9 @@ static void update_controls(const sat_pad_state_t* pad) {
         g_camera_focus_z = 0;
         g_yaw = 0;
         g_pitch = 0;
+        g_camera_distance = SAT_FX16(CAMERA_DISTANCE_DEFAULT);
         g_hlod_lod0_missing = 0u;
+        g_boundary_jitter_active = 0u;
         ++g_view_generation;
         if (g_view_generation == 0u) ++g_view_generation;
         for (uint16_t i = 0u; i < OBJECT_COUNT; ++i) {
@@ -839,6 +886,8 @@ static void update_controls(const sat_pad_state_t* pad) {
             if (g_definitions[i].kind == KIND_HLOD)
                 g_levels[g_objects[i].levels_first].resident = 1u;
         }
+        for (uint16_t i = 0u; i < OBJECT_COUNT; ++i)
+            g_previous_draw_valid[i] = 0u;
     }
 }
 

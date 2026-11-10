@@ -248,6 +248,14 @@ class WorldHlodTests(unittest.TestCase):
                           generated_header)
             self.assertIn(f"SAT_WORLD_HLOD_DEMO_CELL_COUNT {report['cell_count']}u",
                           generated_header)
+            self.assertIn(
+                f"SAT_WORLD_HLOD_DEMO_TOTAL_VERTICES "
+                f"{sum(level['vertices'] for cell in report['cells'] for level in cell['levels'])}u",
+                generated_header)
+            self.assertIn(
+                f"SAT_WORLD_HLOD_DEMO_TOTAL_FACES "
+                f"{sum(level['faces'] for cell in report['cells'] for level in cell['levels'])}u",
+                generated_header)
             self.assertIn("MAX_LOCAL_COORD_FX16", generated_header)
             self.assertIn("g_world_hlod_demo_package[]", source_c.read_text(encoding="ascii"))
 

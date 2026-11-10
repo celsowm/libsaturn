@@ -20,6 +20,8 @@ typedef struct world_lod3d_demo_telemetry {
     uint32_t hlod_fallbacks;
     uint32_t hlod_missing_lod_test_frames;
     uint32_t hlod_lod0_missing;
+    uint32_t boundary_jitter_frames;
+    uint32_t boundary_jitter_lod_changes;
     uint32_t face_budget;
     uint32_t command_budget;
     uint32_t considered;

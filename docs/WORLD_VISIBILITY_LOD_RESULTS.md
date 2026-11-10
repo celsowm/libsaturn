@@ -450,3 +450,107 @@ simplification and view-metric pipeline.
   `PRIR=5`, `PRISA=0x0607`, `PRINA=2`, `PRINB=3`, `CCCTL=0x0040`, and
   `KTAOF=0`. This is a Ymir register snapshot.
 
+## M6 — Acceptance, performance audit, and cleanup
+
+**Date:** 2026-11-10
+**Status:** complete; host, package, SH-2, and Ymir acceptance gates passed.
+
+### Fixes and implementation
+
+- Matched Make's effective optimization for the five paced music/streaming
+  translation units to CMake's existing `-Os` policy. The build profile key now
+  includes this per-source policy, and the parity test compares both the source
+  lists and generated compile commands. This fixes an installed-package
+  consumer failure caused by Make compiling those files at `-O2`.
+- Corrected the Ymir runner to read telemetry from the map staged beside the
+  executable. It previously selected a lexically last variant map, which could
+  decode unrelated RAM and produce false telemetry failures.
+- Tightened startup validation of generated HLOD data: bounds must be ordered,
+  payload ranges must be contiguous and consume the complete package, decoded
+  vertex/face totals must exactly match generated capacities, and AABB radii
+  round outward in 16.16 arithmetic.
+- Replaced per-cell/per-LOD maximum-capacity HLOD buffers and duplicated
+  material tables with exact-sized generated vertex/index/material arrays and
+  one reusable material table. This reduced `.bss` from 195,340 to 170,000
+  bytes (25,340 bytes saved); the separate `.wram_l` section is 13,120 bytes.
+  Generated HLOD storage contains 370 vertices (4,440 bytes), 276 quad index
+  records (2,208 bytes), 276 face-material IDs (552 bytes), and 18 mesh/bounds
+  records (792 bytes).
+- Fixed X reset to restore the default 12-unit zoom and clear draw-history
+  state. Added a scripted near-boundary zoom jitter probe with telemetry and
+  consecutive screenshot captures.
+- Updated the rendering complexity audit. The generic planner is
+  `O(N log N + N*L)` with `O(N)` caller scratch; HLOD conversion and package
+  decoding are offline/startup work and do not run in the frame loop.
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `gmake test` | Passed all supported host and tool tests. The parallel WRAM ABI test explicitly skipped on native macOS because it cannot map Saturn's 32-bit WRAM address; four manual-conversion tests skipped because their optional source manuals are absent. |
+| `cmake --preset host-tests && cmake --build build/host-tests --parallel 4 && ctest --preset host-tests` | Passed: CTest 3/3. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools/bin ctest --preset package-consumer` | Passed: 5/5, including the installed-package consumer. |
+| `LIBSATURN_CMAKE_BUILD_DIR=build/package-consumer python3 tests/tools/test_cmake_flag_parity.py` | Passed: 172 C++ files, 2 C files, and 3 assembly files checked; source-specific `-Os` policy matched. |
+| `python3 tests/tools/test_library_source_manifest.py` | Passed: 174 library sources and 3 startup objects. |
+| `python3 tests/tools/test_world_hlod.py -v` | Passed: 9/9 deterministic packaging, validation, quality, and generator tests. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh world_lod3d_demo --force` | Passed: SH-2 application rebuilt with 134,064 initialized bytes; no static constructors, boot-memory, IP, ISO, and disc checks passed. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed: SH-2 application rebuilt with 156,620 initialized bytes and package checks passed. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh skybridge_3d` | Passed: SH-2 application rebuilt with 317,952 initialized bytes and package checks passed. Existing audio/gems initializer warnings remain. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./harness/run-world-lod3d-demo.sh` | Passed after the exact-storage update: 400 Ymir fields, 11 screenshots, VDP2 trace, 1 MiB High WRAM dump, and four telemetry/image integration tests; master and slave misaligned access counts were zero. |
+| `git diff --check` | Passed. |
+
+### Final Ymir measurements and captures
+
+- The route rendered 192 planner frames across 400 emulated fields. All 192
+  frames spanned two fields. Mean measured CPU loop cost was 5,372.7 FRT ticks
+  (1,031,552 total / 192 frames); the final single-frame sample was 5,071
+  ticks. This is Ymir CPU telemetry, not stock-Saturn cadence or fill-rate.
+- The final planner snapshot considered 23 objects, rejected 5 by frustum,
+  selected LOD counts 4/10/4, submitted 254/256 faces and 182 world commands
+  against the 384-command estimate budget. Four HLOD cells contributed 110
+  faces. Across ten frames with finest HLOD residency removed, the route used
+  40 resident-coarser fallback draws and restored LOD0 on reset. No optional
+  object was dropped and no LOD was left unavailable.
+- The budget governor was enabled for 37 samples with zero transitions. Eleven
+  objects used a fade slot. The route recorded 12 boundary-jitter frames and
+  zero LOD transitions across alternating zoom adjustments. X reset the final
+  camera distance to 786,432 (12 units in 16.16), with yaw/pitch and focus at
+  zero. No abrupt LOD change appeared in the consecutive boundary captures.
+- Ymir reported final VDP2 `BGON=0x0111`, `PRIR=5`, `SPCTL=0x1620`,
+  `PRISA=0x0607`, `PRINA=2`, `PRINB=3`, `CCCTL=0x0040`, and `KTAOF=0`. The
+  source-configured VDP1 texture payload is 6,464 bytes (five 8x8 world
+  textures and 96 8x8 font glyphs); this excludes VDP1 framebuffers and command
+  memory. The source-configured VDP2 allocations are a 512x128 INDEX8 sky
+  bitmap (65,536 bytes), 64x64 map (8,192 bytes), 512x256 INDEX8 ground bitmap
+  (131,072 bytes), 512 palette words (1,024 bytes), 448 coefficient words
+  (896 bytes), and 48 rotation-table words (96 bytes). These are source layout
+  estimates/register observations, not a separately measured VRAM high-water
+  mark.
+- SHA-256 captures from the final route: field 30
+  `209123998bf98d52b31af5565e163dc9ec0d13c0631bfcc30321973f6b5f0d62`, field
+  100 `d9120c8efee43453603b8bd9d79150a244216f8bb498a07efd956dfa54e8aa7`,
+  field 150 `2b2b6e1e3e6bb9dc2cc9d3596bff5ac1d5f414e494b4b0659f3e6b34d346ca86`,
+  and stationary fade comparison fields 220/240
+  `7f2830ca052a8ba6e7d79c487afcb0a8fe770733a08f1af9c10a1c4fb4804e09` /
+  `7ae78d6abf52835937bc4f9ac12d33a80b0f8d3f00e8aad9bcb63660aa451f87`.
+  Boundary captures 338/340 were identical at the latter hash; 342/344 were
+  identical at
+  `fe475b8793aa6aed2287b199b47f0f0a4d87684aef5f7b93d4acbe347d9def5e`.
+  The post-reset field-380 capture matched the stationary field-240 image.
+
+### Remaining limitations
+
+- Physical Saturn hardware was not available. Ymir's software VDP and CPU
+  timing do not establish stock-hardware fill-rate or frame cadence.
+- The demo exercises HLOD residency loss with a deterministic in-memory flag;
+  it does not test CD streaming latency or real texture eviction/reload.
+- The invalid-texture cases are converter rejection tests. They do not exercise
+  corrupted runtime assets because the demo package is compiled into the
+  executable.
+- VDP1/VDP2 memory totals above describe configured payloads and table sizes;
+  there is no captured hardware allocator high-water report for this route.
+- The generic planner still calls signed/unsigned 64-bit division helpers on
+  SH-2. A physical-hardware profile is needed to decide whether that cost is
+  material. The scene remains painter-sorted and cannot resolve arbitrary
+  intersecting geometry without authored partitioning.
+

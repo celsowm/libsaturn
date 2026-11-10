@@ -54,6 +54,18 @@ for flag in ("-m2", "-mb"):
 FACE_SOURCE = "src/graphics/3d/scene/faces.cpp"
 assert f"$(if $(filter {FACE_SOURCE},$<),-O3)" in makefile, (
     "Makefile lost the source-specific face preparation optimization")
+SIZE_SOURCES = set(assignment("LIB_SIZE_CXX_SRCS").split())
+assert "$(if $(filter $(LIB_SIZE_CXX_SRCS),$<),-Os)" in makefile, (
+    "Makefile lost the compact optimization for paced runtime sources")
+
+cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+size_block = re.search(
+    r"set_source_files_properties\(([^)]*?)PROPERTIES COMPILE_OPTIONS \"-Os\"\)",
+    cmake, re.S)
+assert size_block, "CMake lost the source-specific compact runtime optimization"
+cmake_size_sources = set(re.findall(r"src/[A-Za-z0-9_./-]+\.cpp", size_block.group(1)))
+assert SIZE_SOURCES == cmake_size_sources, (
+    f"Make/CMake compact source policies differ: {SIZE_SOURCES} != {cmake_size_sources}")
 
 build_dir = os.environ.get("LIBSATURN_CMAKE_BUILD_DIR")
 if not build_dir:
@@ -95,7 +107,10 @@ for entry in entries:
     missing = [flag for flag in required if flag not in args]
     assert not missing, f"{source}: CMake build is missing {missing}"
     if kind != "asm":
-        expected_optimization = "-O3" if source.endswith("/" + FACE_SOURCE) else "-O2"
+        relative = source[source.index("/src/") + 1:]
+        expected_optimization = (
+            "-O3" if relative == FACE_SOURCE else
+            "-Os" if relative in SIZE_SOURCES else "-O2")
         assert last_optimization(args) == expected_optimization, (
             f"{source}: effective optimization is {last_optimization(args)}, "
             f"the Makefile builds this source with {expected_optimization}")

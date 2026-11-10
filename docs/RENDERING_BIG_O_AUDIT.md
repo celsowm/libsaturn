@@ -37,6 +37,7 @@ The scene painter remains a painter's algorithm, not a Z-buffer. Intersecting po
 | Solid-material nearest-colour query | **O(M)** | Intentionally scans candidates because the query is RGB-distance nearest-neighbour, not exact-key lookup. |
 | city_walk cell ordering | **O(N + 256)** | Four stable 8-bit radix passes over fixed-width dist2; source order supplies the (cz,cx) tie-break. |
 | city_walk budget adjustment | **O(N * L)**, effectively O(N) | One far-to-near degradation pass and one drop pass; L = 3 fixed LOD levels. |
+| Generic world visibility/LOD planner | **O(N log N + N * L)** | Two allocation-free heapsorts establish stable-ID validation and deterministic priority order; visibility, level selection and bounded degradation inspect at most L = 4 levels per object. Caller scratch is O(N). |
 
 F = faces, V = vertices, C = cached entries, M = registered solid materials, N = planner/render items.
 
@@ -122,7 +123,7 @@ Sphere-pair broadphase uses insertion sort over the previous substep's order. It
 
 ### Offline import/intersection tooling
 
-Model processing may use superlinear intersection or simplification algorithms. They run offline and do not affect Saturn frame complexity.
+Model processing may use superlinear intersection or simplification algorithms. They run offline and do not affect Saturn frame complexity. The static World HLOD converter clips source triangles into grid cells, runs the existing simplifier independently from each cell's source, and rasterizes fixed-angle silhouettes for its quality report. Its binary is validated and decoded once during demo startup; no conversion, image rendering or package parsing runs in the frame loop.
 
 ## Constant-cost caveats
 

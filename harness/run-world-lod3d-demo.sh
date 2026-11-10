@@ -25,11 +25,14 @@ mkdir -p "$out"
     --screenshot "220:$out/f220.png" \
     --screenshot "240:$out/f240.png" \
     --screenshot "280:$out/f280.png" \
-    --screenshot "340:$out/f340.png"
+    --screenshot "338:$out/f338.png" \
+    --screenshot "340:$out/f340.png" \
+    --screenshot "342:$out/f342.png" \
+    --screenshot "344:$out/f344.png" \
+    --screenshot "380:$out/f380.png"
 
-map_path=$(find "$root/build/variants/world_lod3d_demo" \
-    -type f -name world_lod3d_demo.map -print | LC_ALL=C sort | tail -n 1)
-if [ -z "$map_path" ]; then
+map_path=$root/build/examples/world_lod3d_demo.map
+if [ ! -f "$map_path" ]; then
     printf '%s\n' '[world-lod3d-demo] link map not found' >&2
     exit 2
 fi

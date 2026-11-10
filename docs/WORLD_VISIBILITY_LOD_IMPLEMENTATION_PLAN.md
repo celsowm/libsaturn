@@ -2,7 +2,7 @@
 
 **Repository:** LibSaturn (reusable engine, not a game-specific feature)  
 **Target:** stock Sega Saturn, no mandatory expansion RAM  
-**Status:** implementation in progress — M0 through M5 complete; M6 acceptance, optimization and cleanup remain
+**Status:** complete — M0 through M6 implemented, validated, and committed on `main`
 **Execution owner:** Codex  
 **Branch:** `main`, incremental validated commits (no parallel compatibility engine)
 
