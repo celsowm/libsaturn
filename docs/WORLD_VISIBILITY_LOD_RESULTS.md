@@ -269,11 +269,11 @@ This matches the recorded M0 field-119 capture exactly. The field-30 capture
 also matches its M0 hash. This is a stationary composition regression check;
 the emulator run does not establish stock-hardware cadence or fill-rate.
 
-## M4 — `city_walk` planner migration (outdoor acceptance scene pending)
+## M4 — `city_walk` migration and outdoor acceptance scene
 
 **Date:** 2026-11-10
-**Status:** city consumer migrated and validated. The separate original-geometry
-outdoor free-camera scene in the M4 plan remains outstanding.
+**Status:** complete. The city consumer and the original procedural outdoor
+free-camera consumer both exercise the generic planner and shared painter.
 
 ### Implementation
 
@@ -325,7 +325,51 @@ outdoor free-camera scene in the M4 plan remains outstanding.
   `PRINB=3`, and `CCCTL=64`. The screenshots show VDP1 buildings composed over
   the VDP2 street/sky layers; this does not certify hardware fill rate.
 
-The original procedural castle/garden/avatar free-camera scene required by M4
-has not yet been implemented. M4 is therefore not complete despite the city
-consumer passing its focused integration gates.
+### Outdoor free-camera acceptance scene
+
+- Added `examples/world_lod3d_demo`, an original procedural tower, tree,
+  stationary avatar, VDP2 sky/ground, and independently moving free camera.
+  It owns fixed storage for 25 objects, 73 LOD records, meshes, planner scratch,
+  per-object LOD/fade history, and scene submission buffers; no frame allocates.
+- Every selected mesh goes through `sat_scene_submit_instance()` and the
+  shared `sat_scene_t` painter. The planner uses camera-relative bounds and
+  six normalized conservative frustum planes. The avatar is pinned and the
+  camera focus clamps to +/-384 world units to keep fixed-point bounds safe.
+- Reused `sat_world_lod3d_fade_apply()` / `sat_fade3d_slot()` for supported
+  indexed8 materials. Fade-off selects the same mesh plan with opaque slots.
+  VDP2 composition is sky priority 2, ground priority 5, faded sprite selector
+  6, normal sprite priority 7; CRAM banks 0/1/3/4/5/6 are kept distinct for
+  ground, sky, HUD and the three world material palettes.
+- The 400-field controlled route moves/pitches/yaws the camera, checks a rapid
+  yaw reversal, resets to a fixed pose, compares fade disabled/enabled at that
+  same pose, and enables the governor. `harness/run-world-lod3d-demo.sh` is a
+  POSIX runner; it builds with `build-example.sh`, runs Ymir with the local
+  ignored BIOS, captures screenshots/VDP2 trace/WRAM, and runs the telemetry
+  and image assertions in `harness/tests/test_world_lod3d_demo.py`.
+
+### Outdoor executed validation
+
+| Command | Result |
+| --- | --- |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./harness/run-world-lod3d-demo.sh` | Passed. Rebuilt the SH-2 disc; 120,768 initialized bytes matched the ELF; no static constructors; IP/ISO/disc checks passed. Ymir ran 400 fields with the scripted camera route, captured seven 320x224 screenshots and VDP2 trace, and dumped High WRAM. Both master/slave misaligned-access counts were zero. |
+| `harness.tests.test_world_lod3d_demo` (invoked by the runner) | Passed: 4 checks for bounded multi-LOD planning, protected camera reset/fade/governor/profile state, camera movement screenshot, and a stationary-pose fade comparison. |
+
+### Outdoor measured Ymir observations
+
+- Final telemetry: 192 render-loop frames, all 192 spanning two emulated
+  fields; mean CPU loop time 4,794 FRT ticks (920,430 total / 192 frames).
+  These are Ymir observations, not a stock Saturn timing claim.
+- Final plan: 25 considered, 3 frustum rejected, 0 missing resident LODs,
+  0 optional drops; wanted LOD counts 18/4/0 and selected counts 2/16/4.
+  It submitted 252 faces against a 256-face ceiling and 138 world commands
+  against a 384-command estimate budget. Governor enabled with 38 samples and
+  no overload transitions; 19 objects selected a fade slot.
+- Final VDP2 state: `BGON=0x0111`, `PRIR=5`, `PRISA=0x0607`, `PRINA=2`,
+  `PRINB=3`, `CCCTL=0x0040`, and `KTAOF=0`. This records the Ymir snapshot,
+  not physical hardware validation.
+- Same-pose fade-off/fade-on captures (fields 220 and 240) have SHA-256
+  `2292d40e69717b0387beacb99643fc9137c5fe70e54429f41c9eddb49b007209` and
+  `751958d4d0dda1390dbb3b8777f9a5fd2549da68ddde7c60b160b55f5cd82e8d`.
+  The automated comparison confirms the supported world sprites change while
+  the camera is stationary; it does not imply VDP1-on-VDP1 alpha blending.
 

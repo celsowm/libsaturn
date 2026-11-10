@@ -1,0 +1,25 @@
+# Outdoor LOD acceptance route: orbit, pitch, translate, reverse, toggle
+# composition/governor, then reset the camera to a deterministic pose.
+0 NONE
+20 RIGHT
+80 NONE
+90 L
+110 NONE
+120 UP
+150 NONE
+170 LEFT
+190 NONE
+200 X
+201 NONE
+210 C
+211 NONE
+230 C
+231 NONE
+260 RIGHT
+268 NONE
+270 LEFT
+278 NONE
+300 X
+301 NONE
+320 Y
+321 NONE

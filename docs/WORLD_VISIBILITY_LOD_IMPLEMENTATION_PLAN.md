@@ -2,7 +2,7 @@
 
 **Repository:** LibSaturn (reusable engine, not a game-specific feature)  
 **Target:** stock Sega Saturn, no mandatory expansion RAM  
-**Status:** implementation in progress — M0 through M3 complete; `city_walk` migration/validation is complete; M4's original-geometry outdoor acceptance scene remains to be added
+**Status:** implementation in progress — M0 through M4 complete; M5 static-scene HLOD pipeline and M6 acceptance/cleanup remain
 **Execution owner:** Codex  
 **Branch:** `main`, incremental validated commits (no parallel compatibility engine)
 
