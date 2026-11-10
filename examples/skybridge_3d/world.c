@@ -3,10 +3,13 @@
 
 static uint8_t g_active_fade_slot=SAT_INDEXED_SOLID_OPAQUE;
 static uint16_t g_active_pass=SB_PASS_WORLD;
-/* One byte per deck, owned here and handed to sat_fade3d_slot, which uses it
- * to keep a deck on its current slot until the camera has actually crossed
- * the transition band. */
-static uint8_t g_platform_fade[SB_PLATFORM_COUNT];
+/* Caller-owned per-deck history for the reusable world-LOD/fade bridge. */
+static sat_world_lod3d_fade_state_t g_platform_fade[SB_PLATFORM_COUNT];
+static uint32_t g_fade_object_generation=1u;
+static uint32_t g_fade_view_generation=1u;
+static const sat_world_lod3d_fade_composition_t g_fade_composition={
+    1u,1u,7u,5u,SAT_WORLD_LOD3D_FADE_FALLBACK_OPAQUE,{0u,0u,0u}
+};
 /* Eight quantized levels onto the eight VDP2 sprite colour-calculation slots,
  * anything nearer than FADE_START drawn as an ordinary opaque sprite, and a
  * two-unit anti-flicker band. The library owns all of that; see the game-only
@@ -36,8 +39,15 @@ uint8_t g_dbg_world_full;
 sat_result_t g_dbg_scene_status=SAT_OK;
 
 void world_reset_platform_fades(void) {
+    ++g_fade_object_generation;
+    if(g_fade_object_generation==0u)g_fade_object_generation=1u;
     for(uint8_t i=0u;i<SB_PLATFORM_COUNT;++i)
-        g_platform_fade[i]=SAT_INDEXED_SOLID_OPAQUE;
+        g_platform_fade[i]=(sat_world_lod3d_fade_state_t){0};
+}
+
+void world_note_camera_teleport(void) {
+    ++g_fade_view_generation;
+    if(g_fade_view_generation==0u)g_fade_view_generation=1u;
 }
 
 /* Sprite Type 0's RGB-coded pixels have different VDP2 interpretation
@@ -306,19 +316,26 @@ static void pig_shadow(const uint8_t* deck_slot) {
     }
 }
 /* The one fade rule that really is the GAME's: whatever the distance says,
- * the deck under the player's feet stays fully readable. Quantization, the
- * level-to-slot mapping and the anti-flicker band are the library's, and
- * g_platform_fade[id] is the per-deck byte sat_fade3d_slot keeps them in. */
+ * the deck under the player's feet stays fully readable. The library bridge
+ * owns slot quantization, capability checks and hysteresis. */
 static uint8_t platform_fade_slot(uint8_t id,int32_t depth) {
-    uint8_t slot=SAT_INDEXED_SOLID_OPAQUE;
+    sat_world_lod3d_draw_t draw={0};
+    sat_scene3d_material_t material=g_scene_materials[SB_C_DECK_START_TOP];
+    sat_scene3d_material_t faded_material={0};
+    sat_world_lod3d_fade_result_t result={0};
+    draw.stable_id=id;
+    draw.object_generation=g_fade_object_generation;
+    draw.camera_depth_16_16=depth;
     if(g_game.support==(int8_t)id) {
-        g_platform_fade[id]=SAT_INDEXED_SOLID_OPAQUE;
+        g_platform_fade[id]=(sat_world_lod3d_fade_state_t){0};
         return SAT_INDEXED_SOLID_OPAQUE;
     }
-    if(sat_fade3d_slot(&g_fade_slots,depth,
-                       &g_platform_fade[id],&slot)!=SAT_OK)
-        return SAT_FADE3D_SLOT_CULLED;
-    return slot;
+    if(sat_world_lod3d_fade_apply(
+        &g_fade_slots,&draw,&material,&g_fade_composition,
+        g_fade_view_generation,&g_platform_fade[id],&faded_material,&result)!=SAT_OK)
+        return SAT_INDEXED_SOLID_OPAQUE;
+    if(result.draw==0u)return SAT_FADE3D_SLOT_CULLED;
+    return result.color_calc_slot;
 }
 void draw_world(void) {
     /* Each deck's chosen slot, doubling as the visibility flag: CULLED means

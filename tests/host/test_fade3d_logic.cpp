@@ -170,6 +170,25 @@ TEST(hysteresis_holds_the_opaque_and_culled_edges) {
     ASSERT_EQ(slot, 7u);
 }
 
+TEST(hysteresis_extreme_fixed_point_bands_do_not_overflow) {
+    sat_fade3d_slots_t cfg = skybridge_slots();
+    cfg.policy.start = INT32_MAX - 10;
+    cfg.policy.end = INT32_MAX;
+    cfg.hysteresis = INT32_MAX;
+    uint8_t state = SAT_INDEXED_SOLID_OPAQUE;
+    uint8_t slot = 0u;
+    ASSERT_EQ(saturn::core::fade3d::slot(
+        &cfg, INT32_MAX - 5, &state, &slot), SAT_OK);
+    ASSERT_EQ(slot, SAT_INDEXED_SOLID_OPAQUE);
+
+    cfg.policy.start = INT32_MIN;
+    cfg.policy.end = INT32_MIN + 10;
+    state = SAT_FADE3D_SLOT_CULLED;
+    ASSERT_EQ(saturn::core::fade3d::slot(
+        &cfg, INT32_MIN + 5, &state, &slot), SAT_OK);
+    ASSERT_EQ(slot, SAT_FADE3D_SLOT_CULLED);
+}
+
 int main() {
     rejects_invalid_config();
     quantizes_eight_levels();
@@ -179,6 +198,7 @@ int main() {
     stride_spreads_fewer_levels_over_the_slot_table();
     hysteresis_suppresses_boundary_oscillation();
     hysteresis_holds_the_opaque_and_culled_edges();
+    hysteresis_extreme_fixed_point_bands_do_not_overflow();
     std::puts("test_fade3d_logic: OK");
     return 0;
 }

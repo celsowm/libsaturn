@@ -182,3 +182,50 @@ through this planner yet; a screenshot would not exercise the new runtime path.
 The next integrated visual check belongs with fade composition and the M4
 `city_walk` migration. The SH-2 build confirms target compilation, not timing.
 
+## M2 — Fade bridge and temporal stability
+
+**Date:** 2026-11-10
+**Status:** complete; the reusable adapter is exercised by host tests and
+`skybridge_3d` now routes platform fade selection through it.
+
+### Implementation
+
+- Added `sat_world_lod3d_fade_apply()`. It consumes a selected planner draw and
+  an existing `sat_fade3d_slots_t`, delegates slot mapping and hysteresis to
+  `sat_fade3d_slot()`, and returns a material copy for `sat_scene_t`.
+- Fade slots are offered only for valid INDEXED8 solid, textured or tiled
+  materials with color calculation configured and a nonzero VDP2 backdrop
+  priority below the reserved fade selector. RGB polygons, LUT4 output,
+  invalid priority composition and unconfigured color calculation select the
+  caller's explicit opaque or authorized cull fallback.
+- The adapter never writes VDP2 registers and never returns
+  `SAT_FADE3D_SLOT_CULLED` as a material slot. Fade history is caller-owned;
+  object/view generation changes reset it, while LOD swaps preserve it.
+- `skybridge_3d` now uses the adapter for platform selection, increments object
+  generation at course reset and view generation after its fall-camera
+  teleport. Its existing VDP2 setup remains one startup configuration, with
+  normal sprite priority 7, fade selector priority 6 and sea priority 5.
+- Ten caller-owned platform histories use 120 bytes (12 bytes each), 110 bytes
+  more than the previous ten-byte history array.
+- Hardened the underlying slot hysteresis comparisons to use 64-bit bounds,
+  fixing signed overflow when valid 16.16 endpoints are near `INT32_MIN/MAX`.
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `gmake -B -j4 build/tests/test_world_lod_fade3d build/tests/test_fade3d_logic build/tests/test_world_lod3d build/tests/test_city_walk build/tests/test_scene3d_faces_api` and all five binaries | Passed: 5 fade-bridge groups, fade logic including extreme-value overflow regression, 17 planner groups, 34 city tests, and scene face API tests. Existing aggregate-initializer warnings remain in `test_scene3d_faces_api.cpp`. |
+| ASan/UBSan builds and runs for fade bridge and fade logic | Passed with no sanitizer findings. |
+| `cmake --preset host-tests && cmake --build build/host-tests --parallel 4 && ctest --preset host-tests` | Passed: CTest 3/3. |
+| `python3 tests/tools/test_library_source_manifest.py` | Passed: 173 library sources, 3 startup objects. |
+| Standalone C11 bridge-header and C++20 umbrella-header compiles with `-Wall -Wextra -Werror` | Passed. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh skybridge_3d` | Passed: SH-2 ELF, no-static-constructors, boot-memory, ISO and disc-image checks. The app binary is 317,952 bytes, 1,152 bytes above the M0 binary. Existing missing-field initializer warnings remain in `audio.c` and `gems.c`. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed: SH-2 ELF, boot-memory, ISO and disc-image checks; city behavior is not yet migrated to the planner. |
+| `./harness/run-harness.sh skybridge_3d --bios bios/firmware/mpr-17933.bin --frames 120 --out harness/build/world-lod-m2/skybridge-final.json -- --screenshot 30:harness/build/world-lod-m2/skybridge_final_f30.png --screenshot 119:harness/build/world-lod-m2/skybridge_final_f119.png --vdp2-trace harness/build/world-lod-m2/vdp2_final.csv` | Passed: 120 fields, 0 misaligned SH-2 accesses. Final VDP2 state was CCCTL `0x0040`, SPCTL `0x1620`, PRISA `0x0607`. The trace wrote the eight ratios as `0x0400`, `0x0C08`, `0x1410`, `0x1F18` (slots 0..7: 0,4,8,12,16,20,24,31). |
+
+The rendered field-119 screenshot SHA-256 is
+`b267bd6edfd91e4c98cb8e02d73dae43f9e9414b0c01e1a5b95dc938d2dcb812`.
+This matches the recorded M0 field-119 capture exactly. The field-30 capture
+also matches its M0 hash. This is a stationary composition regression check;
+the emulator run does not establish stock-hardware cadence or fill-rate.
+

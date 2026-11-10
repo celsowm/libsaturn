@@ -283,6 +283,7 @@ void finish_gem_geometry(void);
 /* world.c */
 uint8_t world_ok(sat_result_t st);
 void world_reset_platform_fades(void);
+void world_note_camera_teleport(void);
 void draw_world(void);
 
 #endif /* SKYBRIDGE_H */

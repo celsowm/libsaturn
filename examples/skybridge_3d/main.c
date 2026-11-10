@@ -213,6 +213,7 @@ int main(void) {
             sat_example_must(sat_follow_camera3d_step(
                 &g_follow_camera,&desired,(events&SB_EVENT_FALL)?1u:0u,
                 &g_eye,&g_target));
+            if(events&SB_EVENT_FALL)world_note_camera_teleport();
             g_metrics.camera_ms=sat_time_ms()-stage;
         }
         g_camera.eye=g_eye;

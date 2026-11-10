@@ -113,9 +113,11 @@ inline sat_result_t slot(
     uint8_t level=0u;
     bool sticky=false;
     if (previous==SAT_INDEXED_SOLID_OPAQUE) {
-        sticky=view_depth <= cfg->policy.start + band;
+        sticky=static_cast<int64_t>(view_depth) <=
+               static_cast<int64_t>(cfg->policy.start) + band;
     } else if (previous==SAT_FADE3D_SLOT_CULLED) {
-        sticky=view_depth >= cfg->policy.end - band;
+        sticky=static_cast<int64_t>(view_depth) >=
+               static_cast<int64_t>(cfg->policy.end) - band;
     } else if (slot_level(*cfg, previous, &level)) {
         /* The span is derived from policy.levels, so changing the level count
          * cannot silently leave the bands measuring the wrong distance. */
