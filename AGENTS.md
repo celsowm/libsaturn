@@ -3,7 +3,10 @@
 ## Execution Policy (Mandatory)
 
 - The agent must **always execute** build, run and emulator commands itself.
-- Use the project scripts (`build-example.ps1`, `run-example.ps1`, and launchers in `emulators/`) by default.
+- On POSIX hosts, use `build-example.sh`, `run-example.sh`, and
+  `harness/run-harness.sh`; these use the project Makefile, Mednafen, and the
+  Ymir probe directly. On Windows, use the PowerShell wrappers and launchers
+  in `emulators/`.
 - Do not ask the user to run commands manually unless there is a real blocker outside the agent's control (for example, an inaccessible OS window, external permissions, or an emulator crash).
 - When a real blocker occurs:
   - describe the blocker objectively;
@@ -13,7 +16,9 @@
 ## Practical Expectation
 
 - Always report clear status: command executed, result and next step.
-- Use Mednafen as the default emulator (`run-example.ps1`); use the Ymir harness for automatic RAM, register and screenshot inspection.
+- Use Mednafen as the default emulator (`run-example.sh` on POSIX,
+  `run-example.ps1` on Windows); use the Ymir harness for automatic RAM,
+  register and screenshot inspection.
 - Write all Markdown documentation in English.
 
 ## Hardware / Audio Context

@@ -21,6 +21,8 @@ pre-existing `city_walk` startup capacity failure prevents a world-scene baselin
 - The Ymir harness fetched its pinned source and built in
   `harness/build/ymir-baseline`. The 4 MiB `city_walk` run used a blank emulated
   RAM cartridge and the direct-injection harness.
+- POSIX shell entry points were added for example builds, Mednafen, and Ymir so
+  subsequent validation does not depend on PowerShell.
 
 ### Commands and results
 
@@ -43,6 +45,10 @@ pre-existing `city_walk` startup capacity failure prevents a world-scene baselin
 | Ymir `probe` on `skybridge_3d`, 120 fields, screenshot fields 30 and 119 | Passed; guest ran 120 fields, 0 misaligned SH-2 data accesses, screenshot at field 119 shows the rendered scene. |
 | Ymir `probe` on `city_walk`, 4 MiB cart, 1300 fields, screenshot fields 820 and 1250 | Probe completed, 0 misaligned SH-2 data accesses, but the game reached its fatal screen with `SAT_ERR_CAPACITY` from `sat_vdp1_vram_reserve()` in `examples/city_walk/residency.c:105` before rendering the city. This is a baseline defect to resolve during consumer migration. |
 | `MEDNAFEN_HOME=/Users/celso/dev/lib-saturn/bios SDL_VIDEODRIVER=dummy mednafen build/city_walk.cue` | Loaded the BIOS and Saturn module, initialized video at nominal 60 Hz, then was interrupted before a route/capture; no default audio device was available. Ymir provided the reproducible captures instead. |
+| `sh -n build-example.sh run-example.sh emulators/mednafen/run-mednafen.sh harness/run-harness.sh` | Passed. All four help paths returned usage. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed; invoked GNU Make and staged the up-to-date SH-2 artifacts under `build/examples/`. The actual clean build is recorded above. |
+| `./harness/run-harness.sh skybridge_3d --bios bios/firmware/mpr-17933.bin --frames 120 --out harness/build/world-lod-baseline/skybridge_shell.json -- --screenshot 119:harness/build/world-lod-baseline/skybridge_shell_f119.png` | Passed; 120 Ymir fields, 0 misaligned SH-2 data accesses. Screenshot hash matched the direct probe baseline. |
+| `SDL_VIDEODRIVER=dummy MEDNAFEN_HOME=/Users/celso/dev/lib-saturn/bios ./run-example.sh skybridge_3d --bios bios/firmware/mpr-17933.bin` | Passed launcher checks; Mednafen loaded the BIOS, opened the cue, and initialized video. The interactive run was stopped before a guest screenshot was recorded. |
 
 ### Baseline values and limits
 
@@ -74,6 +80,7 @@ Screenshots are retained under the ignored `harness/build/world-lod-baseline/`.
 | `city_walk_f1250.png` | `c77b71f9d09799cf0617fa3ed56ccdd9fd1c8f91da86effeb1a686488ef7cfaa` | Fatal capacity screen during texture VRAM reservation. |
 | `skybridge_3d_f30.png` | `fad174f3e723b8803babbffe4099bd4fe7b013811e1481317221cc43cf0aed74` | Ocean generation/loading. |
 | `skybridge_3d_f119.png` | `b267bd6edfd91e4c98cb8e02d73dae43f9e9414b0c01e1a5b95dc938d2dcb812` | Rendered scene with VDP1 bridge/avatar and VDP2 ocean/sky. |
+| `skybridge_shell_f119.png` | `b267bd6edfd91e4c98cb8e02d73dae43f9e9414b0c01e1a5b95dc938d2dcb812` | Shell wrapper reproduction; byte-identical to the direct probe capture. |
 
 ### Build artifact hashes
 

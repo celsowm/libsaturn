@@ -114,6 +114,18 @@ make EXAMPLE=hello_world
 
 The build produces a Saturn ELF, executable image, and disc artifacts (including BIN/CUE) under `build/`. Open the matching `.cue` in your emulator or use the repository's launcher. The `.iso` is an intermediate image; **the distributed disc track is the `.bin` plus `.cue` pair**.
 
+### POSIX shell
+
+With GNU Make 4.3+ and the SH-2 toolchain on `PATH`:
+
+```sh
+./build-example.sh hello_world
+./run-example.sh hello_world --bios /path/to/your/saturn-bios.bin
+```
+
+Use `./harness/run-harness.sh EXAMPLE --bios BIOS.bin --frames 120 --` for
+headless Ymir captures; arguments after `--` go directly to the probe.
+
 ### Windows setup
 
 On Windows 10/11, the PowerShell bootstrap configures the MSYS2-based development environment. It can also prepare the optional emulator tools:

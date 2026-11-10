@@ -71,6 +71,21 @@ boundary itself: it fails immediately (before any other assertion) if
 `pc_after_run` isn't inside the injected program's address range, so a run
 where injection silently didn't take can never read as a pass.
 
+## POSIX workflow
+
+`./harness/run-harness.sh` builds an example when needed, configures/builds the
+pinned Ymir probe when it is missing, and runs a headless capture. Pass a
+caller-owned 512 KiB BIOS with `--bios`; probe-specific options follow `--`:
+
+```sh
+./harness/run-harness.sh skybridge_3d --bios /path/to/saturn-bios.bin \
+    --frames 120 --out harness/build/skybridge/probe.json -- \
+    --screenshot 119:harness/build/skybridge/frame119.png
+```
+
+`LIBSATURN_YMIR_BUILD_DIR` selects the CMake build directory. The PowerShell
+wrapper remains available for Windows workflows.
+
 **Design bias: assert on registers and VRAM contents first.**
 An emulator is not hardware truth, and VDP2 rotation (the area this harness
 was built for) is exactly the kind of under-tested corner where Ymir's own
@@ -189,6 +204,7 @@ harness/
   src/png_writer.hpp  dependency-free PNG writer for --screenshot
   scripts/*.pad       input timelines for --pad-script
   tests/*.py        unittest assertions over the emitted JSON
+  run-harness.sh     POSIX wrapper for the native Ymir probe
   run-harness.ps1    Windows wrapper matching build-example.ps1 conventions
 ```
 

@@ -1,34 +1,36 @@
 # Emulators
 
-This folder centralizes binaries and launchers for MVP validation.
+This folder contains emulator launchers and local emulator files.
 
-## Structure
+## POSIX shell
 
-- `mednafen/`: Mednafen launchers and local files.
-- `kronos/`: Manual Kronos installation and launcher.
+With GNU Make 4.3+, an SH-2 toolchain, Mednafen, and a caller-owned Saturn BIOS:
 
-## Mednafen (automatic)
-
-Install via MSYS2 UCRT64 and generate launcher:
-
-```powershell
-.\scripts\download-emulators.ps1
+```sh
+./build-example.sh skybridge_3d
+./run-example.sh skybridge_3d --bios /path/to/your/saturn-bios.bin
 ```
 
-Generated launcher:
+The Mednafen launcher expects a 512 KiB BIOS dump and stores it under the
+ignored `bios/firmware/` directory. Set `LIBSATURN_MEDNAFEN_HOME` to use a
+different writable Mednafen state directory. Additional Mednafen options can
+be passed after `--` to `run-example.sh`.
 
-```powershell
-.\emulators\mednafen\run-mednafen.ps1
+Ymir captures use the native wrapper:
+
+```sh
+./harness/run-harness.sh skybridge_3d --bios /path/to/your/saturn-bios.bin \
+    --frames 120 -- --screenshot 119:harness/build/skybridge_3d.png
 ```
 
-## Kronos (manual)
+## Windows wrappers
 
-1. Download Kronos release for Windows.
-2. Copy `kronos.exe` and DLLs to `emulators/kronos/`.
-3. Execute:
+The Windows/MSYS2 workflow retains its PowerShell bootstrap and launchers:
 
 ```powershell
-.\emulators\kronos\run-kronos.ps1
+.\scripts\bootstrap-dev.ps1
+.\build-example.ps1 -Example skybridge_3d
+.\run-example.ps1 skybridge_3d -Emulator mednafen
 ```
 
-If the binary is not in the expected location, the launcher returns an explicit error.
+Kronos and Yaba Sanshiro launchers are Windows-only.
