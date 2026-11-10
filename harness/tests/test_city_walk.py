@@ -33,7 +33,7 @@ MAP = REPO / "build" / "city_walk.map"
 CITY_DATA = REPO / "build" / "generated" / "city_walk" / "city_data.h"
 
 FACE_CAP = 500
-COMMAND_CAP = 711  # face cap + 160 HUD commands + clip slack + setup
+COMMAND_CAP = 887  # face cap + 128 clip allowance + 256 HUD commands + setup
 PRIME_SLOTS = 83   # 9 + 25 + 49 ring slots
 NBG0_BIT, RBG0_BIT = 1 << 0, 1 << 4
 

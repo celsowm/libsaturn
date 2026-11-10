@@ -54,7 +54,8 @@ typedef struct sat_world_lod3d_level {
     uint32_t asset_id; /* caller's stable token; the planner never dereferences it */
     uint32_t min_projected_radius_px_16_16;
     uint32_t faces;
-    uint32_t command_estimate; /* conservative VDP1 command upper bound */
+    /* Caller estimate; include clipping/fallback allowance. */
+    uint32_t command_estimate;
     uint32_t texture_bytes;    /* resident footprint charged to this plan */
     uint32_t slot_generation;
     uint32_t resident_generation;

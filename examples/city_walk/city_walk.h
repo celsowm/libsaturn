@@ -15,13 +15,14 @@
 #include "saturn/scene3d_material_pool.h"
 #include "saturn/math3d.h"
 #include "saturn/time.h"
+#include "saturn/world_lod3d.h"
 
 #include "city_format.h"
 #include "city_grid.h"
 
 #define CITY_W 320u
 #define CITY_H 224u
-#define CITY_HUD_COMMANDS 160u
+#define CITY_HUD_COMMANDS 256u
 #define CITY_WRAM_L __attribute__((section(".wram_l")))
 
 /* VDP2 VRAM word offsets. The 512x512 8bpp ground bitmap (one dot per unit,
@@ -91,7 +92,7 @@ typedef struct city_telemetry {
     uint32_t t_frame;      /* top of loop to after sat_end_frame */
     uint32_t t_vdp2;       /* ground + sky + layer commit */
     uint32_t t_input;      /* pad poll, player, page-in */
-    uint32_t t_plan;       /* city_plan_frame incl. frustum tests */
+    uint32_t t_plan;       /* reusable world planner + city ring adaptation */
     uint32_t t_decode;     /* city_blob_decode */
     uint32_t t_submit;     /* sat_scene_submit_instance */
     uint32_t t_flush;      /* sat_scene_flush: sort + VDP1 emission */
@@ -113,6 +114,21 @@ typedef struct city_telemetry {
     uint32_t cart_used_bytes;          /* RAM-cart allocator consumption after CITY.BIN load */
     uint32_t cart_free_bytes;          /* RAM-cart allocator free bytes after CITY.BIN load */
     uint32_t done;
+    /* World LOD planner and optional next-frame governor diagnostics. */
+    uint32_t plan_considered, plan_frustum_rejected, plan_no_resident;
+    uint32_t plan_stale_residency, plan_residency_fallbacks, plan_prefetch_requests;
+    uint32_t plan_budget_degraded, plan_optional_dropped;
+    uint32_t plan_wanted_lod0, plan_wanted_lod1, plan_wanted_lod2;
+    uint32_t plan_selected_lod0, plan_selected_lod1, plan_selected_lod2;
+    uint32_t plan_face_budget, plan_command_budget;
+    uint32_t actual_world_commands, scene_commands_used, scene_commands_capacity;
+    uint32_t scene_overlay_reserved;
+    uint32_t governor_enabled, governor_status, governor_faces, governor_commands;
+    uint32_t governor_cpu_ticks, governor_elapsed_fields, governor_overload_reason;
+    uint32_t governor_degraded_transitions, governor_recovery_transitions;
+    uint32_t fade_enabled;
+    uint32_t governor_sample_count, governor_scene_result;
+    uint32_t governor_usable_commands, governor_profile_available;
 } city_telemetry_t;
 
 #define CITY_TELEMETRY_MAGIC SAT_FOURCC('C', 'I', 'T', 'Y')
@@ -200,6 +216,11 @@ uint32_t render_wram_bytes(void);
 /* Builds and flushes one frame of city geometry. HUD is drawn after, by the
  * caller, inside the reserved overlay commands. */
 void render_frame(const city_view_t* view);
+void render_world_lod_reset(void);
+void render_toggle_governor(void);
+void render_toggle_fade(void);
+void render_governor_feedback(uint32_t field_count, uint32_t cpu_frt_ticks,
+                              uint8_t paused);
 
 /* ground.c / background.c: the VDP2 layers ------------------------------- */
 void ground_init(void);
@@ -220,6 +241,20 @@ int player_update(city_player_t* p, const sat_pad_state_t* pad, uint32_t vblanks
 /* Jumps to the next of a few street-level viewpoints (the X button). The caller
  * re-primes the residency rings afterwards. */
 void player_next_viewpoint(city_player_t* p);
+
+/* world_lod.c ------------------------------------------------------------- */
+/* Adapts the city ring/residency data to the reusable allocation-free planner.
+ * The planner owns desired-LOD fallback and budget selection; this adapter
+ * supplies city IDs, residency generations, bounds and legacy painter order. */
+void city_world_lod_reset(void);
+uint32_t city_world_lod_wram_bytes(void);
+sat_result_t city_world_plan_frame(
+    const city_residency_t* residency, const city_pos_t* position,
+    const sat_world_lod3d_view_t* view, sat_fx16_t eye_y,
+    sat_fx16_t world_min_y, sat_fx16_t world_max_y,
+    uint32_t face_budget, uint32_t command_budget,
+    city_visible_fn visible, void* visible_context,
+    city_plan_t* out_plan, city_lod_diagnostics_t* out_diagnostics);
 
 /* hud.c ------------------------------------------------------------------- */
 void hud_init(const sat_ascii_font_t* font);

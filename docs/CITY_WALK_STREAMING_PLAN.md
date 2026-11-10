@@ -137,13 +137,13 @@ tools/city_chunker.py --> CITY.BIN (disc) --> RAM cart --> ring slots (WRAM-L)
   cell in READY state, so a slot reassigned mid-frame cannot be drawn. One
   page-in per frame; the renderer falls back to a coarser resident LOD and counts
   a pop-in instead of ever blocking.
-* **Frame planning.** `city_plan_frame` picks each cell's LOD, culls by the
-  XZ footprint against the view wedge, and enforces the face budget **far to
-  near**: the farthest cells coarsen first (at most one LOD below what their
-  distance calls for), then the farthest are dropped. Coarsening onto an EMPTY
-  slot (a chunk whose props vanish at LOD2) drops the cell rather than planning
-  a zero-byte item. The budget counts *blob*
-  faces, before backface culling; about half reach the VDP1.
+* **Frame planning.** `sat_world_lod3d_plan` selects resident variants and
+  enforces independent face and command budgets in caller-owned fixed buffers.
+  The city adapter supplies its 3x3 / 5x5 / 7x7 distance-ring target, uses the
+  existing XZ-footprint frustum callback, and preserves the previous one-step
+  coarser fallback. Lower priority means farther cells degrade first; optional
+  distant chunks are then dropped. The budget counts *blob* faces before
+  backface culling; about half reach VDP1.
 * **Two SH-2s.** The Slave prepares the *farthest* cells as a batch, up to half
   of the frame's blob faces; the Master decodes and submits the rest through one
   scratch mesh. Each batched item owns its decoded mesh, so at most ten go to the

@@ -5,8 +5,7 @@
 #include <set>
 #include <vector>
 
-#include "examples/city_walk/city_format.h"
-#include "examples/city_walk/city_grid.h"
+#include "examples/city_walk/city_walk.h"
 
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(1); } } while (0)
 
@@ -263,6 +262,64 @@ static city_pos_t centred(int cx, int cz) {
     return p;
 }
 
+static void run_city_plan_with_budgets(const city_residency_t* residency,
+                                       const city_pos_t* position,
+                                       uint32_t face_budget,
+                                       uint32_t command_budget,
+                                       city_visible_fn visible, void* context,
+                                       city_plan_t* plan,
+                                       city_lod_diagnostics_t* out_diagnostics) {
+    sat_world_lod3d_view_t view = {};
+    city_lod_diagnostics_t diagnostics = {};
+    view.api_version = SAT_WORLD_LOD3D_API_VERSION;
+    view.struct_size = sizeof(view);
+    view.generation = 1u;
+    /* A test-only overhead view keeps every synthetic grid cell in front;
+     * the callback controls visibility exactly as the old regression did. */
+    view.forward_y = SAT_FX16_ONE;
+    view.focal_length_px_16_16 = 100u << 16u;
+    view.near_depth_16_16 = 1u;
+    view.viewport_width = CITY_W;
+    view.viewport_height = CITY_H;
+    CHECK(city_world_plan_frame(residency, position, &view, 0, 0, 0,
+                                face_budget, command_budget, visible, context,
+                                plan, &diagnostics) == SAT_OK);
+    if (out_diagnostics != nullptr) *out_diagnostics = diagnostics;
+}
+
+static void run_city_plan(const city_residency_t* residency,
+                          const city_pos_t* position, uint32_t face_budget,
+                          city_visible_fn visible, void* context,
+                          city_plan_t* plan) {
+    /* Keep the pinned legacy test about face selection; the separate command
+     * test exercises the adapter's independent clipping-aware estimate. */
+    run_city_plan_with_budgets(residency, position, face_budget,
+                               face_budget + CITY_CLIP_COMMAND_SLACK,
+                               visible, context, plan, nullptr);
+}
+
+static void city_command_estimates_are_independent_of_face_costs() {
+    city_residency_t residency;
+    city_res_init(&residency);
+    city_res_recenter(&residency, 8, 8);
+    drain(&residency, 8, 8, 176, 64, 24);
+    city_pos_t position = centred(8, 8);
+    city_plan_t plan;
+    city_lod_diagnostics_t diagnostics = {};
+    run_city_plan_with_budgets(&residency, &position, CITY_FACE_CAP,
+                               CITY_WORLD_COMMAND_CAP, nullptr, nullptr,
+                               &plan, &diagnostics);
+    CHECK(plan.faces <= CITY_FACE_CAP);
+    CHECK(diagnostics.planner.faces == plan.faces);
+    CHECK(diagnostics.planner.commands <= CITY_WORLD_COMMAND_CAP);
+    CHECK(diagnostics.planner.commands > diagnostics.planner.faces);
+
+    run_city_plan_with_budgets(&residency, &position, CITY_FACE_CAP, 187u,
+                               nullptr, nullptr, &plan, &diagnostics);
+    CHECK(diagnostics.planner.commands <= 187u);
+    CHECK(plan.faces <= CITY_FACE_CAP);
+}
+
 static void plan_orders_nearest_first_with_highest_pass_nearest() {
     city_residency_t r;
     city_res_init(&r);
@@ -270,7 +327,7 @@ static void plan_orders_nearest_first_with_highest_pass_nearest() {
     drain(&r, 8, 8, 10, 5, 2);
     city_plan_t plan;
     city_pos_t pos = centred(8, 8);
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
     CHECK(plan.count == 49);
     CHECK(plan.pop_in == 0 && plan.degraded == 0 && plan.budget_skipped == 0);
     /* Own cell first, painted last. */
@@ -313,7 +370,7 @@ static void isqrt_is_exact_and_items_carry_their_distance() {
     drain(&r, 8, 8, 10, 5, 2);
     city_pos_t pos = centred(8, 8);
     city_plan_t plan;
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
     for (int i = 0; i < plan.count; ++i) {
         int32_t d2 = city_cell_dist2(plan.items[i].chunk_x - 8, plan.items[i].chunk_z - 8, &pos);
         CHECK((int32_t)plan.items[i].distance * plan.items[i].distance <= d2);
@@ -330,8 +387,8 @@ static void plan_is_deterministic() {
     drain(&r, 5, 9, 10, 5, 2);
     city_pos_t pos = centred(5, 9);
     city_plan_t a, b;
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &a);
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &b);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &a);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &b);
     CHECK(a.count == b.count);
     for (int i = 0; i < a.count; ++i) {
         CHECK(a.items[i].chunk_x == b.items[i].chunk_x && a.items[i].chunk_z == b.items[i].chunk_z);
@@ -351,7 +408,7 @@ static void budget_is_a_guarantee_not_a_hope() {
     city_pos_t pos = centred(8, 8);
     for (uint32_t budget = 0u; budget <= 1600u; budget += 25u) {
         city_plan_t plan;
-        city_plan_frame(&r, &pos, budget, 0, 0, &plan);
+        run_city_plan(&r, &pos, budget, 0, 0, &plan);
         CHECK(plan.faces <= budget);
         uint32_t sum = 0u;
         for (int i = 0; i < plan.count; ++i) sum += plan.items[i].faces;
@@ -359,7 +416,7 @@ static void budget_is_a_guarantee_not_a_hope() {
     }
     /* Even the full worst case fits the real cap, by degrading and dropping. */
     city_plan_t plan;
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
     CHECK(plan.faces <= CITY_FACE_CAP);
     CHECK(plan.degraded > 0);
 }
@@ -374,7 +431,7 @@ static void budget_is_spent_from_far_to_near() {
     city_pos_t pos = centred(8, 8);
     for (uint32_t budget = 100u; budget <= 1900u; budget += 100u) {
         city_plan_t plan;
-        city_plan_frame(&r, &pos, budget, 0, 0, &plan);
+        run_city_plan(&r, &pos, budget, 0, 0, &plan);
         CHECK(plan.faces <= budget);
         std::set<int> planned;
         int32_t worst_planned = -1;
@@ -404,13 +461,13 @@ static void budget_is_spent_from_far_to_near() {
     }
     /* A moderate squeeze coarsens the outer rings and touches no street cell. */
     city_plan_t plan;
-    city_plan_frame(&r, &pos, 1500u, 0, 0, &plan);
+    run_city_plan(&r, &pos, 1500u, 0, 0, &plan);
     CHECK(plan.degraded > 0 && plan.budget_skipped == 0);
     for (int i = 0; i < plan.count; ++i) {
         if (wanted_lod_of(plan.items[i], 8, 8) == 0) CHECK(plan.items[i].lod == 0);
     }
     /* The player's own cell is the last to give up detail. */
-    city_plan_frame(&r, &pos, 900u, 0, 0, &plan);
+    run_city_plan(&r, &pos, 900u, 0, 0, &plan);
     CHECK(plan.items[0].chunk_x == 8 && plan.items[0].chunk_z == 8 && plan.items[0].lod == 0);
 }
 
@@ -430,7 +487,7 @@ static void coarsening_onto_an_empty_lod_drops_the_cell() {
     city_pos_t pos = centred(8, 8);
     for (uint32_t budget = 100u; budget <= 1900u; budget += 100u) {
         city_plan_t plan;
-        city_plan_frame(&r, &pos, budget, 0, 0, &plan);
+        run_city_plan(&r, &pos, budget, 0, 0, &plan);
         CHECK(plan.faces <= budget);
         for (int i = 0; i < plan.count; ++i) {
             CHECK(plan.items[i].faces > 0);
@@ -450,7 +507,7 @@ static void missing_lod_falls_back_to_a_coarser_resident_one() {
     r.slots[slot].state = CITY_SLOT_PENDING;
     city_plan_t plan;
     city_pos_t pos = centred(8, 8);
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
     CHECK(plan.pop_in == 1);
     bool found = false;
     for (int i = 0; i < plan.count; ++i) {
@@ -463,7 +520,7 @@ static void missing_lod_falls_back_to_a_coarser_resident_one() {
     /* With nothing resident at all the cell is simply missing, never garbage. */
     city_res_init(&r);
     city_res_recenter(&r, 8, 8);
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &plan);
     CHECK(plan.count == 0 && plan.pop_in == 49);
 }
 
@@ -480,10 +537,71 @@ static void visibility_callback_culls_before_budget() {
     city_plan_t all, culled;
     city_pos_t pos = centred(8, 8);
     int max_cx = 8;
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, 0, 0, &all);
-    city_plan_frame(&r, &pos, CITY_FACE_CAP, reject_east, &max_cx, &culled);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, 0, 0, &all);
+    run_city_plan(&r, &pos, CITY_FACE_CAP, reject_east, &max_cx, &culled);
     CHECK(culled.count < all.count);
     for (int i = 0; i < culled.count; ++i) CHECK(culled.items[i].chunk_x <= 8);
+}
+
+static uint32_t trace_hash_byte(uint32_t hash, uint8_t value) {
+    return (hash ^ value) * 16777619u;
+}
+
+static uint32_t trace_hash_u32(uint32_t hash, uint32_t value) {
+    for (uint8_t byte = 0u; byte < 4u; ++byte)
+        hash = trace_hash_byte(hash, (uint8_t)(value >> (byte * 8u)));
+    return hash;
+}
+
+static void generic_planner_matches_pinned_legacy_city_draw_traces() {
+    const uint32_t budgets[4] = {0u, 150u, 500u, 1000u};
+    uint32_t hash = 2166136261u;
+    for (int route = 0; route < 3; ++route) {
+        city_world_lod_reset();
+        city_residency_t residency;
+        city_res_init(&residency);
+        const int pcx = route == 0 ? 8 : (route == 1 ? 1 : 14);
+        const int pcz = route == 0 ? 8 : (route == 1 ? 1 : 14);
+        city_res_recenter(&residency, pcx, pcz);
+        for (int i = 0; i < CITY_SLOTS_TOTAL; ++i) {
+            city_slot_t& slot = residency.slots[i];
+            if (slot.state != CITY_SLOT_PENDING) continue;
+            const int lod = i < 9 ? 0 : (i < 34 ? 1 : 2);
+            const uint16_t faces = (uint16_t)((lod == 0 ? 100 : (lod == 1 ? 40 : 12)) +
+                (city_chunk_index(slot.chunk_x, slot.chunk_z) % 5));
+            const int key = city_chunk_index(slot.chunk_x, slot.chunk_z) + lod;
+            if (key % 17 == 0) CHECK(city_res_complete(&residency, i, 0u, 1));
+            else if (key % 11 == 0) slot.state = CITY_SLOT_FREE;
+            else CHECK(city_res_complete(&residency, i, faces, 0));
+        }
+        for (int step = 0; step < 8; ++step) {
+            city_pos_t position = {pcx, pcz, step * CITY_CHUNK_FX / 8,
+                                   (7 - step) * CITY_CHUNK_FX / 8};
+            for (uint32_t budget : budgets) {
+                city_plan_t plan;
+                int32_t cutoff = pcx + (step % 3) - 1;
+                run_city_plan(&residency, &position, budget, reject_east,
+                              &cutoff, &plan);
+                hash = trace_hash_u32(hash, route);
+                hash = trace_hash_u32(hash, step);
+                hash = trace_hash_u32(hash, budget);
+                hash = trace_hash_u32(hash, plan.count);
+                for (uint16_t i = 0u; i < plan.count; ++i) {
+                    const city_draw_item_t& item = plan.items[i];
+                    hash = trace_hash_u32(hash, (uint16_t)item.chunk_x);
+                    hash = trace_hash_u32(hash, (uint16_t)item.chunk_z);
+                    hash = trace_hash_u32(hash, item.slot);
+                    hash = trace_hash_u32(hash, item.faces);
+                    hash = trace_hash_u32(hash, item.lod);
+                    hash = trace_hash_u32(hash, item.pass);
+                    hash = trace_hash_u32(hash, item.distance);
+                }
+            }
+        }
+    }
+    /* Captured from the committed legacy city planner over 3 corner/centre
+     * routes, 8 sub-chunk positions and 4 face budgets (96 complete traces). */
+    CHECK(hash == 0x628A3DB3u);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1032,6 +1150,8 @@ int main(int argc, char** argv) {
     missing_lod_falls_back_to_a_coarser_resident_one();
     coarsening_onto_an_empty_lod_drops_the_cell();
     visibility_callback_culls_before_budget();
+    city_command_estimates_are_independent_of_face_costs();
+    generic_planner_matches_pinned_legacy_city_draw_traces();
     decode_places_vertices_in_the_player_frame();
     decode_refuses_corrupt_blobs_and_writes_nothing();
     crc32_matches_the_standard_vector();
@@ -1047,6 +1167,6 @@ int main(int argc, char** argv) {
     push_out_honours_the_radius_and_chunk_origin();
     push_out_resolves_an_inside_corner();
     push_out_ignores_blobs_without_boxes_and_bad_data();
-    std::printf("PASS: test_city_walk.cpp (34 tests)\n");
+    std::printf("PASS: test_city_walk.cpp (36 tests)\n");
     return 0;
 }

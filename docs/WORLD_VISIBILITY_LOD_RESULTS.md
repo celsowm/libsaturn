@@ -6,7 +6,7 @@ results are not inferred from host tests or static source inspection.
 
 ## M0 — Baseline and reproducibility
 
-**Date:** 2026-11-10  
+**Date:** 2026-11-10
 **Starting `main` SHA:** `c9374c5b65b2dc75d73c722a5db568f58bcc6fd5`  
 **Status:** complete; host gates and SH-2 builds passed; Ymir captures recorded.
 The baseline `city_walk` startup capacity failure was fixed after M0; see the
@@ -135,11 +135,10 @@ render check, not a stock-hardware fill-rate or frame-cadence measurement.
 
 ## M3 — Budget governor and scene instrumentation
 
-**Date:** 2026-11-10  
-**Status:** governor API and host/target validation complete. The per-frame
-consumer HUD/harness wiring is being delivered with M4, when `city_walk` moves
-to the generic planner; no duplicate temporary integration into the legacy
-planner was added.
+**Date:** 2026-11-10
+**Status:** governor API, host/target validation and the `city_walk` consumer
+HUD wiring are complete. The city consumer migration and integrated run are
+recorded under M4 below.
 
 ### Implementation
 
@@ -171,11 +170,8 @@ planner was added.
 | `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed: SH-2 ELF, boot-memory, IP, ISO and disc-image checks. |
 | `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh skybridge_3d` | Passed: SH-2 ELF, 317,952 initialized bytes, IP, ISO and disc-image checks. Existing initializer warnings remain in `audio.c` and `gems.c`. |
 
-No emulator run is attributed to the M3 governor: neither current game calls
-this API yet, so running an unchanged executable would not exercise its
-behavior. City HUD/harness telemetry will be validated with the M4 consumer
-migration. CPU/field telemetry is caller-measured; no stock Saturn frame-rate
-claim is made.
+M3 was validated in a real consumer during M4. CPU/field telemetry is
+caller-measured; no stock Saturn frame-rate claim is made.
 
 ## M1 — Pure planner and capacity-safe API
 
@@ -272,4 +268,64 @@ The rendered field-119 screenshot SHA-256 is
 This matches the recorded M0 field-119 capture exactly. The field-30 capture
 also matches its M0 hash. This is a stationary composition regression check;
 the emulator run does not establish stock-hardware cadence or fill-rate.
+
+## M4 — `city_walk` planner migration (outdoor acceptance scene pending)
+
+**Date:** 2026-11-10
+**Status:** city consumer migrated and validated. The separate original-geometry
+outdoor free-camera scene in the M4 plan remains outstanding.
+
+### Implementation
+
+- Replaced `city_plan_frame`'s LOD and budget selection in `city_grid.h` with
+  `city_world_plan_frame()` in `examples/city_walk/world_lod.c`, an
+  allocation-free adapter from the city's fixed residency rings to
+  `sat_world_lod3d_plan()`. Grid bounds, authored 3x3/5x5/7x7 LOD targets,
+  residency, collision and chunk IO remain city-owned.
+- Preserved the legacy draw sequence with adaptive governance disabled over 96
+  pinned position/visibility/face-budget traces. The draw-item hash remains
+  `0x628A3DB3`.
+- Each level charges its faces separately from estimated commands. The city
+  estimate uses `faces + ceil(faces / 16)` and a 128-command clip allowance;
+  `sat_scene_stats()` remains the source of true emitted commands. Texture
+  bytes are zero per object because residency pre-reserves fixed VDP1 spans.
+- Connected the optional governor to completed scene stats, field cadence and
+  caller-measured CPU FRT ticks. It defaults off; its minimum preserves a
+  176-face near LOD0 chunk. Y toggles it, A toggles fade and resets fade
+  hysteresis, and X teleports and resets both planner and fade state.
+- Added planner/governor diagnostics to the city HUD and telemetry, including
+  wanted/selected distributions, callback and generic frustum rejects,
+  residency misses, drops/degrades, configured budgets and actual scene
+  commands. Increased the explicit HUD reserve to 256 commands.
+
+### Executed validation
+
+| Command | Result |
+| --- | --- |
+| `gmake -B -j4 build/tests/test_city_walk && build/tests/test_city_walk` | Passed: 36 test groups, including command-estimate independence and the pinned 96-trace hash. |
+| `gmake test` | Passed: all supported host tests and tool suites. One parallel ABI test reported its documented macOS address-mapping skip; existing scene API missing-field initializer warnings remain. |
+| `LIBSATURN_TOOLCHAIN_ROOT=/Users/celso/dev/saturn-tools ./build-example.sh city_walk` | Passed: SH-2 ELF, no-static-constructors, 156,620 initialized bytes, IP, ISO and disc-image checks. |
+| Ymir `city_walk`, 4 MiB cart, 1,400 fields, scripted Y/A/X, WRAM telemetry dump | Passed: RUNNING state, status 0, 372 game frames / 365 measured, 0 misaligned SH-2 accesses, 0 decode failures, 0 stale-generation submissions, HUD/scene errors 0. The script produced 3 observed held reports; final telemetry had governor enabled, fade disabled, 350 governor samples, and no overload transitions. |
+| Ymir `city_walk`, no cart, 250 fields | Passed refusal path: state `NO_CART`, status -9, zero game frames, zero decode/HUD errors. |
+| Ymir `city_walk`, 4 MiB cart, stationary fade-on, 1,400 fields, screenshots 1,000 and 1,350 | Both captures are byte-identical at SHA-256 `1eab1a6a68f9daf950f790cd66974a5c725b286e7c00a42ea357fdf5e0767975`; 0 misaligned SH-2 accesses. |
+
+### Measured emulator observations
+
+- The controlled run observed a maximum of 182 submitted world faces and 178
+  actual VDP1 world commands. Its final scene snapshot was 178 world commands,
+  180 total commands used, 2,048 command capacity, and a 256-command overlay
+  reservation. The plan budgets were 500 faces and 628 estimated commands.
+- The measured field histogram contained 364 two-field frames and one three-
+  field frame: median and p95 were both two fields. Mean loop time was 7,025
+  FRT ticks and mean planner/adaptation time was 707 FRT ticks over 365 measured
+  frames. These are Ymir observations, not stock hardware timing.
+- The final plan snapshot considered 49 authored cells, callback-frustum
+  rejected 19, had no missing resident LODs, and selected 2/3/3 cells at LOD0/1/2.
+- The VDP2 snapshot recorded `BGON=273`, `PRIR=5`, `PRISA=1543`, `PRINA=2`,
+  `PRINB=3`, and `CCCTL=64`. The screenshots show VDP1 buildings composed over
+  the VDP2 street/sky layers; this does not certify hardware fill rate.
+
+The original procedural castle/garden/avatar free-camera scene required by M4
+has not yet been implemented. M4 is therefore not complete despite the city
+consumer passing its focused integration gates.
 

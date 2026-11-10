@@ -1,8 +1,9 @@
 #ifndef CITY_GRID_H
 #define CITY_GRID_H
 
-/* Pure grid, residency and frame-planning logic for city_walk. No hardware, no
- * library calls: tests/host/test_city_walk.cpp exercises all of it natively.
+/* Pure grid and residency logic for city_walk. Frame selection is delegated to
+ * the reusable world_lod3d planner; this header keeps the ring and stable
+ * ordering primitives used by its adapter. Tests exercise these natively.
  *
  * WORLD -> GRID. The city is 488 x 488 units, and 16.16 fixed point flips its
  * sign above ~181 units, so no coordinate ever holds the whole city. The world
@@ -17,6 +18,8 @@
  */
 
 #include <stdint.h>
+
+#include "saturn/world_lod3d.h"
 
 #define CITY_GRID_X 16
 #define CITY_GRID_Z 16
@@ -38,6 +41,8 @@
 
 /* Solid faces the renderer may submit per frame (measured, plan section 0). */
 #define CITY_FACE_CAP 500u
+#define CITY_CLIP_COMMAND_SLACK 128u
+#define CITY_WORLD_COMMAND_CAP (CITY_FACE_CAP + CITY_CLIP_COMMAND_SLACK)
 
 /* Rings are direct-mapped: LOD l covers Chebyshev radius l + 1. */
 #define CITY_RING_RADIUS(lod) ((int32_t)(lod) + 1)
@@ -86,6 +91,14 @@ typedef struct city_plan {
     uint16_t budget_skipped; /* cells dropped entirely by the face budget */
     uint32_t faces;
 } city_plan_t;
+
+typedef struct city_lod_diagnostics {
+    sat_world_lod3d_stats_t planner;
+    uint16_t wanted_by_lod[CITY_LOD_COUNT];
+    uint16_t selected_by_lod[CITY_LOD_COUNT];
+    uint16_t callback_frustum_rejected;
+    uint16_t reserved;
+} city_lod_diagnostics_t;
 
 /* Return 0 to skip a cell (frustum reject). May be NULL. */
 typedef int (*city_visible_fn)(void* context, int32_t chunk_x, int32_t chunk_z,
@@ -291,7 +304,7 @@ static inline int city_res_lookup(const city_residency_t* res, uint8_t lod,
 }
 
 /* ------------------------------------------------------------------ */
-/* Frame planning                                                      */
+/* Renderer output shape and deterministic ordering helpers            */
 /* ------------------------------------------------------------------ */
 
 /* Painter passes: higher paints last, so the NEAREST cell gets the highest.
@@ -356,125 +369,5 @@ static inline int32_t city_cell_dist2(int32_t dcx, int32_t dcz, const city_pos_t
     return dx * dx + dz * dz;
 }
 
-/* Builds this frame's draw list, nearest first: for every in-grid cell of the
- * widest ring it picks the wanted LOD, falls back to a coarser resident LOD
- * when that one has not paged in yet (counted as pop_in), rejects cells the
- * visibility callback refuses, and enforces `face_budget` far to near: the
- * farthest cells coarsen first (at most one LOD below what their distance
- * calls for), then the farthest are dropped. The budget makes CITY_FACE_CAP a
- * guarantee instead of a hope. */
-static inline void city_plan_frame(const city_residency_t* res, const city_pos_t* pos,
-                                   uint32_t face_budget, city_visible_fn visible,
-                                   void* context, city_plan_t* out) {
-    city_cell_t cells[CITY_MAX_DRAW_ITEMS];
-    int n = 0;
-    out->count = 0;
-    out->pop_in = 0;
-    out->degraded = 0;
-    out->budget_skipped = 0;
-    out->faces = 0;
-
-    const int32_t r = CITY_RING_RADIUS(CITY_LOD_COUNT - 1);
-    for (int32_t dz = -r; dz <= r; ++dz) {
-        for (int32_t dx = -r; dx <= r; ++dx) {
-            if (!city_chunk_valid(pos->chunk_x + dx, pos->chunk_z + dz)) continue;
-            city_cell_t cell;
-            cell.cx = (int16_t)(pos->chunk_x + dx);
-            cell.cz = (int16_t)(pos->chunk_z + dz);
-            cell.dist2 = city_cell_dist2(dx, dz, pos);
-            cells[n++] = cell;
-        }
-    }
-    city_cells_sort(cells, n);
-
-    /* Pick every cell's LOD as if there were no budget, nearest first. */
-    struct { int16_t cell; int8_t wanted, chosen; uint16_t slot; uint8_t alive; } cand[CITY_MAX_DRAW_ITEMS];
-    int m = 0;
-    uint32_t total = 0u;
-    for (int i = 0; i < n; ++i) {
-        int32_t dcx = cells[i].cx - pos->chunk_x;
-        int32_t dcz = cells[i].cz - pos->chunk_z;
-        int wanted = city_lod_for_distance(city_cheb(dcx, dcz));
-        if (wanted < 0) continue;
-        int chosen = -1;
-        int slot = -1;
-        for (int lod = wanted; lod < CITY_LOD_COUNT; ++lod) {
-            slot = city_res_lookup(res, (uint8_t)lod, cells[i].cx, cells[i].cz,
-                                   pos->chunk_x, pos->chunk_z);
-            if (slot >= 0) { chosen = lod; break; }
-        }
-        if (chosen < 0) { ++out->pop_in; continue; }
-        if (chosen > wanted) ++out->pop_in;
-        if (res->slots[slot].state == CITY_SLOT_EMPTY) continue;
-        if (visible != 0 && !visible(context, cells[i].cx, cells[i].cz, (uint8_t)chosen, (uint16_t)slot)) {
-            continue;
-        }
-        cand[m].cell = (int16_t)i;
-        cand[m].wanted = (int8_t)wanted;
-        cand[m].chosen = (int8_t)chosen;
-        cand[m].slot = (uint16_t)slot;
-        cand[m].alive = 1u;
-        total += res->slots[slot].faces;
-        ++m;
-    }
-
-    /* Over budget: spend it from FAR to NEAR. The farthest cell that can go one
-     * LOD coarser (never more than one below what its distance calls for) does
-     * so; when nothing can, the farthest cell is dropped. Near cells therefore
-     * keep their detail and the horizon thins out before the street does,
-     * instead of nearest-first greed eating the whole budget and leaving holes
-     * at the far end. */
-    /* Each candidate can degrade at most once: chosen may advance only as far
-     * as wanted+1. The old loop restarted a reverse scan after every single
-     * change, making the planner O(N^2). One far-to-near degradation pass
-     * visits candidates in exactly the same priority order; if that is still
-     * over budget, one far-to-near drop pass reproduces the old policy. */
-    for (int j = m - 1; j >= 0 && total > face_budget; --j) {
-        int limit = cand[j].wanted + 1;
-        if (!cand[j].alive) continue;
-        if (limit > CITY_LOD_COUNT - 1) limit = CITY_LOD_COUNT - 1;
-        for (int lod = cand[j].chosen + 1; lod <= limit; ++lod) {
-            int ns = city_res_lookup(res, (uint8_t)lod,
-                                     cells[cand[j].cell].cx,
-                                     cells[cand[j].cell].cz,
-                                     pos->chunk_x, pos->chunk_z);
-            if (ns < 0) continue;
-            total -= res->slots[cand[j].slot].faces;
-            total += res->slots[ns].faces;
-            cand[j].chosen = (int8_t)lod;
-            cand[j].slot = (uint16_t)ns;
-            ++out->degraded;
-            break;
-        }
-    }
-    for (int j = m - 1; j >= 0 && total > face_budget; --j) {
-        if (!cand[j].alive) continue;
-        total -= res->slots[cand[j].slot].faces;
-        cand[j].alive = 0u;
-        ++out->budget_skipped;
-    }
-
-    for (int j = 0; j < m; ++j) {
-        city_draw_item_t* item;
-        if (!cand[j].alive) continue;
-        /* Coarsening can land on an EMPTY slot (a chunk whose props vanish at
-         * LOD2): that cell simply has nothing to draw at this distance. */
-        if (res->slots[cand[j].slot].state == CITY_SLOT_EMPTY) continue;
-        item = &out->items[out->count++];
-        item->chunk_x = cells[cand[j].cell].cx;
-        item->chunk_z = cells[cand[j].cell].cz;
-        item->slot = cand[j].slot;
-        item->faces = res->slots[cand[j].slot].faces;
-        item->lod = (uint8_t)cand[j].chosen;
-        item->pass = 0;
-        item->distance = (uint16_t)city_isqrt((uint32_t)cells[cand[j].cell].dist2);
-        out->faces += item->faces;
-    }
-
-    /* Nearest is item 0 and must paint last: highest pass. */
-    for (int i = 0; i < out->count; ++i) {
-        out->items[i].pass = (uint8_t)(out->count - 1 - i);
-    }
-}
 
 #endif /* CITY_GRID_H */

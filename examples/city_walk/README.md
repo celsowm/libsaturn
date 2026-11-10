@@ -29,6 +29,8 @@ every blob sits contiguously inside one.
 | L / R | strafe |
 | B (held) | run |
 | X | jump to the next street viewpoint (seven of them) |
+| Y | toggle the adaptive world LOD budget governor |
+| A | toggle the distance fade |
 
 Speeds are chosen for the demo, not for realism. At a believable walking pace
 in a city this size the player would never leave the first chunk in a whole
@@ -114,17 +116,22 @@ renderer then falls back to a coarser level of detail instead of waiting.
   face budget and from the painter's ordering problems (there is no Z-buffer).
   The eye is exactly 2.0 units high because the plane's perspective is
   calibrated to it.
-* **The face budget is enforced, not hoped for.** `city_plan_frame` limits a
-  frame to `CITY_FACE_CAP` (500) faces by coarsening the farthest cells first
-  (never more than one level below what their distance calls for) and only then
-  dropping them, so the street keeps its detail and the horizon thins out. The
-  budget counts the faces in the blobs, before backface culling; about half of
-  them reach the VDP1.
+* **The face budget is enforced, not hoped for.** The reusable
+  `sat_world_lod3d_plan` selects resident chunks within independent face and
+  command budgets. The city adapter supplies its authored 3x3 / 5x5 / 7x7
+  distance rings, preserves the one-step coarser fallback, and gives farther
+  cells lower priority so they degrade or drop first. The default ceiling is
+  `CITY_FACE_CAP` (500) blob faces before backface culling; about half reach
+  VDP1. Press Y to enable the opt-in governor, which adjusts next-frame budgets
+  using completed scene statistics and FRT/field samples.
 * **Distance fade.** As in `skybridge_3d`, the far rings dissolve into the sky
   and ground instead of appearing whole at the edge of the paged area: eight VDP2
   colour-calculation slots through `sat_fade3d_slot`, opaque up to 64 units and
   fully transparent at 128, with a 2-unit hysteresis band per chunk so a cell on
   a boundary does not shimmer.
+  Press A to compare the scene without fade. HUD rows show wanted and selected
+  LOD counts, visibility rejects, stale/missing residency, budget actions,
+  actual world commands, and current face/command budgets.
 * **Two SH-2s.** The Slave prepares the farthest cells as a batch, up to half
   of the frame's faces, while the Master decodes and submits the rest. Splitting
   by weight matters: giving the Slave a fixed count of outer cells left the

@@ -797,6 +797,7 @@ HOST_TEST_EXTRA_test_scene3d_material_pool := src/graphics/3d/materials/pool.cpp
 HOST_TEST_EXTRA_test_world_lod3d := src/graphics/3d/scene/world_lod.cpp
 HOST_TEST_EXTRA_test_world_lod_fade3d := src/graphics/3d/scene/world_lod_fade.cpp src/graphics/3d/rendering/fade.cpp
 HOST_TEST_EXTRA_test_world_lod3d_governor := src/graphics/3d/scene/world_lod_governor.cpp
+HOST_TEST_EXTRA_test_city_walk := examples/city_walk/world_lod.c src/graphics/3d/scene/world_lod.cpp
 HOST_TEST_EXTRA_test_skeleton3d := src/graphics/3d/animation/skeleton.cpp src/graphics/3d/animation/clip.cpp src/graphics/3d/geometry/transform.cpp src/graphics/3d/scene/api.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_skeleton_clip := $(HOST_TEST_EXTRA_test_skeleton3d)
 HOST_TEST_EXTRA_test_skin3d := $(HOST_TEST_EXTRA_test_skeleton3d) src/graphics/3d/animation/skin.cpp
@@ -836,10 +837,10 @@ HOST_TEST_EXTRA_test_spatial3_api := src/physics/spatial/3d.cpp src/physics/3d/c
 
 $(BUILD_DIR)/tests/%: tests/host/%.cpp
 	@mkdir -p $(dir $@)
-	$(HOST_CXX) $(HOST_CXXFLAGS) $(DEPFLAGS) $< $(HOST_TEST_EXTRA_$*) -o $@
+	$(HOST_CXX) $(HOST_CXXFLAGS) $(DEPFLAGS) -x c++ $< $(HOST_TEST_EXTRA_$*) -o $@
 	# A multi-source link overwrites the compiler's .d for each input. Merge
 	# dependencies from every input so header edits rebuild the actual test.
-	$(HOST_CXX) $(HOST_CXXFLAGS) -MM -MP -MT $@ $< $(HOST_TEST_EXTRA_$*) > $@.d
+	$(HOST_CXX) $(HOST_CXXFLAGS) -MM -MP -MT $@ -x c++ $< $(HOST_TEST_EXTRA_$*) > $@.d
 
 test: $(HOST_TEST_BINS)
 	@fail=0; skipped=0; \

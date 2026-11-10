@@ -66,7 +66,7 @@ static sat_result_t plan_resources(void) {
     if ((st = sat_resource_plan_add(&g_resources, SAT_RESOURCE_CRAM, 4u * 512u, 2u, 1u)) != SAT_OK) return st;
     /* VDP1 commands: the face budget, the HUD reserve, the clip slack and the frame's setup. */
     if ((st = sat_resource_plan_add(&g_resources, SAT_RESOURCE_VDP1_COMMANDS,
-                                    CITY_FACE_CAP + CITY_HUD_COMMANDS + 48u + 3u,
+                                    CITY_WORLD_COMMAND_CAP + CITY_HUD_COMMANDS + 3u,
                                     1u, 1u)) != SAT_OK) return st;
     /* Work RAM (.wram_l): the residency rings and everything the renderer owns. */
     if ((st = sat_resource_plan_add(&g_resources, SAT_RESOURCE_WRAM,
@@ -186,12 +186,16 @@ int main(void) {
         const uint32_t top = sat_field_count();
         const uint32_t cost = top - previous;
         const uint16_t frame_begin = city_frt_now();
+        uint16_t wait_ticks;
         uint16_t mark;
+        uint8_t teleported = 0u;
         previous = top;
         if (warmup >= 8u) record_cost(cost);
         else ++warmup;
 
+        mark = city_frt_now();
         sat_example_must(sat_wait_vblank());
+        wait_ticks = (uint16_t)(city_frt_now() - mark);
         mark = city_frt_now();
         /* VDP2 latches its registers at VBlank, and the VDP1 frame now on screen
          * was drawn from last iteration's view, so the layers use that view too;
@@ -202,11 +206,15 @@ int main(void) {
         if (warmup >= 8u) g_city.t_vdp2 += (uint16_t)(city_frt_now() - mark);
         mark = city_frt_now();
         sat_example_must(sat_pad_poll(&pad));
+        if (pad.pressed & SAT_PAD_Y) render_toggle_governor();
+        if (pad.pressed & SAT_PAD_A) render_toggle_fade();
         if (pad.pressed & SAT_PAD_X) {
             /* Teleport: refill every ring at once (~30 ms) instead of paging for
              * several seconds through a city that is not there yet. */
             player_next_viewpoint(&g_player);
             residency_prime(&g_player.view.pos);
+            render_world_lod_reset();
+            teleported = 1u;
         } else if (player_update(&g_player, &pad, cost)) {
             residency_recenter(&g_player.view.pos);
         }
@@ -225,6 +233,9 @@ int main(void) {
         residency_upload_textures();
         if (warmup >= 8u) g_city.t_hud += (uint16_t)(city_frt_now() - mark);
         sat_example_must(sat_end_frame());
+        render_governor_feedback(sat_field_count(),
+                                 (uint16_t)((uint16_t)(city_frt_now() - frame_begin) - wait_ticks),
+                                 teleported);
         if (warmup >= 8u) {
             g_city.t_frame += (uint16_t)(city_frt_now() - frame_begin);
             ++g_city.measured_frames;

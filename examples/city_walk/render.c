@@ -1,8 +1,9 @@
-/* city_walk renderer: plan the frame, decode each chosen blob, submit.
+/* city_walk renderer: adapt resident chunks to the reusable planner, decode
+ * the chosen blobs, submit them through the canonical scene painter.
  *
  * The VDP1 painter has no Z-buffer, so three things keep it honest:
- *  - a hard face budget, enforced by city_plan_frame (LOD0 -> LOD1 -> drop),
- *  - one painter pass per chunk, nearest highest (city_plan_frame assigns it),
+ *  - a hard face/command budget, enforced by sat_world_lod3d_plan,
+ *  - one painter pass per chunk, nearest highest (the city adapter restores it),
  *  - the geometry is decoded straight into player-frame coordinates, so the
  *    16.16 math never sees a coordinate near the 181-unit sign flip.
  *
@@ -31,6 +32,7 @@
 #include "saturn/parallel.h"
 #include "saturn/render3d.h"
 #include "saturn/scene3d.h"
+#include "saturn/world_lod3d_governor.h"
 
 #include "city_walk.h"
 
@@ -79,6 +81,16 @@ static sat_parallel_handle_t g_handle;
 static sat_scene_t g_scene;
 static sat_camera3d_t g_camera;
 static city_plan_t g_plan;
+static city_lod_diagnostics_t g_lod_diagnostics;
+static sat_world_lod3d_view_t g_world_view;
+static uint32_t g_world_view_generation = 1u;
+static sat_world_lod3d_governor_config_t g_governor_config;
+static sat_world_lod3d_governor_state_t g_governor_state;
+static sat_world_lod3d_budget_t g_base_budget;
+static sat_world_lod3d_budget_t g_frame_budget;
+static sat_world_lod3d_governor_stats_t g_governor_stats;
+static sat_scene_stats_t g_last_scene_stats;
+static uint8_t g_fade_enabled = 1u;
 
 /* Distance fade. The far rings dissolve into the sky and ground behind them,
  * instead of appearing whole at the edge of the paged area: eight VDP2
@@ -95,6 +107,7 @@ static uint8_t g_fade_state[CITY_CHUNK_COUNT];
 
 static uint8_t fade_slot(const city_draw_item_t* item) {
     uint8_t slot = SAT_INDEXED_SOLID_OPAQUE;
+    if (g_fade_enabled == 0u) return slot;
     uint8_t* state = &g_fade_state[city_chunk_index(item->chunk_x, item->chunk_z)];
     if (sat_fade3d_slot(&g_fade, (sat_fx16_t)item->distance * 65536, state, &slot) != SAT_OK) {
         return SAT_INDEXED_SOLID_OPAQUE;
@@ -115,7 +128,7 @@ uint32_t render_wram_bytes(void) {
                       sizeof(g_face_textures) + sizeof(g_double_sided_faces) +
                       sizeof(g_item_materials) + sizeof(g_tex_desc) +
                       sizeof(g_arena) + sizeof(g_items) + sizeof(g_slave_faces) +
-                      sizeof(g_slave_keys));
+                      sizeof(g_slave_keys) + city_world_lod_wram_bytes());
 }
 
 void render_init(void) {
@@ -135,6 +148,18 @@ void render_init(void) {
     g_mesh.vertex_count = 0u;
     g_mesh.face_count = 0u;
     for (uint32_t i = 0u; i < CITY_CHUNK_COUNT; ++i) g_fade_state[i] = SAT_INDEXED_SOLID_OPAQUE;
+    city_world_lod_reset();
+    g_world_view_generation = 1u;
+    sat_example_must(sat_world_lod3d_governor_config_default(&g_governor_config));
+    /* Preserve one authored near LOD0 chunk even under governor pressure. */
+    g_governor_config.minimum_faces = 176u;
+    g_governor_config.minimum_commands = 187u;
+    g_governor_config.target_cpu_frt_ticks = g_city.ticks_per_vblank * 2u;
+    g_base_budget.max_faces = CITY_FACE_CAP;
+    g_base_budget.max_commands = CITY_WORLD_COMMAND_CAP;
+    g_base_budget.max_texture_bytes = 0u;
+    g_base_budget.max_budget_lod_loss = 1u;
+    g_frame_budget = g_base_budget;
     /* Without the Slave every batch runs on the Master; the frame is correct
      * either way. The backend is recorded so a test can tell which one ran. */
     (void)sat_scene3d_prepare_parallel_register();
@@ -307,6 +332,20 @@ void render_frame(const city_view_t* view) {
     g_cull.pcx = view->pos.chunk_x;
     g_cull.pcz = view->pos.chunk_z;
 
+    g_world_view.api_version = SAT_WORLD_LOD3D_API_VERSION;
+    g_world_view.struct_size = sizeof(g_world_view);
+    g_world_view.generation = g_world_view_generation;
+    g_world_view.forward_x = s;
+    g_world_view.forward_y = 0;
+    g_world_view.forward_z = c;
+    g_world_view.focal_length_px_16_16 = (uint32_t)(
+        ((uint64_t)(CITY_H / 2u) << 32u) /
+        (uint32_t)sat_tan_deg(sat_fx16_from_int(CITY_FOV_DEG) / 2));
+    g_world_view.near_depth_16_16 = SAT_FX16_ONE / 2;
+    g_world_view.viewport_width = CITY_W;
+    g_world_view.viewport_height = CITY_H;
+    g_world_view.plane_count = 0u;
+
     g_camera.eye.x = view->pos.local_x;
     g_camera.eye.y = view->eye_y;
     g_camera.eye.z = view->pos.local_z;
@@ -318,9 +357,37 @@ void render_frame(const city_view_t* view) {
     sat_example_must(sat_scene_begin(&g_scene, &g_camera, SAT_FX16_ONE / 2, CITY_W, CITY_H,
                                      CITY_HUD_COMMANDS));
     t_mark = city_frt_now();
-    city_plan_frame(&g_res, &view->pos, CITY_FACE_CAP, visible, 0, &g_plan);
+    sat_example_must(city_world_plan_frame(
+        &g_res, &view->pos, &g_world_view, view->eye_y,
+        g_archive.header.world_min_y_fx, g_archive.header.world_max_y_fx,
+        g_frame_budget.max_faces, g_frame_budget.max_commands,
+        visible, 0, &g_plan, &g_lod_diagnostics));
     g_city.t_plan += (uint16_t)(city_frt_now() - t_mark);
     g_city.pop_in_events += g_plan.pop_in;
+    /* Wanted counts are collected before the exact city frustum callback;
+     * generic `considered` only includes objects that reach the planner. */
+    g_city.plan_considered = (uint32_t)g_lod_diagnostics.wanted_by_lod[0] +
+                             g_lod_diagnostics.wanted_by_lod[1] +
+                             g_lod_diagnostics.wanted_by_lod[2];
+    g_city.plan_frustum_rejected = (uint32_t)g_lod_diagnostics.planner.frustum_rejected +
+                                   g_lod_diagnostics.callback_frustum_rejected;
+    g_city.plan_no_resident = g_lod_diagnostics.planner.no_resident_lod;
+    g_city.plan_stale_residency = g_lod_diagnostics.planner.stale_residency_objects;
+    g_city.plan_residency_fallbacks = g_lod_diagnostics.planner.residency_fallbacks;
+    g_city.plan_prefetch_requests = g_lod_diagnostics.planner.prefetch_requests;
+    g_city.plan_budget_degraded = g_lod_diagnostics.planner.budget_degraded_objects;
+    g_city.plan_optional_dropped = g_lod_diagnostics.planner.optional_dropped;
+    g_city.plan_wanted_lod0 = g_lod_diagnostics.wanted_by_lod[0];
+    g_city.plan_wanted_lod1 = g_lod_diagnostics.wanted_by_lod[1];
+    g_city.plan_wanted_lod2 = g_lod_diagnostics.wanted_by_lod[2];
+    g_city.plan_selected_lod0 = g_lod_diagnostics.selected_by_lod[0];
+    g_city.plan_selected_lod1 = g_lod_diagnostics.selected_by_lod[1];
+    g_city.plan_selected_lod2 = g_lod_diagnostics.selected_by_lod[2];
+    g_city.plan_face_budget = g_frame_budget.max_faces;
+    g_city.plan_command_budget = g_frame_budget.max_commands;
+    g_city.governor_enabled = g_governor_config.enabled;
+    g_city.fade_enabled = g_fade_enabled;
+    g_city.faded_cells = 0u;
 
     /* Slave share: the FARTHEST cells, up to half of this frame's blob faces so
      * that neither CPU waits for the other. Handing it a fixed count of outer
@@ -438,6 +505,7 @@ void render_frame(const city_view_t* view) {
     g_city.t_flush += (uint16_t)(city_frt_now() - t_mark);
 
     if (sat_scene_stats(&g_scene, &stats) == SAT_OK) {
+        g_last_scene_stats = stats;
         g_city.last_submitted = stats.submitted_faces;
         g_city.last_flushed = stats.flushed_faces;
         g_city.last_culled = stats.culled_faces;
@@ -446,8 +514,62 @@ void render_frame(const city_view_t* view) {
         g_city.last_budget_blocked = stats.budget_blocked_faces;
         if (stats.world_commands > g_city.max_vdp1_commands) g_city.max_vdp1_commands = stats.world_commands;
         if (stats.submitted_faces > g_city.max_world_faces) g_city.max_world_faces = stats.submitted_faces;
+        g_city.actual_world_commands = stats.world_commands;
+        g_city.scene_commands_used = stats.commands_used;
+        g_city.scene_commands_capacity = stats.commands_capacity;
+        g_city.scene_overlay_reserved = stats.overlay_reserved;
         if (stats.result != SAT_OK && g_city.scene_first_error == 0u) {
             g_city.scene_first_error = (uint32_t)(-stats.result);
         }
+    }
+}
+
+void render_world_lod_reset(void) {
+    ++g_world_view_generation;
+    if (g_world_view_generation == 0u) ++g_world_view_generation;
+    city_world_lod_reset();
+    for (uint32_t i = 0u; i < CITY_CHUNK_COUNT; ++i)
+        g_fade_state[i] = SAT_INDEXED_SOLID_OPAQUE;
+}
+
+void render_toggle_governor(void) {
+    g_governor_config.enabled = g_governor_config.enabled == 0u ? 1u : 0u;
+    g_governor_state = (sat_world_lod3d_governor_state_t){0};
+    g_frame_budget = g_base_budget;
+}
+
+void render_toggle_fade(void) {
+    g_fade_enabled = g_fade_enabled == 0u ? 1u : 0u;
+    /* A long disabled interval must not revive stale hysteresis at a boundary. */
+    for (uint32_t i = 0u; i < CITY_CHUNK_COUNT; ++i)
+        g_fade_state[i] = SAT_INDEXED_SOLID_OPAQUE;
+}
+
+void render_governor_feedback(uint32_t field_count, uint32_t cpu_frt_ticks,
+                              uint8_t paused) {
+    sat_world_lod3d_governor_telemetry_t telemetry = {0};
+    sat_world_lod3d_budget_t next_budget = {0};
+    telemetry.scene = g_last_scene_stats;
+    telemetry.field_count = field_count;
+    telemetry.cpu_frt_ticks = cpu_frt_ticks;
+    telemetry.profile_available = 1u;
+    telemetry.paused = paused;
+    const sat_result_t result = sat_world_lod3d_governor_step(
+        &g_governor_config, &telemetry, &g_base_budget, &g_governor_state,
+        &next_budget, &g_governor_stats);
+    g_city.governor_status = result == SAT_OK ? 0u : (uint32_t)(-result);
+    g_city.governor_sample_count = g_governor_stats.sample_count;
+    g_city.governor_scene_result = (uint32_t)(-g_governor_stats.scene_result);
+    g_city.governor_usable_commands = g_governor_stats.usable_world_commands;
+    g_city.governor_profile_available = g_governor_stats.profile_available;
+    if (result == SAT_OK) {
+        g_frame_budget = next_budget;
+        g_city.governor_faces = next_budget.max_faces;
+        g_city.governor_commands = next_budget.max_commands;
+        g_city.governor_cpu_ticks = cpu_frt_ticks;
+        g_city.governor_elapsed_fields = g_governor_stats.elapsed_fields;
+        g_city.governor_overload_reason = g_governor_stats.overload_reason;
+        g_city.governor_degraded_transitions = g_governor_stats.degraded_transitions;
+        g_city.governor_recovery_transitions = g_governor_stats.recovery_transitions;
     }
 }

@@ -2,7 +2,7 @@
 
 **Repository:** LibSaturn (reusable engine, not a game-specific feature)  
 **Target:** stock Sega Saturn, no mandatory expansion RAM  
-**Status:** implementation in progress — M0 through M2 complete; M3 governor API implemented and validated; city HUD/consumer wiring is grouped with M4 migration
+**Status:** implementation in progress — M0 through M3 complete; `city_walk` migration/validation is complete; M4's original-geometry outdoor acceptance scene remains to be added
 **Execution owner:** Codex  
 **Branch:** `main`, incremental validated commits (no parallel compatibility engine)
 
@@ -33,7 +33,7 @@ Read these exact sources first, and revalidate against current `main` before edi
 | --- | --- | --- |
 | Quantized distance fade + hysteresis | `include/saturn/fade3d.h`, `src/graphics/3d/rendering/fade.cpp`, `src/graphics/3d/rendering/fade_logic.hpp` | Already supports eight mapped slots and one caller-owned history byte per object. Extend by composition, not duplication. |
 | LOD face-range selector | `include/saturn/skin3d.h`, `src/graphics/3d/animation/character.cpp` | `sat_lod_select()` selects against a single face budget; it does **not** manage world visibility or temporal LOD selection. |
-| City planner | `examples/city_walk/city_grid.h` (`city_plan_frame`), `render.c`, `residency.c` | Distance order, resident-LOD fallback, bounded one-step degrade, far-first drop; currently coupled to a 16x16/three-ring city. Preserve its regression behavior. |
+| City planner | `examples/city_walk/world_lod.c`, `city_grid.h`, `render.c`, `residency.c` | Adapter supplies authored distance rings and residency to the generic planner; grid/chunk IO/collision remain game-specific. Preserve the pinned draw trace. |
 | World scene submission | `include/saturn/scene.h`, `include/saturn/scene3d_faces.h` | AABB early reject; immutable topology binding; `sat_scene_submit_instance`; `sat_scene_stats` includes `world_commands`, capacity, culls, rejects and fallbacks. |
 | Fade in a playable game | `examples/skybridge_3d/world.c`, `README.md` | Indexed materials/VDP2 priorities, supported eight-step blend, 2-unit state hysteresis, persistent temporal correctness fixes. |
 | Large world / VDP2 | `examples/city_walk/`, `examples/vdp2_rbg0_ground/` | Camera-relative coordinates, streamed geometry, world budget; VDP2 sky/ground remove huge surfaces from VDP1. |
