@@ -155,17 +155,21 @@ def _add_quadric(a, b):
 
 def _weld_exact_duplicates(model: SourceModel):
     """Merge vertices identical in every attribute (position/UV/normal/
-    joints/weights). Exact duplicates carry no information; welding them can
-    only restore manifold sharing (closed solids chamfer instead of losing
-    whole faces) and shrink the pose stream. UV seams and material data are
-    untouched: any attribute difference vetoes the weld, and faces keep
-    their own material indices. Returns (model, welded_count, dropped_degenerate).
+    joints/weights/material ownership). Welding restores manifold sharing
+    (closed solids chamfer instead of losing whole faces) and shrinks the
+    pose stream. Attribute or material-ownership differences veto the weld;
+    faces keep their material indices and source provenance stays valid.
+    Returns (model, remap, welded_count, dropped_degenerate).
     """
     n = len(model.vertices)
     has_j = bool(model.joints) and len(model.joints) == n
     has_w = bool(model.weights) and len(model.weights) == n
     has_n = model.normals is not None and len(model.normals) == n
     has_uv = bool(model.uvs) and len(model.uvs) == n
+    materials_of = [set() for _ in range(n)]
+    for tri, material in zip(model.triangles, model.tri_materials):
+        for vertex in tri:
+            materials_of[vertex].add(material)
     key_of = []
     for i in range(n):
         p = model.vertices[i]
@@ -175,6 +179,7 @@ def _weld_exact_duplicates(model: SourceModel):
             tuple(model.normals[i]) if has_n else None,
             tuple(model.joints[i]) if has_j else None,
             tuple(model.weights[i]) if has_w else None,
+            tuple(sorted(materials_of[i])),
         )
         key_of.append(key)
     first: dict = {}
@@ -354,6 +359,10 @@ def simplify(
             vertex_tris[x].add(ti)
             group_tris[group_of[x]].add(ti)
 
+    # Immutable source ownership: a survivor must support every material on
+    # faces remapped to it, even when aggressive mode relaxes boundary costs.
+    vertex_materials = [{tri_mats[t] for t in adjacent} for adjacent in vertex_tris]
+
     def gkey(a: int, b: int) -> tuple[int, int]:
         return (a, b) if a < b else (b, a)
 
@@ -461,7 +470,7 @@ def simplify(
         nd = model.normals[d]
         return max(candidates, key=lambda k: (_dot(model.normals[k], nd), -k))
 
-    def plan_remap(keep: int, drop: int, edge_faces: list[int]) -> tuple[dict[int, int], bool]:
+    def plan_remap(keep: int, drop: int, edge_faces: list[int]) -> tuple[dict[int, int] | None, bool]:
         """Pair each live copy of ``drop`` with a copy of ``keep``.
 
         A copy sharing a collapsing face with a keep copy takes that copy
@@ -469,6 +478,8 @@ def simplify(
         keep copy with the identical UV. With no such copy the collapse would
         push a UV seam across the surface: ``crossed`` reports it, and the
         closest-chart fallback keeps the output a strict source subset.
+        Every choice must also support the dropped copy's live materials;
+        no compatible copy means the collapse is forbidden in all presets.
         """
         ef = set(edge_faces)
         remap: dict[int, int] = {}
@@ -476,10 +487,14 @@ def simplify(
         for d in members[drop]:
             if not any(tri_alive[t] for t in vertex_tris[d]):
                 continue
+            required = {tri_mats[t] for t in vertex_tris[d] if tri_alive[t]}
+            usable = [k for k in members[keep] if required <= vertex_materials[k]]
+            if not usable:
+                return None, True
             linked = sorted({
                 x
                 for t in vertex_tris[d] if t in ef
-                for x in tris[t] if group_of[x] == keep
+                for x in tris[t] if x in usable
             })
             if linked:
                 same = [x for x in linked if uv_same(x, d)]
@@ -487,12 +502,12 @@ def simplify(
                     crossed = True
                 remap[d] = closest_copy(same if same else linked, d)
                 continue
-            same = [k for k in members[keep] if uv_same(k, d)]
+            same = [k for k in usable if uv_same(k, d)]
             if same:
                 remap[d] = closest_copy(same, d)
             else:
                 crossed = True
-                remap[d] = closest_copy(members[keep], d)
+                remap[d] = closest_copy(usable, d)
         return remap, crossed
 
     def edge_cost(g0: int, g1: int):
@@ -524,6 +539,8 @@ def simplify(
         if qp["material_lock"] and not drop_mats <= keep_mats:
             return INF, None  # would drag a material boundary inward
         remap, crossed = plan_remap(keep, drop, live)
+        if remap is None:
+            return INF, None
         if crossed and use_uv and qp["seam_lock"]:
             return INF, None
         # Worst-pose QEM cost: collapse error evaluated in every pose at

@@ -174,6 +174,39 @@ class SimplifyBackendTests(unittest.TestCase):
                 "triangle spans a locked material boundary",
             )
 
+    def test_split_material_ownership_survives_weld_and_collapse(self):
+        # Split every corner by material while keeping matching attributes
+        # along the boundary, as textured static scene exporters do.
+        m = make_grid(6, 4, materials=lambda i, j: i // 2)
+        original_tris = m.triangles
+        vertices, normals, uvs, triangles = [], [], [], []
+        split = {}
+        for tri, material in zip(original_tris, m.tri_materials):
+            ids = []
+            for old in tri:
+                key = (old, material)
+                if key not in split:
+                    split[key] = len(vertices)
+                    vertices.append(m.vertices[old])
+                    normals.append(m.normals[old])
+                    uvs.append(m.uvs[old])
+                ids.append(split[key])
+            triangles.append(tuple(ids))
+        m.vertices, m.normals, m.uvs, m.triangles = vertices, normals, uvs, triangles
+        owners = {vertex: material for (_, material), vertex in split.items()}
+        for quality in ("conservative", "balanced", "aggressive"):
+            for target in (len(triangles), 12):
+                with self.subTest(quality=quality, target=target):
+                    out = S.simplify(m, options=S.SimplificationOptions(
+                        target_triangles=target, quality=quality))
+                    self.assertTrue(out.triangles)
+                    self.assertEqual(set(out.tri_materials), {0, 1, 2})
+                    if target < len(triangles):
+                        self.assertLess(len(out.triangles), len(triangles))
+                    for tri, material in zip(out.triangles, out.tri_materials):
+                        self.assertEqual(
+                            {owners[out.source_vertex[v]] for v in tri}, {material})
+
     def test_crease_edge_protected(self):
         # Two quads at 90 degrees sharing the edge x=0 (continuous UVs).
         m = model_mod.SourceModel()

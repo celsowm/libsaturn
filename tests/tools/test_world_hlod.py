@@ -173,6 +173,26 @@ class WorldHlodTests(unittest.TestCase):
                 clipped_area += 0.5 * math.sqrt(sum(v*v for v in cross))
         self.assertAlmostEqual(clipped_area, source_area, places=8)
 
+    def test_boundary_touches_leave_no_orphan_quality_samples(self):
+        # The second triangle only touches x=1, far from the first triangle
+        # inside that cell. Its zero-area clipped point must not be sampled
+        # as part of the cell's surface or included in its bounds.
+        model = simple_model(
+            vertices=[(1.2, 0.1, 0.1), (1.8, 0.1, 0.1), (1.2, 0.4, 0.1),
+                      (0.2, 0.7, 0.8), (1.0, 0.7, 0.8), (0.2, 0.9, 0.8)],
+            triangles=[(0, 1, 2), (3, 4, 5)], tri_materials=[0, 0])
+        cells = partition_source(model, 1.0)
+        for cell in cells.values():
+            used = {v for tri in cell.triangles for v in tri}
+            self.assertEqual(used, set(range(len(cell.vertices))))
+        package, report = build_package(
+            model, cell_size=1.0, lod_targets=(LodTarget("near", 2),),
+            quality="conservative", silhouette_views=8)
+        read_independently(package)
+        self.assertAlmostEqual(report["source_area_coverage"], 1.0)
+        for cell in report["cells"]:
+            self.assertLess(cell["levels"][0]["geometric_error"], 1e-10)
+
     def test_texture_limits_palette_references_and_uv_coordinate_guards(self):
         too_wide = SourceTexture(512, 1, [(0, 0, 0, 255)] * 512)
         model = simple_model([(0, 0, 0), (1, 0, 0), (0, 1, 0)],

@@ -242,7 +242,6 @@ def partition_source(source: SourceModel, cell_size: float) -> dict[tuple[int, i
                             bucket["uvs"].append(tuple(uv))
                         return ids[token]
 
-                    base = vertex_id(poly[0])
                     emitted = False
                     for i in range(1, len(poly) - 1):
                         p1, p2 = poly[i][0], poly[i + 1][0]
@@ -253,7 +252,10 @@ def partition_source(source: SourceModel, cell_size: float) -> dict[tuple[int, i
                                        e1[0]*e2[1]-e1[1]*e2[0])
                         if sum(v*v for v in cross_piece) <= 1e-20:
                             continue
-                        bucket["triangles"].append((base, vertex_id(poly[i]), vertex_id(poly[i + 1])))
+                        # A boundary touch may clip to a zero-area polygon.
+                        # Allocate corners only for accepted triangles so its
+                        # orphan points cannot pollute bounds/quality samples.
+                        bucket["triangles"].append((vertex_id(poly[0]), vertex_id(poly[i]), vertex_id(poly[i + 1])))
                         bucket["materials"].append(source.tri_materials[ti])
                         emitted = True
                     if emitted:
