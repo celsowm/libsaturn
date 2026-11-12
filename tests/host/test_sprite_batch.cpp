@@ -253,6 +253,29 @@ int main() {
         OK(sat_sprite_batch_draw(&fr, 1u, inst, 1u, 0x80u, &st) == SAT_ERR_INVALID_ARG);   /* unknown option */
     }
 
+    /* A distorted sprite through the window is the command push_distorted_sprite writes. */
+    for (uint16_t format : {static_cast<uint16_t>(SAT_VDP1_TEXTURE_LUT4), static_cast<uint16_t>(SAT_VDP1_TEXTURE_INDEXED8)}) {
+        for (uint16_t flags : {static_cast<uint16_t>(0u), static_cast<uint16_t>(SAT_SPRITE_FLAG_FLIP_H),
+                               static_cast<uint16_t>(SAT_SPRITE_FLAG_OPAQUE | SAT_SPRITE_FLAG_FLIP_V)}) {
+            const uint16_t palette = format == SAT_VDP1_TEXTURE_LUT4 ? 0x1230u : 5u;
+            DistortedSpriteRequest req{{-200, 37, 90, -5}, {-30, -120, 64, 111}, 64u, 64u, 0x0440u, palette,
+                                       flags, format, false};
+            begin_frame(8u);
+            Command* const buf = frame_commands();
+            OK(push_distorted_sprite(req) == SAT_OK);
+            const Command want = buf[2];
+            sat_sprite_frame_t fr{};
+            OK(sat_sprite_frame_init_raw(&fr, req.srca, 64u, 64u, format, palette, flags, 7, 9) == SAT_OK);
+            begin_frame(8u);
+            sat_sprite_batch_window_t win;
+            OK(sat_sprite_batch_begin(&win, 1u, 0u) == SAT_OK);
+            OK(sat_sprite_batch_emit_distorted(&win, &fr, req.x, req.y) == 1);
+            OK(sat_sprite_batch_emit_distorted(&win, &fr, req.x, req.y) == 0 && win.dropped == 1u);
+            OK(sat_sprite_batch_end(&win, nullptr) == SAT_ERR_CAPACITY);
+            OK(std::memcmp(&frame_commands()[2], &want, sizeof want) == 0);
+        }
+    }
+
     std::puts("sprite batch: OK");
     return 0;
 }

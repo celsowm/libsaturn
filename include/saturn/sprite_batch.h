@@ -177,6 +177,32 @@ static inline int sat_sprite_batch_emit(sat_sprite_batch_window_t* win, const sa
     return 1;
 }
 
+/* Writes one distorted sprite: `frame`'s texture mapped onto the quad whose corners A, B, C, D (the
+ * texture's top left, top right, bottom right, bottom left) are (x[k], y[k]), relative to the screen's
+ * centre as sat_draw_sprite_distorted takes them. The command is the one sat_draw_sprite_distorted
+ * writes for the frame's texture and flags; the pivot is not used. Nothing is culled and pre-clipping
+ * stays on: a quad has no cheap "wholly inside" test here, the caller already knows what it sees.
+ * Returns 1 when a command was written, 0 when the window is full. */
+static inline int sat_sprite_batch_emit_distorted(sat_sprite_batch_window_t* win, const sat_sprite_frame_t* frame,
+                                                  const int16_t x[4], const int16_t y[4]) {
+    if (win->next >= win->limit) {
+        ++win->dropped;
+        return 0;
+    }
+    const uint32_t* const fw = (const uint32_t*)(const void*)frame;
+    uint32_t* const w = win->next;
+    w[0] = fw[0] | SAT_SPRITE_BATCH_PAIR(0x0002u, 0u);   /* CMDCTRL Comm: distorted sprite */
+    w[1] = fw[1];
+    w[2] = fw[2];
+    w[3] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[0], (uint16_t)y[0]);
+    w[4] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[1], (uint16_t)y[1]);
+    w[5] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[2], (uint16_t)y[2]);
+    w[6] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[3], (uint16_t)y[3]);
+    w[7] = 0u;
+    win->next = w + 8;
+    return 1;
+}
+
 #ifdef __cplusplus
 }
 #endif
