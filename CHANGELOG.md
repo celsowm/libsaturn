@@ -9,6 +9,12 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- `sat_sound_play` at pitch 1.0 no longer divides in 64 bits: `sat_sound_create` stores the sound's PITCH word and
+  its length in display frames (`unit_pitch`, `unit_frames`, 4 more bytes per sound), and `SlotConfig` carries a
+  ready PITCH word (`pitch_ready`, `pitch_word`). Mednafen, 31 plays of a Tekken Force fight: 527 FRT ticks
+  (phi/128) in all, now 304 (about 81 µs a play, now 47). Other pitches, and lengths over 65,535 frames, still
+  compute both. Also tried and dropped: an SH-2 copy of slot words +02..+16 that skips unchanged writes. It saved
+  about 3 µs a play (the SCSP writes are not the cost) for 704 bytes of RAM and code.
 - `SAT_EXEC_ARG_MAX` is 64 bytes (was 16): a program can hand the next one a small state block, such as a game's level, score and flags between two runs. The hand-off block is 16 bytes of header and the data, ending Work RAM Low at `0x002FFFB0`; the copy routine's room shrinks from 480 to 400 bytes (it uses 40) and the reserved 512 bytes are unchanged.
 - Longword `DATATRNS` reads use `SAT_CD_BLOCK_DTR32` (0x25818000), outside the CD Block's register window. At
   `SAT_CD_BLOCK_DTR` (0x25890000) Mednafen takes one FIFO word for a 32-bit read instead of two (it says this was

@@ -48,6 +48,9 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
     config.loop_start = entry->loop_start;
     config.loop_end = entry->loop_end;
     config.pitch_scale_q16 = pitch_q16;
+    const bool unit_pitch = pitch_q16 == SAT_FX16_ONE && entry->unit_frames != 0u;
+    config.pitch_ready = unit_pitch ? 1u : 0u;
+    config.pitch_word = entry->unit_pitch;
     config.pcm8 = entry->format == SAT_AUDIO_PCM_S8 ? 1u : 0u;
     config.loop = entry->loop;
     config.total_level = volume_to_tl(volume);
@@ -94,9 +97,9 @@ extern "C" sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_p
         now,g_audio_clock.service_frame,g_audio_clock.valid!=0u);
     const uint32_t display_rate=
         saturn::core::g_state.config.ntsc!=0u?60u:50u;
-    voice.end_frame=start+
+    voice.end_frame=start+(unit_pitch?entry->unit_frames:
         saturn::core::audio::voice::lifetime::duration_frames(
-            entry->sample_count,entry->sample_rate,pitch_q16,display_rate);
+            entry->sample_count,entry->sample_rate,pitch_q16,display_rate));
 
     if (params != nullptr && (params->flags & SAT_SOUND_PLAY_AT_TICK) != 0u &&
         saturn::hal::scsp::driver::running()) {

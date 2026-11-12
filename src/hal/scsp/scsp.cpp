@@ -314,7 +314,8 @@ bool configure_slot(uint8_t slot, const SlotConfig& config) {
     *slot_word(slot, 0x0Au) = 0x3C1Fu;
     *slot_word(slot, 0x0Cu) = static_cast<uint16_t>(config.total_level);
     *slot_word(slot, 0x0Eu) = 0u;
-    *slot_word(slot, 0x10u) = encode_pitch(config.sample_rate, config.pitch_scale_q16);
+    *slot_word(slot, 0x10u) = config.pitch_ready != 0u ? config.pitch_word
+                                                       : encode_pitch(config.sample_rate, config.pitch_scale_q16);
     *slot_word(slot, 0x12u) = 0u;
     g_slot_send[slot] = g_default_send;
     *slot_word(slot, 0x14u) = send_word_for(slot);

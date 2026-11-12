@@ -23,6 +23,11 @@ struct Entry {
     uint8_t loop;
     uint8_t used;
     uint8_t reserved;
+    /* At pitch 1.0: the PITCH word and the length in display frames, both set by sat_sound_create so that a play
+     * does not divide in 64 bits. unit_frames 0: not computed, or longer than 65,535 frames (sat_sound_play computes
+     * both). */
+    uint16_t unit_pitch;
+    uint16_t unit_frames;
 };
 
 template <uint16_t Capacity>

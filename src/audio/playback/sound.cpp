@@ -1,4 +1,5 @@
 #include "src/audio/playback/state.hpp"
+#include "src/core/runtime/state.hpp"
 
 using namespace saturn::core::audio::playback;
 
@@ -52,6 +53,10 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
         entry.loop_start = 0u;
         entry.loop_end = static_cast<uint16_t>(entry.sample_count - 1u);
     }
+    entry.unit_pitch = saturn::hal::scsp::encode_pitch(entry.sample_rate, SAT_FX16_ONE);
+    const uint32_t unit_frames = saturn::core::audio::voice::lifetime::duration_frames(
+        entry.sample_count, entry.sample_rate, SAT_FX16_ONE, saturn::core::g_state.config.ntsc != 0u ? 60u : 50u);
+    entry.unit_frames = static_cast<uint16_t>(unit_frames <= 0xFFFFu ? unit_frames : 0u);
 
     out_sound->slot = sound_slot;
     out_sound->generation = generation;

@@ -17,11 +17,14 @@ static uint32_t muted_before_off=0u;
 static bool driver_running=false;
 static bool driver_capacity=true;
 static uint32_t scheduled_count=0u;
+static uint8_t last_pitch_ready=0u;
+static uint16_t last_pitch_word=0u;
 
 extern "C" uint32_t sat_field_count(void) { return frame; }
 namespace saturn::hal::scsp {
-bool configure_slot(uint8_t, const SlotConfig&) {
+bool configure_slot(uint8_t, const SlotConfig& config) {
     ++configure_count;
+    last_pitch_ready=config.pitch_ready;last_pitch_word=config.pitch_word;
     if(!configure_ok)return false;  // Hardware contract: no writes on reject.
     key_off(0u);                    // Mirrors the real configure_slot.
     return true;
@@ -117,5 +120,19 @@ int main() {
     assert(g_voice_registry.entries[0].end_frame==250u);
     assert(g_voice_steals==1u);
     assert(key_off_count==off_after_stop+1u); // configure only; no steal.
-    std::puts("audio voice transaction: failed config/full timed queue preserve voices; 68000, PAL/CD OK");
+    assert(last_pitch_ready==0u); // nothing precomputed: configure_slot encodes the pitch
+    // sat_sound_create's precomputed pitch-1.0 word and length are used as they are, at pitch 1.0 only.
+    sound->unit_pitch=0x1234u;
+    sound->unit_frames=static_cast<uint16_t>(
+        saturn::core::audio::voice::lifetime::duration_frames(22050u,22050u,SAT_FX16_ONE,50u));
+    assert(sat_voice_stop(new_handle)==SAT_OK);
+    assert(sat_sound_play(sound_handle,&params,&new_handle)==SAT_OK);
+    assert(last_pitch_ready==1u && last_pitch_word==0x1234u);
+    assert(g_voice_registry.entries[new_handle.slot].end_frame==250u);
+    assert(sat_voice_stop(new_handle)==SAT_OK);
+    params.pitch=SAT_FX16_ONE*2;
+    assert(sat_sound_play(sound_handle,&params,&new_handle)==SAT_OK);
+    assert(last_pitch_ready==0u);
+    assert(g_voice_registry.entries[new_handle.slot].end_frame==225u);
+    std::puts("audio voice transaction: failed config/full timed queue preserve voices; 68000, PAL/CD, unit pitch OK");
 }

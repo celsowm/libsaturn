@@ -22,6 +22,9 @@ struct SlotConfig {
     uint8_t total_level;
     uint8_t direct_level;
     uint8_t pan;
+    // Nonzero: pitch_word is written as PITCH instead of encode_pitch(sample_rate, pitch_scale_q16) (configure_slot).
+    uint8_t pitch_ready;
+    uint16_t pitch_word;
 };
 
 bool init();
