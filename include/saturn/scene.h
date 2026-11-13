@@ -84,6 +84,9 @@ sat_result_t sat_scene_init(sat_scene_t* scene,
                             sat_scene3d_face_t* face_storage,
                             uint32_t* sort_keys, uint16_t* sort_order,
                             uint16_t face_capacity);
+/* With overlay_commands 0 the scene touches no command list until sat_scene_flush: it may begin, and take its
+ * faces, before sat_begin_frame (while the VDP1 still reads both banks), as long as the frame is begun before the
+ * flush. A nonzero overlay reservation needs the frame begun first. */
 sat_result_t sat_scene_begin(sat_scene_t* scene, const sat_camera3d_t* camera,
                              sat_fx16_t near_depth, uint16_t width,
                              uint16_t height, uint16_t overlay_commands);

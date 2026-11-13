@@ -598,6 +598,9 @@ sat_result_t command_batch_cancel(sat_vdp1_command_batch_t* b) {
 bool command_batch_pending() {return g_command_batch!=nullptr;}
 
 sat_result_t reserve_overlay_commands(uint16_t count) {
+    /* Reserving nothing needs no list: a scene without an overlay may begin before sat_begin_frame and build its
+     * faces in Work RAM while the VDP1 still reads both banks. */
+    if(count==0u && !g_overlay_pass){g_overlay_reserved=0u;return SAT_OK;}
     if(g_cmd_buffer == nullptr) return SAT_ERR_NOT_INITIALIZED;
     if(g_overlay_pass) return SAT_ERR_UNSUPPORTED;
     if(static_cast<uint32_t>(g_cmd_count)+1u+count>g_cmd_capacity)

@@ -378,15 +378,22 @@ extern "C" sat_result_t sat_draw_sprite_scaled_screen(
     const int32_t left = static_cast<int32_t>(screen_x) - static_cast<int32_t>(draw_width / 2u);
     const int32_t top = static_cast<int32_t>(screen_y) - static_cast<int32_t>(draw_height / 2u);
 
-    sat_scaled_sprite_cmd_t cmd = {};
-    cmd.x0 = saturn::internal::screen_to_native(static_cast<int>(left), cfg.width);
-    cmd.y0 = saturn::internal::screen_to_native(static_cast<int>(top), cfg.height);
-    cmd.x1 = static_cast<int16_t>(cmd.x0 + static_cast<int16_t>(draw_width) - 1);
-    cmd.y1 = static_cast<int16_t>(cmd.y0 + static_cast<int16_t>(draw_height) - 1);
-    cmd.texture = texture;
-    cmd.palette_override = palette_override;
-    cmd.flags = 0;
-    return sat_draw_sprite_scaled(&cmd);
+    /* The request sat_draw_sprite_scaled would build, without its second
+     * initialization check and the command/resolved copies: HUDs call this
+     * dozens of times an image. */
+    saturn::hal::vdp1::ScaledSpriteRequest req = {};
+    req.x0 = saturn::internal::screen_to_native(static_cast<int>(left), cfg.width);
+    req.y0 = saturn::internal::screen_to_native(static_cast<int>(top), cfg.height);
+    req.x1 = static_cast<int16_t>(req.x0 + static_cast<int16_t>(draw_width) - 1);
+    req.y1 = static_cast<int16_t>(req.y0 + static_cast<int16_t>(draw_height) - 1);
+    req.width = texture->width;
+    req.height = texture->height;
+    req.srca = texture->srca;
+    req.palette = palette_override != 0u ? palette_override : texture->palette;
+    req.flags = 0;
+    req.format = texture->format;
+    req.user_clip = false;
+    return saturn::hal::vdp1::push_scaled_sprite(req);
 }
 
 static sat_result_t draw_distorted_impl(const sat_distorted_sprite_cmd_t* cmd,const uint16_t* gouraud) {

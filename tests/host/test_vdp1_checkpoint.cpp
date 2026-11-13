@@ -7,6 +7,9 @@
 int main() {
     namespace vd=saturn::hal::vdp1;
     use_test_vram();
+    /* Reserving nothing needs no list: a scene may begin before the frame. Anything more does. */
+    assert(vd::reserve_overlay_commands(0u)==SAT_OK);
+    assert(vd::reserve_overlay_commands(1u)==SAT_ERR_NOT_INITIALIZED);
     vd::begin_frame(12u);
     vd::Command* const commands = vd::frame_commands();
     sat_vdp1_command_checkpoint_t first{};
