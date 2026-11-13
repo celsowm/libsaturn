@@ -14,10 +14,10 @@ constexpr uintptr_t kBupInitPointer = 0x06000358u;
 constexpr uint32_t kInternalConfigIndex = 0u;
 constexpr uint16_t kInternalUnitId = 1u;
 
-alignas(4) volatile uint32_t g_library[4096] = {};
-alignas(4) uint32_t g_work[2048] = {};
 Config g_configs[3] = {};
 bool g_initialized = false;
+/* The library area BUP_Init last ran into: the BIOS vectors point into it. */
+const volatile void* g_active = nullptr;
 
 Result map_result(int32_t value) {
     switch (value) {
@@ -82,25 +82,54 @@ bool ready() {
 
 }  // namespace
 
+namespace {
+
+Result start(volatile uint32_t* library, uint32_t* work) {
+    g_initialized = false;
+    g_active = nullptr;
+    using Fn = void (*)(volatile uint32_t*, uint32_t*, Config*);
+    Fn fn = init_entry<Fn>();
+    if (fn == nullptr) return Result::TransportError;
+
+    ResetGuard guard;
+    if (!guard.active()) return Result::TransportError;
+    fn(library, work, g_configs);
+    if (!guard.release()) return Result::TransportError;
+
+    if (g_configs[kInternalConfigIndex].unit_id != kInternalUnitId) {
+        return Result::NotConnected;
+    }
+    g_active = library;
+    g_initialized = true;
+    return Result::Ok;
+}
+
+}  // namespace
+
 Result init(Config out_configs[3]) {
     if (out_configs == nullptr) return Result::TransportError;
 
-    if (!g_initialized) {
-        using Fn = void (*)(volatile uint32_t*, uint32_t*, Config*);
-        Fn fn = init_entry<Fn>();
-        if (fn == nullptr) return Result::TransportError;
-
-        ResetGuard guard;
-        if (!guard.active()) return Result::TransportError;
-        fn(g_library, g_work, g_configs);
-        if (!guard.release()) return Result::TransportError;
-
-        if (g_configs[kInternalConfigIndex].unit_id != kInternalUnitId) {
-            return Result::NotConnected;
-        }
-        g_initialized = true;
+    /* Only a program that calls init() links these areas. */
+    alignas(4) static volatile uint32_t library[kLibraryBytes / 4u] = {};
+    alignas(4) static uint32_t work[kWorkBytes / 4u] = {};
+    if (!g_initialized || g_active != library) {
+        const Result result = start(library, work);
+        if (result != Result::Ok) return result;
     }
 
+    for (uint32_t i = 0u; i < 3u; ++i) out_configs[i] = g_configs[i];
+    return Result::Ok;
+}
+
+Result init_in(Config out_configs[3], void* library, void* work) {
+    if (out_configs == nullptr || library == nullptr || work == nullptr ||
+        (reinterpret_cast<uintptr_t>(library) & 3u) != 0u ||
+        (reinterpret_cast<uintptr_t>(work) & 3u) != 0u) {
+        return Result::TransportError;
+    }
+    const Result result =
+        start(static_cast<volatile uint32_t*>(library), static_cast<uint32_t*>(work));
+    if (result != Result::Ok) return result;
     for (uint32_t i = 0u; i < 3u; ++i) out_configs[i] = g_configs[i];
     return Result::Ok;
 }

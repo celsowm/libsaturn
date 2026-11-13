@@ -79,6 +79,15 @@ typedef struct sat_save_device_info {
 /* Initializes the Boot ROM BUP service. Never formats storage implicitly. */
 sat_result_t sat_save_init(void);
 
+/* The Work RAM BUP_Init needs: its 16 KiB library area and 8 KiB work area. */
+#define SAT_SAVE_WORKSPACE_BYTES 24576u
+/* sat_save_init into a caller's buffer instead of the 24 KiB the library keeps for the program's lifetime (a
+ * program that never calls sat_save_init does not link it). `workspace` is 4-byte aligned Work RAM of at least
+ * SAT_SAVE_WORKSPACE_BYTES; the Boot ROM runs its backup library from it. BUP_Init runs on every call, and the
+ * buffer must stay untouched until the last sat_save_* call that follows. A buffer used for other work in between
+ * needs this call again first. */
+sat_result_t sat_save_init_in(void* workspace, uint32_t bytes);
+
 /* Read-only connection/partition discovery from the BUP_Init configuration
  * snapshot. A missing cart returns SAT_OK with connected=0. Reinitialize
  * after changing hardware by restarting the Saturn program. */

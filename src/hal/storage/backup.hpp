@@ -45,7 +45,15 @@ static_assert(sizeof(Config) == 4u);
 static_assert(sizeof(Stat) == 24u);
 static_assert(sizeof(Dir) == 36u);
 
+/* BUP_Init's library and work areas: the Boot ROM copies its backup library into the first and runs it there. */
+constexpr uint32_t kLibraryBytes = 16384u;
+constexpr uint32_t kWorkBytes = 8192u;
+
+/* BUP_Init into this file's own areas, once. */
 Result init(Config out_configs[3]);
+/* BUP_Init into the caller's areas (4-byte aligned, kLibraryBytes and kWorkBytes), every call: they must stay
+ * untouched until the last BUP call that follows. */
+Result init_in(Config out_configs[3], void* library, void* work);
 Result select_partition(uint32_t device, uint16_t partition);
 Result format(uint32_t device);
 Result stat(uint32_t device, uint32_t prospective_data_size, Stat* out_stat);

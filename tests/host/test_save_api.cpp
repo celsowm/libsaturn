@@ -53,6 +53,14 @@ Result init(Config out_configs[3]) {
     return Result::Ok;
 }
 
+static void* g_init_in_library = nullptr;
+static void* g_init_in_work = nullptr;
+Result init_in(Config out_configs[3], void* library, void* work) {
+    g_init_in_library = library;
+    g_init_in_work = work;
+    return init(out_configs);
+}
+
 Result select_partition(uint32_t, uint16_t) { return Result::Ok; }
 
 Result format(uint32_t device) {
@@ -124,6 +132,18 @@ int main() {
 
     g_init_result = Result::NotConnected;
     OK(sat_save_init() == SAT_ERR_NOT_CONNECTED);
+    g_init_result = Result::Ok;
+    // A borrowed workspace: aligned and SAT_SAVE_WORKSPACE_BYTES, split into the 16 KiB library and 8 KiB work.
+    alignas(4) static uint8_t workspace[SAT_SAVE_WORKSPACE_BYTES + 4u];
+    OK(sat_save_init_in(nullptr, SAT_SAVE_WORKSPACE_BYTES) == SAT_ERR_INVALID_ARG);
+    OK(sat_save_init_in(workspace, SAT_SAVE_WORKSPACE_BYTES - 1u) == SAT_ERR_INVALID_ARG);
+    OK(sat_save_init_in(workspace + 2, SAT_SAVE_WORKSPACE_BYTES) == SAT_ERR_INVALID_ARG);
+    OK(g_init_in_library == nullptr);
+    OK(sat_save_init_in(workspace, SAT_SAVE_WORKSPACE_BYTES) == SAT_OK);
+    OK(g_init_in_library == workspace && g_init_in_work == workspace + 16384u);
+    g_init_result = Result::NotConnected;
+    OK(sat_save_init_in(workspace, SAT_SAVE_WORKSPACE_BYTES) == SAT_ERR_NOT_CONNECTED);
+    OK(sat_save_storage_info(SAT_SAVE_INTERNAL, 0u, &info) == SAT_ERR_NOT_INITIALIZED);
     g_init_result = Result::Ok;
     OK(sat_save_init() == SAT_OK);
 

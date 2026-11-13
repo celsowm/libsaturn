@@ -146,9 +146,9 @@ sat_result_t find_entry(uint32_t device, const char* name, Dir* out_entry) {
 
 }  // namespace
 
-extern "C" sat_result_t sat_save_init(void) {
-    saturn::hal::bup::Config configs[3] = {};
-    const sat_result_t result = map_result(saturn::hal::bup::init(configs));
+namespace {
+
+sat_result_t keep_configs(sat_result_t result, const saturn::hal::bup::Config configs[3]) {
     if (result == SAT_OK) {
         for (uint32_t i = 0u; i < 3u; ++i) {
             g_save_configs[i] = configs[i];
@@ -156,6 +156,28 @@ extern "C" sat_result_t sat_save_init(void) {
         g_save_initialized = true;
     }
     return result;
+}
+
+}  // namespace
+
+extern "C" sat_result_t sat_save_init(void) {
+    saturn::hal::bup::Config configs[3] = {};
+    return keep_configs(map_result(saturn::hal::bup::init(configs)), configs);
+}
+
+extern "C" sat_result_t sat_save_init_in(void* workspace, uint32_t bytes) {
+    if (workspace == nullptr || bytes < SAT_SAVE_WORKSPACE_BYTES ||
+        (reinterpret_cast<uintptr_t>(workspace) & 3u) != 0u) {
+        return SAT_ERR_INVALID_ARG;
+    }
+    static_assert(SAT_SAVE_WORKSPACE_BYTES ==
+                  saturn::hal::bup::kLibraryBytes + saturn::hal::bup::kWorkBytes);
+    uint8_t* const area = static_cast<uint8_t*>(workspace);
+    saturn::hal::bup::Config configs[3] = {};
+    g_save_initialized = false;
+    return keep_configs(
+        map_result(saturn::hal::bup::init_in(configs, area, area + saturn::hal::bup::kLibraryBytes)),
+        configs);
 }
 
 extern "C" sat_result_t sat_save_device_info(
