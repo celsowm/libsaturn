@@ -1645,8 +1645,9 @@ int main(int argc, char** argv) {
                                      "[probe] frame %u: no composited frame yet, skipping %s\n",
                                      i, path.c_str());
                     } else if (harness::png::write_rgb(path, frame.pixels.data(), frame.width, frame.height)) {
-                        std::fprintf(stderr, "[probe] frame %u -> %s (%ux%u)\n", i,
-                                     path.c_str(), frame.width, frame.height);
+                        // audio: stereo samples of --dump-audio so far, to place the shot on the sound's timeline.
+                        std::fprintf(stderr, "[probe] frame %u -> %s (%ux%u) audio %zu\n", i,
+                                     path.c_str(), frame.width, frame.height, audio.samples.size() / 2u);
                     } else {
                         std::fprintf(stderr, "[probe] frame %u: failed to write %s\n", i, path.c_str());
                     }
