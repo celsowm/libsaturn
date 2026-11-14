@@ -158,6 +158,41 @@ int main() {
         OK(sat_sprite_batch_begin(&win, 1u, 0x80u) == SAT_ERR_INVALID_ARG);
     }
 
+    /* KOF-style mutable local prefix: texture fields are changed just before
+     * inline emission. The resulting first 16 bytes must match the general
+     * path even with strict aliasing and aggressive optimization. */
+    {
+        sat_sprite_frame_t prefixes[4]{};
+        for(uint16_t i=0;i<4;++i)
+            OK(sat_sprite_frame_init_raw(&prefixes[i],0x5000u,8u,1u,
+                SAT_VDP1_TEXTURE_LUT4,0x5000u,static_cast<uint16_t>(i<<5),0,0)==SAT_OK);
+        begin_frame(256u);
+        sat_sprite_batch_window_t win{};
+        OK(sat_sprite_batch_begin(&win,128u,
+            SAT_SPRITE_BATCH_KEEP_PRECLIP|SAT_SPRITE_BATCH_NO_CULL)==SAT_OK);
+        for(uint16_t i=0;i<128;++i) {
+            sat_sprite_frame_t frame=prefixes[i&3u];
+            frame.srca=static_cast<uint16_t>(0x5100u+i*13u);
+            frame.colr=static_cast<uint16_t>(0x6200u+i*4u);
+            frame.size=static_cast<uint16_t>(((1u+(i&1u))<<8)|(1u+(i%16u)));
+            OK(sat_sprite_batch_emit(&win,&frame,i*2,120)==1);
+        }
+        sat_sprite_batch_stats_t st{};
+        OK(sat_sprite_batch_end(&win,&st)==SAT_OK && st.submitted==128u);
+        const auto actual=frame_snapshot(256u);
+        for(uint16_t i=0;i<128;++i) {
+            sat_sprite_frame_t expected{};
+            const uint16_t flags=static_cast<uint16_t>((i&3u)<<5);
+            const uint16_t palette=static_cast<uint16_t>(0x6200u+i*4u);
+            OK(sat_sprite_frame_init_raw(&expected,static_cast<uint16_t>(0x5100u+i*13u),
+                static_cast<uint16_t>(8u*(1u+(i&1u))),static_cast<uint16_t>(1u+i%16u),
+                SAT_VDP1_TEXTURE_LUT4,palette,flags,0,0)==SAT_OK);
+            const sat_sprite_instance_t pos{static_cast<int16_t>(i*2),120,0,0};
+            const Command want=reference_command(expected,pos,flags,SAT_VDP1_TEXTURE_LUT4,palette);
+            OK(std::memcmp(&actual[2u+i],&want,16u)==0);
+        }
+    }
+
     /* A user-clipped frame inside the screen keeps pre-clipping: it can still cross the user
      * rectangle, which the Pclp bit would not handle. */
     {

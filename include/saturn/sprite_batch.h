@@ -159,8 +159,10 @@ static inline int sat_sprite_batch_emit(sat_sprite_batch_window_t* win, const sa
         ++win->dropped;
         return 0;
     }
-    const uint32_t* const fw = (const uint32_t*)(const void*)frame;
-    uint32_t w1 = fw[1];
+    /* Pack named halfwords rather than type-punning the frame through
+     * uint32_t*. An inline caller can modify colr/srca/size immediately
+     * before this call; strict aliasing must not hide those stores. */
+    uint32_t w1 = SAT_SPRITE_BATCH_PAIR(frame->pmod, frame->colr);
     /* Pclp (CMDPMOD bit 11): small sprites wholly on screen skip the VDP1's per-line pre-clip test
      * (manual 6.3), except flipped ones (the bit forbids it) and user-clipped ones (they may cross
      * the user rectangle). */
@@ -169,9 +171,9 @@ static inline int sat_sprite_batch_emit(sat_sprite_batch_window_t* win, const sa
         ++win->no_preclip;
     }
     uint32_t* const w = win->next;
-    w[0] = fw[0];
+    w[0] = SAT_SPRITE_BATCH_PAIR(frame->ctrl, frame->link);
     w[1] = w1;
-    w[2] = fw[2];
+    w[2] = SAT_SPRITE_BATCH_PAIR(frame->srca, frame->size);
     w[3] = SAT_SPRITE_BATCH_PAIR((uint16_t)(left - win->origin_x), (uint16_t)(top - win->origin_y));
     win->next = w + 8;
     return 1;
@@ -189,11 +191,10 @@ static inline int sat_sprite_batch_emit_distorted(sat_sprite_batch_window_t* win
         ++win->dropped;
         return 0;
     }
-    const uint32_t* const fw = (const uint32_t*)(const void*)frame;
     uint32_t* const w = win->next;
-    w[0] = fw[0] | SAT_SPRITE_BATCH_PAIR(0x0002u, 0u);   /* CMDCTRL Comm: distorted sprite */
-    w[1] = fw[1];
-    w[2] = fw[2];
+    w[0] = SAT_SPRITE_BATCH_PAIR(frame->ctrl | 0x0002u, frame->link);
+    w[1] = SAT_SPRITE_BATCH_PAIR(frame->pmod, frame->colr);
+    w[2] = SAT_SPRITE_BATCH_PAIR(frame->srca, frame->size);
     w[3] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[0], (uint16_t)y[0]);
     w[4] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[1], (uint16_t)y[1]);
     w[5] = SAT_SPRITE_BATCH_PAIR((uint16_t)x[2], (uint16_t)y[2]);
