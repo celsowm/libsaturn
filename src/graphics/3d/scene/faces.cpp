@@ -6,6 +6,7 @@
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
 #include "src/graphics/3d/scene/faces_flush.hpp"
+#include "src/graphics/3d/scene/projected_bounds_sh2.hpp"
 #include "src/graphics/3d/scene/screen_cull_sh2.hpp"
 #include "src/hal/sh2/frt.hpp"
 #include "src/graphics/vdp1/projected.hpp"
@@ -506,8 +507,14 @@ uint16_t append_screen_culled_job(sat_scene3d_faces_t* scene,
         (kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits};
     const uint32_t kept=saturn::scene3d::screen_cull::run(job);
     if(uint16_t* order=scene->projected_indices) {
+        /* Two slots per store once the address is a whole word. */
         order+=count;
-        for(uint32_t i=0u;i<kept;++i)order[i]=static_cast<uint16_t>(first+i);
+        uint32_t left=kept;
+        uint16_t slot=first;
+        if(left && (reinterpret_cast<uintptr_t>(order)&2u)) {*order++=slot++;--left;}
+        for(;left>=2u;left-=2u,order+=2,slot=static_cast<uint16_t>(slot+2u))
+            *reinterpret_cast<aligned_pair_t*>(order)=command_pair(slot,static_cast<uint16_t>(slot+1u));
+        if(left)*order=slot;
     }
     scene->count=static_cast<uint16_t>(count+kept);
     return static_cast<uint16_t>(face_count-kept);
@@ -1360,17 +1367,11 @@ static sat_result_t submit_instance(
      * amortizes repeated checks without discarding off-screen geometry. */
     bool all_positive=false,all_safe_rgb=false,all_safe_indexed=false;
     if(mesh->face_count>=16u && static_cast<uint32_t>(mesh->face_count)*4u>mesh->vertex_count) {
-        int32_t min_x=screen_scratch[0].x,max_x=min_x;
-        int32_t min_y=screen_scratch[0].y,max_y=min_y;
-        sat_fx16_t min_w=screen_scratch[0].w;
-        for(uint16_t v=1;v<mesh->vertex_count;++v) {
-            const sat_projected_vertex_t& p=screen_scratch[v];
-            if(p.x<min_x)min_x=p.x;
-            if(p.x>max_x)max_x=p.x;
-            if(p.y<min_y)min_y=p.y;
-            if(p.y>max_y)max_y=p.y;
-            if(p.w<min_w)min_w=p.w;
-        }
+        saturn::scene3d::projected_bounds::Bounds bounds;
+        saturn::scene3d::projected_bounds::run(screen_scratch,mesh->vertex_count,&bounds);
+        const int32_t min_x=bounds.min_x,max_x=bounds.max_x;
+        const int32_t min_y=bounds.min_y,max_y=bounds.max_y;
+        const sat_fx16_t min_w=bounds.min_w;
         all_positive=min_w>0;
         if(min_w>=scene->near_depth) {
             all_safe_rgb=min_x>=-1024 && min_y>=-1024 &&
