@@ -441,7 +441,10 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
  * entries, keys and order in locals: a store through order may alias
  * scene->count, so the inline version reloads them and stores the count
  * after every face (Work RAM is written through). Same entries, keys, order
- * and count; the count is stored once. Returns the culled faces. */
+ * and count; the count is stored once. Returns the culled faces. With
+ * Offsets, `indices` holds byte offsets into `projected` (the instance's
+ * projected_offsets) instead of vertex indices. */
+template<bool Offsets>
 [[gnu::noinline]] uint16_t append_screen_culled(sat_scene3d_faces_t* scene,
     const sat_projected_vertex_t* projected,const uint16_t* indices,uint16_t face_count,
     const uint8_t* double_sided,const sat_scene3d_material_program_t* programs,
@@ -454,10 +457,16 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
     uint16_t culled=0u;
     for(uint16_t f=0;f<face_count;++f) {
         const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];
-        const sat_projected_vertex_t& a=projected[idx[0]];
-        const sat_projected_vertex_t& b=projected[idx[1]];
-        const sat_projected_vertex_t& c=projected[idx[2]];
-        const sat_projected_vertex_t& d=projected[idx[3]];
+        const auto corner=[projected,idx](unsigned i) -> const sat_projected_vertex_t& {
+            if constexpr(Offsets)
+                return *reinterpret_cast<const sat_projected_vertex_t*>(
+                    reinterpret_cast<const uint8_t*>(projected)+idx[i]);
+            else return projected[idx[i]];
+        };
+        const sat_projected_vertex_t& a=corner(0u);
+        const sat_projected_vertex_t& b=corner(1u);
+        const sat_projected_vertex_t& c=corner(2u);
+        const sat_projected_vertex_t& d=corner(3u);
         if((!double_sided || !double_sided[f]) &&
            saturn::core::render3d::corner_area2(a.x,a.y,b.x,b.y,c.x,c.y,d.x,d.y)<=0) {
             ++culled;
@@ -1365,8 +1374,11 @@ static sat_result_t submit_instance(
 #else
             const bool own_loop=scene->projected_entries!=nullptr;
 #endif
-            if(own_loop)
-                culled=append_screen_culled(scene,screen_scratch,indices,mesh->face_count,double_sided,
+            if(own_loop && instance->pre_projected && instance->projected_offsets)
+                culled=append_screen_culled<true>(scene,screen_scratch,instance->projected_offsets,
+                    mesh->face_count,double_sided,programs,face_materials,face_gouraud,pass);
+            else if(own_loop)
+                culled=append_screen_culled<false>(scene,screen_scratch,indices,mesh->face_count,double_sided,
                     programs,face_materials,face_gouraud,pass);
             else for(uint16_t f=0;f<mesh->face_count;++f) {
                 const uint16_t* idx=&indices[static_cast<uint32_t>(f)*4u];

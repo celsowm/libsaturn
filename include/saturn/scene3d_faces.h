@@ -409,6 +409,12 @@ typedef struct sat_scene3d_instance {
      * to faces drawn from compiled programs (the native and projected hot
      * queues); a face that needs the clipping fallback is drawn unshaded. */
     const uint16_t* face_gouraud;
+    /* Optional, for a pre_projected instance culled with
+     * SAT_SCENE3D_CULL_SCREEN: the mesh's face indices already multiplied by
+     * sizeof(sat_projected_vertex_t), four per face, so a corner's address is
+     * one add. The caller keeps them equal to mesh->indices times that size;
+     * NULL reads the mesh's indices. Other paths ignore it. */
+    const uint16_t* projected_offsets;
 } sat_scene3d_instance_t;
 
 /* Compiled publication plan for immutable topology/material resources.
