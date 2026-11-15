@@ -1,5 +1,6 @@
 #include "saturn/skin3d.h"
 #include "src/graphics/3d/rendering/logic.hpp"
+#include "src/graphics/3d/animation/rigid_project_sh2.hpp"
 
 namespace {
 
@@ -461,7 +462,21 @@ void project_q15(const sat_skin_asset_t& s, const sat_mat4_t* mats, uint32_t v,
     Projector projector(width, y_scale);
     int32_t in[4] = {0, 0, 0, 65536};
     const uint32_t rigid_end = end < s.rigid_count ? end : s.rigid_count;
+    /* rigid_project takes each run of plainly inside vertices; the vertex
+     * that stops it goes through the Projector's clamps below. */
+    saturn::skin3d::rigid_project::Job run{};
+    run.joints = mats;
+    run.width = width;
+    run.y_scale = y_scale;
+    run.mult = projector.x_mult < projector.y_mult ? projector.x_mult : projector.y_mult;
+    run.w_last = (projector.x_wmax > projector.y_wmax ? projector.x_wmax : projector.y_wmax) - 1u;
     for (; v < rigid_end; ++v) {
+        projector.finish();
+        run.rigid = &s.rigid[v];
+        run.out = &out[v];
+        run.count = rigid_end - v;
+        v += saturn::skin3d::rigid_project::run(run);
+        if (v >= rigid_end) break;
         const sat_skin_rigid_t& r = s.rigid[v];
         in[0] = r.pos[0] * 2; in[1] = r.pos[1] * 2; in[2] = r.pos[2] * 2;
         /* The X and W rows run during the vertex before's Y divide, the Y
