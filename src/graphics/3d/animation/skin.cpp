@@ -1,6 +1,7 @@
 #include "saturn/skin3d.h"
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/animation/rigid_project_sh2.hpp"
+#include "src/graphics/3d/animation/clip_joints_sh2.hpp"
 
 namespace {
 
@@ -549,37 +550,11 @@ extern "C" sat_result_t sat_skin_clip_joints(
             if (!fits_int32(s)) return SAT_ERR_INVALID_ARG;
             scaled[r][k] = (int32_t)s;
         }
-    for (uint16_t j = 0; j < count; ++j) {
-        const sat_fx16_t* m = joint_world[j].m;
-        int32_t origin[3];
-        for (uint8_t k = 0; k < 3; ++k) {
-            for (uint8_t i = 0; i < 3; ++i)
-                if (m[k * 4 + i] <= -kInput || m[k * 4 + i] >= kInput) return SAT_ERR_INVALID_ARG;
-            const int64_t placed = (int64_t)p.scale * m[k * 4 + 3] + p.offset[k];
-            if (!fits_int32(placed)) return SAT_ERR_INVALID_ARG;
-            origin[k] = (int32_t)placed;
-        }
-        sat_fx16_t* c = out[j].m;
-        for (uint8_t r = 0; r < 3; ++r) {
-            const int32_t* s = scaled[r];
-            for (uint8_t i = 0; i < 3; ++i) {
-                /* Each product < 2^60, so the sum fits int64. */
-                const int64_t t = (int64_t)s[0] * m[i] + (int64_t)s[1] * m[4 + i] +
-                                  (int64_t)s[2] * m[8 + i];
-                const int64_t rounded = (t + 32768) >> 16;
-                if (!fits_int32(rounded)) return SAT_ERR_INVALID_ARG;
-                c[r * 4 + i] = (sat_fx16_t)rounded;
-            }
-            const sat_fx16_t* v = &view_proj->m[kRows[r] * 4];
-            const int64_t t = (int64_t)v[0] * origin[0] + (int64_t)v[1] * origin[1] +
-                              (int64_t)v[2] * origin[2];
-            const int64_t translated = ((t + 32768) >> 16) + v[3];
-            if (!fits_int32(translated)) return SAT_ERR_INVALID_ARG;
-            c[r * 4 + 3] = (sat_fx16_t)translated;
-        }
-        c[12] = c[13] = c[14] = c[15] = 0;
-    }
-    return SAT_OK;
+    int32_t rows[3][4];
+    for (uint8_t r = 0; r < 3; ++r)
+        for (uint8_t k = 0; k < 4; ++k) rows[r][k] = view_proj->m[kRows[r] * 4 + k];
+    const saturn::skin3d::clip_joints::Job job{joint_world, out, count, &scaled[0][0], &rows[0][0], placement};
+    return saturn::skin3d::clip_joints::run(job) ? SAT_OK : SAT_ERR_INVALID_ARG;
 }
 
 extern "C" sat_result_t sat_skin_project_range(
