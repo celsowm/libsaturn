@@ -6,6 +6,7 @@
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
 #include "src/graphics/3d/scene/faces_flush.hpp"
+#include "src/graphics/3d/scene/program_run_sh2.hpp"
 #include "src/graphics/3d/scene/projected_bounds_sh2.hpp"
 #include "src/graphics/3d/scene/screen_cull_sh2.hpp"
 #include "src/hal/sh2/frt.hpp"
@@ -692,7 +693,19 @@ sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t or
     const uint16_t* const order=scene->order;
     const sat_scene3d_projected_face_t* const entries=scene->projected_entries;
     uint32_t k=*i;
-    for(;k<ordered;++k) {
+    if constexpr(Indirect) {
+        /* program_run writes the run; what stopped it is read off the queue. */
+        if(available) {
+            saturn::scene3d::program_run::Job job{order+k,scene->projected_indices,entries,out,
+                ordered-k<available?ordered-k:available,0u};
+            n=saturn::scene3d::program_run::run(job);
+            cached=job.cached;
+            k+=n;
+        }
+        if(n==available && k<ordered &&
+           entries[scene->projected_indices[order[k]]].kind==SAT_SCENE3D_PROJECTED_PROGRAM)
+            st=SAT_ERR_CAPACITY;
+    } else for(;k<ordered;++k) {
         const uint16_t logical=order[k];
         const auto& hot=entries[Indirect?scene->projected_indices[logical]:logical];
         if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
