@@ -319,6 +319,31 @@ inline void clip_rows(const sat_fx16_t* m, const int32_t in[4],
 #endif
 }
 
+/* One row of clip_rows: `row` is the row's four coefficients. */
+[[gnu::always_inline]] inline int32_t clip_row(const sat_fx16_t* row, const int32_t in[4]) {
+#if defined(__sh__)
+    int32_t hi, r;
+    const int32_t* p = in;
+    __asm__(
+        "clrmac\n\t"
+        "lds %[round],macl\n\t"
+        "mac.l @%[m]+,@%[p]+\n\t"
+        "mac.l @%[m]+,@%[p]+\n\t"
+        "mac.l @%[m]+,@%[p]+\n\t"
+        "mac.l @%[m]+,@%[p]+\n\t"
+        "sts mach,%[hi]\n\t"
+        "sts macl,%[r]\n\t"
+        "xtrct %[hi],%[r]\n\t"
+        : [m] "+r"(row), [p] "+r"(p), [hi] "=&r"(hi), [r] "=&r"(r)
+        : [round] "r"(32768), "m"(*(const int32_t(*)[4])in), "m"(*(const sat_fx16_t(*)[4])row)
+        : "macl", "mach");
+    return r;
+#else
+    return (int32_t)(((int64_t)row[0] * in[0] + (int64_t)row[1] * in[1] +
+                      (int64_t)row[2] * in[2] + 32768) >> 16) + row[3];
+#endif
+}
+
 /* Projects clip (x, y, w) triples as project_vertex does, from one function's
  * registers: a vertex's Y divide overlaps the next vertex's rows. */
 struct Projector {
@@ -393,6 +418,40 @@ struct Projector {
             o->y = (int16_t)(y_numerator < 0 ? -kCoordLimit : kCoordLimit);
         }
     }
+
+    /* put() in two steps, for a caller that forms the Y row between them:
+     * put_xw starts the X divide and put_y ends it, so the row's products
+     * run while the divider works. put_y is called only when put_xw returned
+     * true (w > 0). Same values as put(). */
+    int64_t x_numerator;
+    bool x_inside;
+
+    bool put_xw(sat_projected_vertex_t* o, int32_t x, int32_t w) {
+        using namespace saturn::core::render3d;
+        finish();
+        o->w = w;
+        if (w <= 0) return false;
+        x_numerator = (int64_t)x * width;
+        x_inside = inside(x, x_numerator, w, x_mult, x_wmax);
+        if (x_inside) project_axis_start(x_numerator, w);
+        return true;
+    }
+
+    void put_y(sat_projected_vertex_t* o, int32_t y, int32_t w) {
+        using namespace saturn::core::render3d;
+        const int64_t y_numerator = (int64_t)y * y_scale;
+        const bool y_inside = inside(y, y_numerator, w, y_mult, y_wmax);
+        o->x = x_inside ? project_axis_finish(x_numerator, w)
+                        : (int16_t)(x_numerator < 0 ? -kCoordLimit : kCoordLimit);
+        if (y_inside) {
+            project_axis_start(y_numerator, w);
+            pending = o;
+            pending_numerator = y_numerator;
+            pending_w = w;
+        } else {
+            o->y = (int16_t)(y_numerator < 0 ? -kCoordLimit : kCoordLimit);
+        }
+    }
 };
 
 /* Q15 vertices [v, end) straight to screen, the rows in registers. Same
@@ -405,9 +464,12 @@ void project_q15(const sat_skin_asset_t& s, const sat_mat4_t* mats, uint32_t v,
     for (; v < rigid_end; ++v) {
         const sat_skin_rigid_t& r = s.rigid[v];
         in[0] = r.pos[0] * 2; in[1] = r.pos[1] * 2; in[2] = r.pos[2] * 2;
-        int32_t x, y, w;
-        clip_rows(mats[r.joint].m, in, &x, &y, &w);
-        projector.put(&out[v], x, y, w);
+        /* The X and W rows run during the vertex before's Y divide, the Y
+         * row during this vertex's X divide. */
+        const sat_fx16_t* const m = mats[r.joint].m;
+        const int32_t x = clip_row(m, in);
+        const int32_t w = clip_row(m + 8, in);
+        if (projector.put_xw(&out[v], x, w)) projector.put_y(&out[v], clip_row(m + 4, in), w);
     }
     for (; v < end; ++v) {
         const sat_skin_blend_t& r = s.blend[v - s.rigid_count];

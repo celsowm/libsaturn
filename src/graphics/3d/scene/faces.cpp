@@ -655,19 +655,19 @@ sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t or
         if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
         if(n==available) {st=SAT_ERR_CAPACITY;break;}
         const uint16_t* const prefix=hot.program->command;
+        // A shaded face carries the caller's table at CMDGRDA. Each word is
+        // stored once: the slots are VDP1 VRAM, and a store there is a bus write.
+        const uint32_t grda=hot.reserved;
+        uint32_t mode=load_pair(prefix+2);
+        if(grda)mode=command_pair(saturn::core::compose_gouraud_pmod(prefix[2]),prefix[3]);
         out[0]=command_pair(prefix[0],0u);
-        out[1]=load_pair(prefix+2);
+        out[1]=mode;
         out[2]=load_pair(prefix+4);
         out[3]=hot.xy[0];
         out[4]=hot.xy[1];
         out[5]=hot.xy[2];
         out[6]=hot.xy[3];
-        out[7]=0u;
-        if(hot.reserved) {
-            // A shaded face: the caller's table at CMDGRDA.
-            out[1]=command_pair(saturn::core::compose_gouraud_pmod(prefix[2]),prefix[3]);
-            out[7]=command_pair(hot.reserved,0u);
-        }
+        out[7]=command_pair(static_cast<uint16_t>(grda),0u);
         out+=8;
         ++n;
         if(hot.cached_projected)++cached;
