@@ -36,7 +36,8 @@ typedef struct sat_vdp1_texture {
 } sat_vdp1_texture_t;
 
 /* Opaque immutable command prefix produced by the scene material compiler.
- * Six native header words; XY and final GRDA/PAD words are emitted per face. */
+ * Six native header words; XY and final GRDA/PAD words are emitted per face.
+ * command[1] (the link, written per face) holds the Gouraud form of command[2]. */
 typedef struct sat_vdp1_projected_program {
     uint16_t command[6];
     const sat_vdp1_texture_t* texture;

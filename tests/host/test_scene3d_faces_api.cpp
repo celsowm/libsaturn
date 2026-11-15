@@ -427,7 +427,7 @@ static void compiled_materials_preserve_emission_and_residency() {
     assert(!table.valid);
     assert(sat_scene3d_material_programs_init(&table,materials,2,programs,2)==SAT_OK);
     assert(table.valid && table.all_compiled);
-    assert(programs[1].command[0]==2 && programs[1].command[1]==0);
+    assert(programs[1].command[0]==2 && programs[1].command[1]==0x018C); // the shaded form of command[2]
     assert(programs[1].command[2]==0x0188 && programs[1].command[3]==0x181);
     assert(programs[1].command[4]==32 && programs[1].command[5]==0x0108);
     sat_quad3_t world=quad(2);

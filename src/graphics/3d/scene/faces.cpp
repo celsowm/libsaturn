@@ -443,12 +443,13 @@ uint32_t painter_key_positive(uint32_t w0,uint32_t w1,uint32_t w2,uint32_t w3,ui
  * after every face (Work RAM is written through). Same entries, keys, order
  * and count; the count is stored once. Returns the culled faces. With
  * Offsets, `indices` holds byte offsets into `projected` (the instance's
- * projected_offsets) instead of vertex indices. */
-template<bool Offsets>
+ * projected_offsets) instead of vertex indices. With Tables, face f takes
+ * the Gouraud table `gouraud_first + f` and `face_gouraud` is not read. */
+template<bool Offsets,bool Tables=false>
 [[gnu::noinline]] uint16_t append_screen_culled(sat_scene3d_faces_t* scene,
     const sat_projected_vertex_t* projected,const uint16_t* indices,uint16_t face_count,
     const uint8_t* double_sided,const sat_scene3d_material_program_t* programs,
-    const uint16_t* face_materials,const uint16_t* face_gouraud,uint16_t pass) {
+    const uint16_t* face_materials,const uint16_t* face_gouraud,uint16_t pass,uint16_t gouraud_first=0u) {
     uint16_t count=scene->count;
     const uint16_t gap=scene->projected_gap;
     sat_scene3d_projected_face_t* const entries=scene->projected_entries;
@@ -478,7 +479,9 @@ template<bool Offsets>
         item.xy[0]=load_pair(&a.x);item.xy[1]=load_pair(&b.x);
         item.xy[2]=load_pair(&c.x);item.xy[3]=load_pair(&d.x);
         item.program=&programs[face_materials[f]];
-        store_kind(item,SAT_SCENE3D_PROJECTED_PROGRAM,0u,face_gouraud?face_gouraud[f]:0u);
+        if constexpr(Tables)
+            store_kind(item,SAT_SCENE3D_PROJECTED_PROGRAM,0u,static_cast<uint16_t>(gouraud_first+f));
+        else store_kind(item,SAT_SCENE3D_PROJECTED_PROGRAM,0u,face_gouraud?face_gouraud[f]:0u);
         keys[count]=painter_key_positive(static_cast<uint32_t>(a.w),static_cast<uint32_t>(b.w),
             static_cast<uint32_t>(c.w),static_cast<uint32_t>(d.w),pass);
         ++count;
@@ -668,7 +671,7 @@ sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t or
         // stored once: the slots are VDP1 VRAM, and a store there is a bus write.
         const uint32_t grda=hot.reserved;
         uint32_t mode=load_pair(prefix+2);
-        if(grda)mode=command_pair(saturn::core::compose_gouraud_pmod(prefix[2]),prefix[3]);
+        if(grda)mode=command_pair(prefix[1],prefix[3]);
         out[0]=command_pair(prefix[0],0u);
         out[1]=mode;
         out[2]=load_pair(prefix+4);
@@ -1151,8 +1154,9 @@ extern "C" sat_result_t sat_scene3d_material_programs_init(
             (texture->width&7u)) return SAT_ERR_INVALID_ARG;
         auto& program=storage[i];
         program.command[0]=saturn::core::kVdp1CmdDistortedSprite;
-        program.command[1]=0;
         program.command[2]=saturn::core::compose_sprite_pmod(material.sprite_flags,texture->format);
+        /* The link word is written per face; its slot keeps the draw mode of a shaded face. */
+        program.command[1]=saturn::core::compose_gouraud_pmod(program.command[2]);
         program.command[3]=saturn::core::compose_sprite_colr(texture->palette,texture->format);
         program.command[4]=texture->srca;
         program.command[5]=static_cast<uint16_t>(((texture->width/8u)<<8u)|texture->height);
@@ -1374,7 +1378,12 @@ static sat_result_t submit_instance(
 #else
             const bool own_loop=scene->projected_entries!=nullptr;
 #endif
-            if(own_loop && instance->pre_projected && instance->projected_offsets)
+            if(own_loop && instance->pre_projected && instance->projected_offsets &&
+               instance->face_gouraud_first && !face_gouraud)
+                culled=append_screen_culled<true,true>(scene,screen_scratch,instance->projected_offsets,
+                    mesh->face_count,double_sided,programs,face_materials,nullptr,pass,
+                    instance->face_gouraud_first);
+            else if(own_loop && instance->pre_projected && instance->projected_offsets)
                 culled=append_screen_culled<true>(scene,screen_scratch,instance->projected_offsets,
                     mesh->face_count,double_sided,programs,face_materials,face_gouraud,pass);
             else if(own_loop)

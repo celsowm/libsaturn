@@ -415,6 +415,11 @@ typedef struct sat_scene3d_instance {
      * one add. The caller keeps them equal to mesh->indices times that size;
      * NULL reads the mesh's indices. Other paths ignore it. */
     const uint16_t* projected_offsets;
+    /* Optional, with projected_offsets and without face_gouraud: face f is
+     * drawn Gouraud-shaded with the table at CMDGRDA face_gouraud_first + f
+     * (one 8-byte table per face, contiguous in VDP1 VRAM), so no per-face
+     * word is read. 0 for none. */
+    uint16_t face_gouraud_first;
 } sat_scene3d_instance_t;
 
 /* Compiled publication plan for immutable topology/material resources.
