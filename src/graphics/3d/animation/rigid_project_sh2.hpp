@@ -16,10 +16,12 @@
  * the first vertex that fails and returns how many it finished; the failing
  * vertex's output may be partly written.
  *
- * The divider: the X divide runs under the Y row, the Y divide under the next
- * vertex's X and W rows. DVSR keeps w between the two, so the Y divide writes
- * only its dividend. Like every user of project_axis_start, this assumes no
- * interrupt handler leaves the divider changed. */
+ * The divider takes 39 cycles and a quotient read waits for it. The X divide
+ * runs under the Y row and the read of the next record, the Y divide under the
+ * next vertex's X and W rows and tests, so neither read waits. DVSR keeps w
+ * between the two, so the Y divide writes only its dividend. Like every user
+ * of project_axis_start, this assumes no interrupt handler leaves the divider
+ * changed. */
 #include <stddef.h>
 #include <stdint.h>
 #include "saturn/skin3d.h"

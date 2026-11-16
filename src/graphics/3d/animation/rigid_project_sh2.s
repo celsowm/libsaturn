@@ -1,12 +1,17 @@
 /* The SH-2 routine of rigid_project_sh2.hpp: that header states the contract, the Job layout and the
  * C++ reference the host runs. */
 /* Registers through the loop:
- *   r4 record   r5 joints   r6 output vertex   r7 vertices left
- *   r8 32768 (row rounding)   r9 divider base   r10 width   r11 -1   r12 mult
+ *   r4 record   r5 joints   r6 output vertex (the one before, until its Y is stored)
+ *   r7 vertices left   r8 32768 (row rounding)   r9 divider base   r10 width   r11 -1   r12 mult
  *   r13 reach = w * mult - 1   r14 2 * reach
  *   r1 x, then y   r2 w   r3 joint row pointer   r0 scratch
  * Stack: @(0..8) the doubled position   @(12) w_last   @(16) y_scale
- *        @(20) count */
+ *        @(20) count
+ *
+ * The divider takes 39 cycles and a read of its quotient waits for it, so each
+ * divide is given that much other work: the X divide runs under the Y row and
+ * the read of the next record, the Y divide under the next vertex's X and W
+ * rows and its tests. */
 
 /* One clip row into `out`: r3 walks the row, r0 the position. */
 .macro row out
@@ -23,9 +28,9 @@
 	add r0,\out
 .endm
 
-/* Reads one record and forms its X row (r1) and W row (r2); r3 ends past the
- * W row. */
-.macro xw 
+/* Reads one record: its doubled position to the stack, its joint's X row
+ * address in r3. Leaves the MAC alone. */
+.macro record
 	mov.w @r4+,r0
 	mov.w @r4+,r1
 	mov.w @r4+,r2
@@ -41,9 +46,39 @@
 	shll8 r3
 	shlr2 r3
 	add r5,r3
+.endm
+
+/* The record's X row (r1) and W row (r2); r3 ends past the W row. */
+.macro xw
 	row r1
 	add #16,r3
 	row r2
+.endm
+
+/* 0 < w <= w_last, then |x| <= reach; leaves through `stop` otherwise. */
+.macro inside stop
+	mov.l @(12,r15),r13
+	mov r2,r0
+	add #-1,r0
+	cmp/hs r13,r0
+	bt \stop
+	mul.l r12,r2
+	sts macl,r13
+	add #-1,r13
+	mov r13,r14
+	add r13,r14
+	mov r1,r0
+	add r13,r0
+	cmp/hi r14,r0
+	bt \stop
+.endm
+
+/* Starts the divide of the numerator in the MAC; DVSR already holds w. */
+.macro divide
+	sts mach,r0
+	sts macl,r1
+	mov.l r0,@(16,r9)
+	mov.l r1,@(20,r9)
 .endm
 
 /* The divider's quotient halved toward zero, in r0. */
@@ -84,40 +119,26 @@ _sat_skin_rigid_project_sh2:
 	shll8 r9
 	shlr r8
 	mov #-1,r11
-	xw 
-	bra .Lrp_have
-	nop
+	add #-8,r6
+	record
+	xw
+	inside .Lrp_stop
+	bra .Lrp_x
+	dmuls.l r10,r1
 	.align 2
 .Lrp_vertex:
-	xw 
-	/* The vertex before's Y, whose divide ran under those rows. */
-	quotient 
-	mov.w r0,@(2,r6)
-	add #8,r6
-.Lrp_have:
-	/* 0 < w <= w_last, then |x| <= reach. */
-	mov.l @(12,r15),r13
-	mov r2,r0
-	add #-1,r0
-	cmp/hs r13,r0
-	bt .Lrp_stop
-	mul.l r12,r2
-	mov.l r2,@(4,r6)
-	sts macl,r13
-	add #-1,r13
-	mov r13,r14
-	add r13,r14
-	mov r1,r0
-	add r13,r0
-	cmp/hi r14,r0
-	bt .Lrp_stop
-	/* X divide: w, then the 64-bit numerator. */
+	xw
+	inside .Lrp_pending
 	dmuls.l r10,r1
+	/* The vertex before's Y: its divide ran under those rows and tests. */
+	quotient
+	mov.w r0,@(2,r6)
+.Lrp_x:
+	/* X divide: w, then the 64-bit numerator. */
+	add #8,r6
 	mov.l r2,@r9
-	sts mach,r0
-	sts macl,r1
-	mov.l r0,@(16,r9)
-	mov.l r1,@(20,r9)
+	divide
+	mov.l r2,@(4,r6)
 	/* Y row under it. */
 	add #-32,r3
 	row r1
@@ -127,16 +148,25 @@ _sat_skin_rigid_project_sh2:
 	bt .Lrp_stop
 	mov.l @(16,r15),r0
 	dmuls.l r0,r1
-	quotient 
+	dt r7
+	bt .Lrp_last
+	/* The next record, still under the X divide; the Y numerator waits in the MAC. */
+	record
+	quotient
 	mov.w r0,@r6
 	/* Y divide: the divisor is still w. */
 	sts mach,r0
 	sts macl,r1
 	mov.l r0,@(16,r9)
+	bra .Lrp_vertex
 	mov.l r1,@(20,r9)
-	dt r7
-	bf .Lrp_vertex
-	quotient 
+.Lrp_last:
+	quotient
+	mov.w r0,@r6
+	divide
+	/* A vertex refused with the one before's Y divide still running: finish that one. */
+.Lrp_pending:
+	quotient
 	mov.w r0,@(2,r6)
 	/* Finished = count - vertices left. */
 .Lrp_stop:
