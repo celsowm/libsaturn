@@ -58,6 +58,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/animation/character_render.cpp
     src/graphics/3d/animation/clip.cpp
     src/graphics/3d/animation/skeleton.cpp
+    src/graphics/3d/animation/blend_project_sh2.s
     src/graphics/3d/animation/clip_joints_sh2.s
     src/graphics/3d/animation/rigid_project_sh2.s
     src/graphics/3d/animation/skin.cpp

@@ -1,5 +1,6 @@
 #include "saturn/skin3d.h"
 #include "src/graphics/3d/rendering/logic.hpp"
+#include "src/graphics/3d/animation/blend_project_sh2.hpp"
 #include "src/graphics/3d/animation/rigid_project_sh2.hpp"
 #include "src/graphics/3d/animation/clip_joints_sh2.hpp"
 
@@ -488,7 +489,21 @@ void project_q15(const sat_skin_asset_t& s, const sat_mat4_t* mats, uint32_t v,
         const int32_t w = clip_row(m + 8, in);
         if (projector.put_xw(&out[v], x, w)) projector.put_y(&out[v], clip_row(m + 4, in), w);
     }
+    /* blend_project takes each run of plainly inside half-weight pairs; any
+     * other seam vertex goes through the general blend below. */
+    saturn::skin3d::blend_project::Job seam{};
+    seam.joints = mats;
+    seam.width = width;
+    seam.y_scale = y_scale;
+    seam.mult = run.mult;
+    seam.w_last = run.w_last;
     for (; v < end; ++v) {
+        projector.finish();
+        seam.blend = &s.blend[v - s.rigid_count];
+        seam.out = &out[v];
+        seam.count = end - v;
+        v += saturn::skin3d::blend_project::run(seam);
+        if (v >= end) break;
         const sat_skin_blend_t& r = s.blend[v - s.rigid_count];
         int32_t p[3][3];
         for (uint8_t k = 0; k < r.count; ++k) {
