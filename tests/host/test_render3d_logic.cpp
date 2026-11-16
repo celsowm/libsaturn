@@ -828,6 +828,23 @@ TEST(bucket_paint_order_is_complete_and_farthest_first) {
 
 /* Pass-grouped painter order: groups strictly farthest-first, and each group
  * resolves its own depth span instead of sharing one global spread. */
+TEST(paint_keys_quantise_divides_depth_and_keeps_the_pass) {
+    using namespace saturn::core::render3d;
+    /* ceil(2^32 / 192): exact for every 24-bit depth. */
+    const uint32_t multiplier = 22369622u;
+    for (uint32_t depth = 0u; depth < (1u << 24); depth += 7u) {
+        uint32_t key = 0x05000000u | depth;
+        paint_keys::quantise_reference(paint_keys::Quantise{&key, 1u, 0x00FFFFFFu, multiplier, 0x00FFFFFEu});
+        ASSERT_EQ(key, 0x05000000u | (depth / 192u));
+    }
+    uint32_t keys[4] = {0x03000000u | 191u, kPaintSkip, 0x7F000000u | 0x00FFFFFEu, 192u * 1023u};
+    paint_keys::quantise(paint_keys::Quantise{keys, 4u, 0x00FFFFFFu, multiplier, 1023u});
+    ASSERT_EQ(keys[0], 0x03000000u);
+    ASSERT_EQ(keys[1], kPaintSkip);
+    ASSERT_EQ(keys[2], 0x7F000000u | 1023u);
+    ASSERT_EQ(keys[3], 1023u);
+}
+
 TEST(grouped_paint_order_resolves_depth_per_pass) {
     const uint32_t kShift = 20u;
     /* Two passes; in the far pass two faces differ by 256 depth units (1/16
@@ -1072,6 +1089,7 @@ int main() {
     batch_projection_matches_scalar_after_camera_changes();
     screen_area_culling_matches_world_culling();
     bucket_paint_order_is_complete_and_farthest_first();
+    paint_keys_quantise_divides_depth_and_keeps_the_pass();
     grouped_paint_order_resolves_depth_per_pass();
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();

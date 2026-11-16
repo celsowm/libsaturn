@@ -2,6 +2,7 @@
 /* The two scans of painter keys that come before the bucket placement, each
  * as one routine with one job:
  *
+ *   quantise  every live key's depth rescaled and capped, its group kept
  *   range   the smallest and largest live key and how many are live
  *   spread  every live key replaced by its bucket, the buckets counted
  *
@@ -29,6 +30,27 @@ struct Spread {
     uint16_t* counts;
     uint32_t lo, multiplier;
 };
+
+/* Every live key's depth (its bits under `low_mask`) becomes
+ * min(max, the high word of depth * multiplier); the bits above stay. With
+ * multiplier = ceil(2^32 / d) that is depth / d exactly while
+ * depth * (multiplier * d - 2^32) < 2^32. */
+struct Quantise {
+    uint32_t* keys;
+    uint32_t count;
+    uint32_t low_mask, multiplier, max;
+};
+
+inline void quantise_reference(const Quantise& job) {
+    for (uint32_t f = 0; f < job.count; ++f) {
+        const uint32_t key = job.keys[f];
+        if (key == kSkip) continue;
+        uint32_t depth = static_cast<uint32_t>(
+            (static_cast<uint64_t>(key & job.low_mask) * job.multiplier) >> 32u);
+        if (depth > job.max) depth = job.max;
+        job.keys[f] = (key & ~job.low_mask) | depth;
+    }
+}
 
 inline uint32_t range_reference(const uint32_t* keys, uint32_t count, Range* out) {
     uint32_t lo = 0xFFFFFFFFu, hi = 0u, live = 0u;
@@ -59,7 +81,10 @@ inline void spread_reference(const Spread& job) {
 #define SAT_PAINT_KEYS_SH2 1
 static_assert(offsetof(Range,lo)==0u && offsetof(Range,hi)==4u && offsetof(Spread,keys)==0u &&
     offsetof(Spread,count)==4u && offsetof(Spread,counts)==8u && offsetof(Spread,lo)==12u &&
-    offsetof(Spread,multiplier)==16u, "paint_keys layouts are fixed by the SH-2 routines");
+    offsetof(Spread,multiplier)==16u && offsetof(Quantise,keys)==0u && offsetof(Quantise,count)==4u &&
+    offsetof(Quantise,low_mask)==8u && offsetof(Quantise,multiplier)==12u && offsetof(Quantise,max)==16u,
+    "paint_keys layouts are fixed by the SH-2 routines");
+extern "C" void sat_paint_keys_quantise_sh2(const Quantise* job);
 extern "C" uint32_t sat_paint_keys_range_sh2(const uint32_t* keys, uint32_t count, Range* out);
 extern "C" void sat_paint_keys_spread_sh2(const Spread* job);
 /* Assembled from paint_keys_sh2.s. */
@@ -67,11 +92,13 @@ inline uint32_t range(const uint32_t* keys, uint32_t count, Range* out) {
     return sat_paint_keys_range_sh2(keys, count, out);
 }
 inline void spread(const Spread& job) { sat_paint_keys_spread_sh2(&job); }
+inline void quantise(const Quantise& job) { sat_paint_keys_quantise_sh2(&job); }
 #else
 inline uint32_t range(const uint32_t* keys, uint32_t count, Range* out) {
     return range_reference(keys, count, out);
 }
 inline void spread(const Spread& job) { spread_reference(job); }
+inline void quantise(const Quantise& job) { quantise_reference(job); }
 #endif
 
 } // namespace saturn::core::render3d::paint_keys

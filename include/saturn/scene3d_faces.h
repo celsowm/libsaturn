@@ -255,6 +255,15 @@ sat_result_t sat_scene3d_faces_depth(
     const sat_scene3d_faces_t* scene,const sat_vec3_t* world,
     sat_fx16_t* out_depth);
 
+/* Rescales the painter depth of every face queued so far to
+ * min(max_depth, (depth * multiplier) >> 32), keeping each face's pass.
+ * With multiplier = ceil(2^32 / d) that is depth / d exactly while
+ * depth * (multiplier * d - 2^32) < 2^32; depths are below 2^24. For a
+ * caller that orders faces in a coarser depth table of its own. Faces
+ * queued afterwards keep their full depth. */
+sat_result_t sat_scene3d_faces_quantise_depth(
+    sat_scene3d_faces_t* scene,uint32_t multiplier,uint32_t max_depth);
+
 /* Material is copied. Both methods are atomic on invalid input/capacity.
  * pass is an explicit artistic override, NOT an occlusion group: all objects
  * needing physical inter-occlusion must use the same pass.

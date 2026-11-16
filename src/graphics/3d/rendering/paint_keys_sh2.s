@@ -6,7 +6,11 @@
  *
  * spread: one loop per bucket rule, chosen once.
  *   r4 key   r5 keys left   r6 counts   r7 lo   r2 multiplier
- *   r0 the key, then twice its bucket   r1 the count */
+ *   r0 the key, then twice its bucket   r1 the count
+ *
+ * quantise: a depth over the cap is rare, so the cap is taken out of line.
+ *   r4 key   r5 keys left   r6 low mask   r2 its complement   r7 multiplier   r3 max
+ *   r0 the key, then its group   r1 the depth */
 
 	.section .text.sat_paint_keys_range_sh2,"ax",@progbits
 	.align 2
@@ -97,4 +101,44 @@ _sat_paint_keys_spread_sh2:
 	rts
 	nop
 	.size _sat_paint_keys_spread_sh2,.-_sat_paint_keys_spread_sh2
+	.text
+	.section .text.sat_paint_keys_quantise_sh2,"ax",@progbits
+	.align 2
+	.global _sat_paint_keys_quantise_sh2
+	.type _sat_paint_keys_quantise_sh2,@function
+_sat_paint_keys_quantise_sh2:
+	mov.l @(4,r4),r5
+	mov.l @(8,r4),r6
+	mov.l @(12,r4),r7
+	mov.l @(16,r4),r3
+	tst r5,r5
+	bt.s .Lpk_quantise_done
+	mov.l @r4,r4
+	not r6,r2
+	.align 2
+.Lpk_quantise_key:
+	mov.l @r4,r0
+	cmp/eq #-1,r0
+	bt .Lpk_quantise_next
+	mov r0,r1
+	and r6,r1
+	dmulu.l r7,r1
+	and r2,r0
+	sts mach,r1
+	cmp/hi r3,r1
+	bt .Lpk_quantise_cap
+.Lpk_quantise_store:
+	or r1,r0
+	mov.l r0,@r4
+.Lpk_quantise_next:
+	dt r5
+	bf.s .Lpk_quantise_key
+	add #4,r4
+.Lpk_quantise_done:
+	rts
+	nop
+.Lpk_quantise_cap:
+	bra .Lpk_quantise_store
+	mov r3,r1
+	.size _sat_paint_keys_quantise_sh2,.-_sat_paint_keys_quantise_sh2
 	.text

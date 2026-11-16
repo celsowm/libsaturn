@@ -933,6 +933,15 @@ extern "C" sat_result_t sat_scene3d_faces_begin_camera(
         &forward,near_depth,width,height);
 }
 
+extern "C" sat_result_t sat_scene3d_faces_quantise_depth(
+    sat_scene3d_faces_t* scene,uint32_t multiplier,uint32_t max_depth) {
+    if(!scene || !scene->keys || !scene->active || !multiplier || max_depth>kFaceDepthMax)
+        return SAT_ERR_INVALID_ARG;
+    saturn::core::render3d::paint_keys::quantise(saturn::core::render3d::paint_keys::Quantise{
+        scene->keys,scene->count,(1u<<kFaceDepthBits)-1u,multiplier,max_depth});
+    return SAT_OK;
+}
+
 extern "C" sat_result_t sat_scene3d_faces_depth(
     const sat_scene3d_faces_t* scene,const sat_vec3_t* world,
     sat_fx16_t* out_depth) {
