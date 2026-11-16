@@ -60,7 +60,7 @@ inline void transform(const sat_fx16_t* m, const int16_t* q, int32_t scale, int3
         transform_mac(m, v, out);
         return;
     }
-#endif
+#else
     int32_t x, y, z;
     if constexpr (q15) {
         x = q[0] * 2; y = q[1] * 2; z = q[2] * 2;
@@ -70,6 +70,7 @@ inline void transform(const sat_fx16_t* m, const int16_t* q, int32_t scale, int3
     out[0] = (int32_t)(((int64_t)m[0] * x + (int64_t)m[1] * y + (int64_t)m[2] * z + 32768) >> 16) + m[3];
     out[1] = (int32_t)(((int64_t)m[4] * x + (int64_t)m[5] * y + (int64_t)m[6] * z + 32768) >> 16) + m[7];
     out[2] = (int32_t)(((int64_t)m[8] * x + (int64_t)m[9] * y + (int64_t)m[10] * z + 32768) >> 16) + m[11];
+#endif
 }
 
 /* Stores a deformed vertex as is. */
