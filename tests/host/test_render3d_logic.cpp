@@ -8,6 +8,7 @@
 #include "saturn/color.h"
 #include "saturn/render3d.h"
 #include "src/graphics/3d/rendering/logic.hpp"
+#include "src/graphics/3d/scene/screen_cull_sh2.hpp"
 #include "src/core/geometry/mesh_logic.hpp"
 #include "src/core/runtime/logic.hpp"
 
@@ -845,6 +846,31 @@ TEST(paint_keys_quantise_divides_depth_and_keeps_the_pass) {
     ASSERT_EQ(keys[3], 1023u);
 }
 
+/* The screen cull numbers Gouraud tables over every face, culled or not, and
+ * leaves unshaded entries without one. */
+TEST(screen_cull_numbers_gouraud_tables_by_face) {
+    using namespace saturn::scene3d;
+    /* A square: corners 0 1 2 3 wind one way on screen, 0 3 2 1 the other. */
+    const sat_projected_vertex_t v[4] = {{0, 0, 640}, {10, 0, 640}, {10, 10, 640}, {0, 10, 640}};
+    const uint16_t offsets[12] = {0, 8, 16, 24, 0, 24, 16, 8, 0, 24, 16, 8};
+    const uint8_t double_sided[3] = {0, 0, 1};
+    const uint16_t materials[3] = {0, 0, 0};
+    const sat_scene3d_material_program_t program = {};
+    for (uint32_t first = 0u; first <= 100u; first += 100u) {
+        sat_scene3d_projected_face_t entries[3] = {};
+        uint32_t keys[3] = {};
+        const screen_cull::Job job = {offsets, v, double_sided, materials, 3u, entries, keys, &program,
+                                      0x05000000u, first};
+        ASSERT_EQ(screen_cull::run(job), 2u);
+        /* Exactly one winding of the single-sided pair survives; the double-sided face always does. */
+        const uint32_t kept = entries[0].xy[1] == entries[1].xy[1] ? 1u : 0u;
+        ASSERT_EQ(entries[0].kind, SAT_SCENE3D_PROJECTED_PROGRAM);
+        ASSERT_EQ(entries[0].reserved, first ? first + kept : 0u);
+        ASSERT_EQ(entries[1].reserved, first ? first + 2u : 0u);
+        ASSERT_EQ(keys[0], 0x05000000u | 40u);
+    }
+}
+
 TEST(grouped_paint_order_resolves_depth_per_pass) {
     const uint32_t kShift = 20u;
     /* Two passes; in the far pass two faces differ by 256 depth units (1/16
@@ -1090,10 +1116,11 @@ int main() {
     screen_area_culling_matches_world_culling();
     bucket_paint_order_is_complete_and_farthest_first();
     paint_keys_quantise_divides_depth_and_keeps_the_pass();
+    screen_cull_numbers_gouraud_tables_by_face();
     grouped_paint_order_resolves_depth_per_pass();
     diagonal_area_equals_shoelace();
     gouraud_table_words_and_light();
     vertex_normals_point_out_of_a_box();
-    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 38);
+    printf("PASS: test_render3d_logic.cpp (%d tests)\n", 39);
     return 0;
 }

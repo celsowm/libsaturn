@@ -29,6 +29,10 @@ struct Job {
     uint32_t* key;                    /* first painter key to write */
     const sat_scene3d_material_program_t* programs;
     uint32_t pass_bits;               /* the key's pass field, already in place */
+    /* 0 for unshaded faces. Otherwise face f's entry names the Gouraud table
+     * gouraud_first + f (in `reserved`), counted over every face, culled or
+     * not; gouraud_first + face_count stays within 65536. */
+    uint32_t gouraud_first;
 };
 
 constexpr uint32_t kDepthMax=(1u<<24u)-2u;
@@ -38,7 +42,8 @@ constexpr uint32_t kProgramWord=static_cast<uint32_t>(SAT_SCENE3D_PROJECTED_PROG
 static_assert(sizeof(void*)!=4u ||
     (offsetof(Job,offsets)==0u && offsetof(Job,projected)==4u && offsetof(Job,double_sided)==8u &&
      offsetof(Job,face_materials)==12u && offsetof(Job,face_count)==16u && offsetof(Job,entry)==20u &&
-     offsetof(Job,key)==24u && offsetof(Job,programs)==28u && offsetof(Job,pass_bits)==32u),
+     offsetof(Job,key)==24u && offsetof(Job,programs)==28u && offsetof(Job,pass_bits)==32u &&
+     offsetof(Job,gouraud_first)==36u),
     "screen_cull::Job layout is fixed by the SH-2 routine");
 static_assert(sizeof(sat_projected_vertex_t)==8u && offsetof(sat_projected_vertex_t,x)==0u &&
     offsetof(sat_projected_vertex_t,y)==2u && offsetof(sat_projected_vertex_t,w)==4u,
@@ -75,7 +80,8 @@ inline uint32_t reference(const Job& job) {
 #endif
         }
         entry->program=&job.programs[job.face_materials[f]];
-        entry->kind=SAT_SCENE3D_PROJECTED_PROGRAM;entry->cached_projected=0u;entry->reserved=0u;
+        entry->kind=SAT_SCENE3D_PROJECTED_PROGRAM;entry->cached_projected=0u;
+        entry->reserved=job.gouraud_first?static_cast<uint16_t>(job.gouraud_first+f):0u;
         const uint32_t w0=static_cast<uint32_t>(a.w),w1=static_cast<uint32_t>(b.w);
         const uint32_t w2=static_cast<uint32_t>(c.w),w3=static_cast<uint32_t>(d.w);
         uint32_t depth=kDepthMax;

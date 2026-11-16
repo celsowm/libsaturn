@@ -493,19 +493,20 @@ template<bool Offsets,bool Tables=false>
     return culled;
 }
 
-/* append_screen_culled<true> for an unshaded instance with a double-sided
- * table, through the screen_cull routine (assembly on the SH-2): the same
- * entries, keys, order and count. The order table holds consecutive physical
- * slots, so it is filled here, after the faces. */
+/* append_screen_culled<true> for an instance with a double-sided table,
+ * unshaded or with consecutive Gouraud tables from `gouraud_first`, through
+ * the screen_cull routine (assembly on the SH-2): the same entries, keys,
+ * order and count. The order table holds consecutive physical slots, so it
+ * is filled here, after the faces. */
 uint16_t append_screen_culled_job(sat_scene3d_faces_t* scene,
     const sat_projected_vertex_t* projected,const uint16_t* offsets,uint16_t face_count,
     const uint8_t* double_sided,const sat_scene3d_material_program_t* programs,
-    const uint16_t* face_materials,uint16_t pass) {
+    const uint16_t* face_materials,uint16_t pass,uint16_t gouraud_first) {
     const uint16_t count=scene->count;
     const uint16_t first=static_cast<uint16_t>(count+scene->projected_gap);
     const saturn::scene3d::screen_cull::Job job={offsets,projected,double_sided,face_materials,face_count,
         &scene->projected_entries[first],&scene->keys[count],programs,
-        (kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits};
+        (kFacePassMax-static_cast<uint32_t>(pass))<<kFaceDepthBits,gouraud_first};
     const uint32_t kept=saturn::scene3d::screen_cull::run(job);
     if(uint16_t* order=scene->projected_indices) {
         /* Two slots per store once the address is a whole word. */
@@ -1403,16 +1404,18 @@ static sat_result_t submit_instance(
             const bool own_loop=scene->projected_entries!=nullptr;
 #endif
             if(own_loop && instance->pre_projected && instance->projected_offsets &&
-               instance->face_gouraud_first && !face_gouraud)
+               !face_gouraud && double_sided && mesh->vertex_count<=4096u &&
+               binding->programs->count<=32768u &&
+               static_cast<uint32_t>(instance->face_gouraud_first)+mesh->face_count<=65536u)
+                /* The routine reads offsets and material indices as signed words. */
+                culled=append_screen_culled_job(scene,screen_scratch,instance->projected_offsets,
+                    mesh->face_count,double_sided,programs,face_materials,pass,
+                    instance->face_gouraud_first);
+            else if(own_loop && instance->pre_projected && instance->projected_offsets &&
+                    instance->face_gouraud_first && !face_gouraud)
                 culled=append_screen_culled<true,true>(scene,screen_scratch,instance->projected_offsets,
                     mesh->face_count,double_sided,programs,face_materials,nullptr,pass,
                     instance->face_gouraud_first);
-            else if(own_loop && instance->pre_projected && instance->projected_offsets &&
-                    !face_gouraud && double_sided && mesh->vertex_count<=4096u &&
-                    binding->programs->count<=32768u)
-                /* The routine reads offsets and material indices as signed words. */
-                culled=append_screen_culled_job(scene,screen_scratch,instance->projected_offsets,
-                    mesh->face_count,double_sided,programs,face_materials,pass);
             else if(own_loop && instance->pre_projected && instance->projected_offsets)
                 culled=append_screen_culled<true>(scene,screen_scratch,instance->projected_offsets,
                     mesh->face_count,double_sided,programs,face_materials,face_gouraud,pass);
