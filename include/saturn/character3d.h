@@ -42,12 +42,16 @@ sat_result_t sat_character_clip_load(const char* logical_path, uint16_t clip_ind
     sat_clip_event_t* events, uint16_t event_capacity, sat_skeleton_clip_t* out);
 /* Move a decoded asset to `storage` without its texture pixels and table, which
  * nothing reads once they are uploaded (about 70% of a textured archive). Every
- * view is rebased and model.textures becomes NULL, so upload first; the archive
+ * view is rebased and model.textures becomes NULL, so upload first. The LUT4
+ * colour tables go as well (model.luts_rgb555 NULL, lut_count 0). `drop` names
+ * what else goes: SAT_CHARACTER_COMPACT_VERTICES the bind vertices
+ * (model.vertices NULL), for a mesh that has copied them. The archive
  * header inside no longer describes the tables, so the result cannot be decoded
  * again. The old storage is free afterwards; the two must not overlap.
  * out_bytes is optional. */
+#define SAT_CHARACTER_COMPACT_VERTICES 1u
 sat_result_t sat_character_asset_compact(sat_character_asset_t* asset,
-    void* storage, uint32_t capacity, uint32_t* out_bytes);
+    void* storage, uint32_t capacity, uint32_t drop, uint32_t* out_bytes);
 /* Releases the borrowed view; stop workers and destroy texture handles first.
  * Does not free caller memory, reset the global asset cache or other views. */
 void sat_character_asset_release(sat_character_asset_t* asset);

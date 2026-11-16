@@ -194,7 +194,7 @@ extern "C" void sat_character_asset_release(sat_character_asset_t* asset) {
 }
 
 extern "C" sat_result_t sat_character_asset_compact(sat_character_asset_t* asset,
-    void* storage,uint32_t capacity,uint32_t* out_bytes) {
+    void* storage,uint32_t capacity,uint32_t drop,uint32_t* out_bytes) {
     if (!asset || !asset->storage || !storage || (reinterpret_cast<uintptr_t>(storage)&3u) ||
         !asset->model.texture_count || !asset->model.textures) return SAT_ERR_INVALID_ARG;
     const uint8_t* source=asset->storage;
@@ -213,11 +213,25 @@ extern "C" sat_result_t sat_character_asset_compact(sat_character_asset_t* asset
     /* The tables sit before the pixels; the clips and their names after them.
      * The texture table goes with the pixels it describes. */
     const uint32_t hole_at=be32(source+SAT_CHAR_TEXTURE_OFFSET*4u);
-    const uint32_t hole_bytes=(uint32_t)asset->model.texture_count*SAT_CHARACTER_TEXTURE_BYTES;
+    uint32_t hole_bytes=(uint32_t)asset->model.texture_count*SAT_CHARACTER_TEXTURE_BYTES;
     if (hole_at&3u || hole_at>first || hole_bytes>first-hole_at) return SAT_ERR_INVALID_ARG;
+    /* LUT4 colour tables follow the texture table and live in VDP1 VRAM once uploaded: they go too. */
+    const uint32_t lut_bytes=(uint32_t)asset->model.lut_count*16u*sizeof(uint16_t);
+    const bool drop_luts=lut_bytes && asset->model.luts_rgb555==
+        reinterpret_cast<const uint16_t*>(source+hole_at+hole_bytes) && lut_bytes<=first-hole_at-hole_bytes;
+    if (drop_luts) hole_bytes+=lut_bytes;
     const uint32_t hole_end=hole_at+hole_bytes;
-    const uint32_t kept=((first+3u)&~3u)-hole_bytes;
-    if (kept+hole_bytes>last) return SAT_ERR_INVALID_ARG;
+    /* On request the bind vertices, a table before those: a mesh that has copied them reads them no more. */
+    uint32_t cut_at=0,cut_bytes=0;
+    if (drop&SAT_CHARACTER_COMPACT_VERTICES) {
+        if (!asset->model.vertices) return SAT_ERR_INVALID_ARG;
+        cut_at=(uint32_t)(reinterpret_cast<const uint8_t*>(asset->model.vertices)-source);
+        cut_bytes=(uint32_t)asset->model.vertex_count*sizeof(sat_vec3_t);
+        if (cut_at&3u || cut_at>hole_at || cut_bytes>hole_at-cut_at) return SAT_ERR_INVALID_ARG;
+    }
+    const uint32_t cut_end=cut_at+cut_bytes;
+    const uint32_t kept=((first+3u)&~3u)-hole_bytes-cut_bytes;
+    if (kept+hole_bytes+cut_bytes>last) return SAT_ERR_INVALID_ARG;
     const uint32_t tail_at=(last+3u)&~3u;
     const uint32_t tail_bytes=tail_at<bytes?bytes-tail_at:0u;
     if (kept+tail_bytes>capacity) return SAT_ERR_CAPACITY;
@@ -228,11 +242,12 @@ extern "C" sat_result_t sat_character_asset_compact(sat_character_asset_t* asset
     };
     for (uint16_t i=0;i<asset->clip_count;++i)
         if (inside_pixels(asset->clips[i].frames) || inside_pixels(asset->clips[i].events)) return SAT_ERR_INVALID_ARG;
-    __builtin_memcpy(target,source,hole_at);
-    __builtin_memcpy(target+hole_at,source+hole_end,first-hole_end);
+    __builtin_memcpy(target,source,cut_at);
+    __builtin_memcpy(target+cut_at,source+cut_end,hole_at-cut_end);
+    __builtin_memcpy(target+hole_at-cut_bytes,source+hole_end,first-hole_end);
     if (tail_bytes) __builtin_memcpy(target+kept,source+tail_at,tail_bytes);
     const auto new_offset=[&](uint32_t at) {
-        return at<hole_at?at:at<first?at-hole_bytes:at-tail_at+kept;
+        return at<cut_end?at:at<hole_at?at-cut_bytes:at<first?at-cut_bytes-hole_bytes:at-tail_at+kept;
     };
     const auto moved=[&](const void* p)->const uint8_t* {
         if (!p) return nullptr;
@@ -253,11 +268,12 @@ extern "C" sat_result_t sat_character_asset_compact(sat_character_asset_t* asset
     asset->skeleton.joints=reinterpret_cast<const sat_skeleton_joint_t*>(moved(asset->skeleton.joints));
     asset->skin.rigid=reinterpret_cast<const sat_skin_rigid_t*>(moved(asset->skin.rigid));
     asset->skin.blend=reinterpret_cast<const sat_skin_blend_t*>(moved(asset->skin.blend));
-    asset->model.vertices=reinterpret_cast<const sat_vec3_t*>(moved(asset->model.vertices));
+    asset->model.vertices=cut_bytes?nullptr:reinterpret_cast<const sat_vec3_t*>(moved(asset->model.vertices));
     asset->model.indices=reinterpret_cast<const uint16_t*>(moved(asset->model.indices));
     asset->model.face_texture_indices=reinterpret_cast<const uint16_t*>(moved(asset->model.face_texture_indices));
     asset->model.palettes_rgb555=reinterpret_cast<const uint16_t*>(moved(asset->model.palettes_rgb555));
-    asset->model.luts_rgb555=reinterpret_cast<const uint16_t*>(moved(asset->model.luts_rgb555));
+    asset->model.luts_rgb555=drop_luts?nullptr:reinterpret_cast<const uint16_t*>(moved(asset->model.luts_rgb555));
+    if (drop_luts) asset->model.lut_count=0;
     asset->model.textures=nullptr;
     asset->joint_names=reinterpret_cast<const uint32_t*>(moved(asset->joint_names));
     for (uint16_t i=0;i<asset->skeleton.joint_count;++i) /* native since the decode */

@@ -70,9 +70,9 @@ int main() {
         const uint32_t full=assets[1].storage_bytes;
         std::vector<uint32_t> small(full/sizeof(uint32_t)+1);
         uint32_t retained=0;
-        assert(sat_character_asset_compact(&assets[1],small.data(),8,&retained)==SAT_ERR_CAPACITY);
+        assert(sat_character_asset_compact(&assets[1],small.data(),8,0,&retained)==SAT_ERR_CAPACITY);
         assert(sat_character_asset_compact(&assets[1],small.data(),
-            (uint32_t)(small.size()*sizeof(uint32_t)),&retained)==SAT_OK);
+            (uint32_t)(small.size()*sizeof(uint32_t)),0,&retained)==SAT_OK);
         assert(retained<full && assets[1].storage==(const uint8_t*)small.data());
         std::fill(red.begin(),red.end(),0xA5A5A5A5u);
         assert(!assets[1].model.textures);
@@ -113,9 +113,39 @@ int main() {
         for(uint16_t t=0;t<m.texture_count;++t)
             assert((m.textures[t].flags&SAT_MODEL_TEXTURE_LUT4) && m.textures[t].palette_slot==t);
         assert(sat_model_validate(&m)==SAT_OK);
-        const uint16_t last=m.luts_rgb555[(m.texture_count-1u)*16u];
-        assert(sat_character_asset_compact(&asset,small.data(),(uint32_t)(small.size()*4),nullptr)==SAT_OK);
-        assert(asset.model.luts_rgb555[(m.texture_count-1u)*16u]==last);
+        /* Compacting drops the colour tables with the pixels and keeps the rest readable. */
+        const uint32_t lut_bytes=m.lut_count*16u*(uint32_t)sizeof(uint16_t);
+        const uint32_t texture_bytes=m.texture_count*(uint32_t)SAT_CHARACTER_TEXTURE_BYTES;
+        const sat_vec3_t first_vertex=m.vertices[0];
+        const std::string clip_name=sat_character_clip_name(&asset,1);
+        /* Compaction rebases the clips in place: each copy of the view takes its own. */
+        sat_character_asset_t plain=asset,bare=asset;
+        std::vector<sat_skeleton_clip_t> plain_clips(asset.clips,asset.clips+asset.clip_count),bare_clips=plain_clips;
+        plain.clips=plain_clips.data();bare.clips=bare_clips.data();
+        std::vector<uint32_t> with_luts(payload.size()/4+1),without_vertices(payload.size()/4+1);
+        uint32_t kept=0,kept_plain=0,kept_bare=0;
+        /* A table that does not follow the texture table stays. */
+        plain.model.luts_rgb555=nullptr;plain.model.lut_count=0;
+        assert(sat_character_asset_compact(&plain,with_luts.data(),(uint32_t)(with_luts.size()*4),0,&kept_plain)==SAT_OK);
+        /* The bind vertices go on request; every other view stays readable. */
+        const uint16_t first_face=m.indices[0],last_selector=m.face_texture_indices[m.face_count-1u];
+        const sat_skeleton_joint_t first_joint=asset.skeleton.joints[0];
+        assert(sat_character_asset_compact(&bare,without_vertices.data(),(uint32_t)(without_vertices.size()*4),
+            SAT_CHARACTER_COMPACT_VERTICES,&kept_bare)==SAT_OK);
+        assert(sat_character_asset_compact(&asset,small.data(),(uint32_t)(small.size()*4),0,&kept)==SAT_OK);
+        assert(kept+lut_bytes==kept_plain && texture_bytes && !asset.model.luts_rgb555 && !asset.model.lut_count);
+        assert(kept_bare+asset.model.vertex_count*sizeof(sat_vec3_t)==kept && !bare.model.vertices);
+        assert(bare.model.indices[0]==first_face &&
+            bare.model.face_texture_indices[bare.model.face_count-1u]==last_selector);
+        assert(std::memcmp(&bare.skeleton.joints[0],&first_joint,sizeof(first_joint))==0);
+        assert(clip_name==sat_character_clip_name(&bare,1) && std::strcmp(sat_character_joint_name(&bare,0),"root")==0);
+        assert(sat_skin_validate(&bare.skin)==SAT_OK);
+        assert(std::memcmp(bare.clips[0].frames,asset.clips[0].frames,
+            bare.clips[0].frame_count*bare.skeleton.joint_count*sizeof(sat_skeleton_pose_joint_t))==0);
+        assert(std::memcmp(&asset.model.vertices[0],&first_vertex,sizeof(first_vertex))==0);
+        assert(clip_name==sat_character_clip_name(&asset,1));
+        assert(std::strcmp(sat_character_joint_name(&asset,0),"root")==0);
+        assert(sat_skin_validate(&asset.skin)==SAT_OK);
         std::memcpy(lut.data(),payload.data(),payload.size());
         write32(lut,SAT_CHAR_PALETTES,SAT_CHARACTER_MAX_LUT_BLOCKS+1u);
         assert(sat_character_asset_decode(lut.data(),(uint32_t)payload.size(),clips[0].data(),ClipCapacity,
