@@ -105,10 +105,14 @@ bool invalidate_range(uint32_t cached_address, uint32_t size) {
     if (size == 0u || !is_supported_work_ram(cached_address, size)) return false;
     /* One range check, then one associative-purge write per line. */
     const uint32_t end = cached_address + size;
-    for (uint32_t line = cached_address & ~(kLineBytes - 1u); line < end;
-         line += kLineBytes) {
-        *reinterpret_cast<volatile uint16_t*>(
-            line | saturn::core::startup::kCachePurgeBit) = 0u;
+    const uint32_t first = cached_address & ~(kLineBytes - 1u);
+    /* The purge address is formed once and stepped a line at a time: the
+     * work RAM range never carries into the purge bit. */
+    volatile uint16_t* purge = reinterpret_cast<volatile uint16_t*>(
+        first | saturn::core::startup::kCachePurgeBit);
+    for (uint32_t lines = (end - first + kLineBytes - 1u) / kLineBytes; lines; --lines) {
+        *purge = 0u;
+        purge += kLineBytes / sizeof(*purge);
     }
     compiler_barrier();
     return true;

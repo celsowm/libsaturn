@@ -568,8 +568,25 @@ extern "C" sat_result_t sat_skin_project_range(
     /* A joint-local coordinate becomes at most `input` in 16.16 before the
      * row's products, so |row . v| <= sum|c| * input / 2^16 + |c3|. Prove every
      * referenced row fits int32 (and its mac.l sum int64) before writing. */
-    const uint64_t input = skin->pos_shift == 15 ? UINT64_C(65536)
-                         : UINT64_C(32768) << (16 - skin->pos_shift);
+    if (skin->pos_shift == 15) {
+        /* input is 65536, so the bound is |c0| + |c1| + |c2| + |c3| < 2^31:
+         * the same test in 32 bits. Every magnitude is at most 2^31, so a
+         * partial sum below 2^31 cannot wrap the next add. */
+        for (uint16_t j = 0; j <= skin->max_joint && j < clip_joint_count; ++j) {
+            const sat_fx16_t* c = clip_joints[j].m;
+            for (uint8_t i = 0; i < 12u; i += 4u) {
+                uint32_t sum = 0u;
+                for (uint8_t k = 0; k < 4u; ++k) {
+                    const uint32_t v = (uint32_t)c[i + k];
+                    sum += (v >> 31) ? 0u - v : v;
+                    if (sum >> 31) return SAT_ERR_INVALID_ARG;
+                }
+            }
+        }
+        project_q15(*skin, clip_joints, first, first + count, width, -(int32_t)height, out);
+        return SAT_OK;
+    }
+    const uint64_t input = UINT64_C(32768) << (16 - skin->pos_shift);
     for (uint16_t j = 0; j <= skin->max_joint && j < clip_joint_count; ++j) {
         for (uint8_t r = 0; r < 3; ++r) {
             const sat_fx16_t* c = &clip_joints[j].m[r * 4];
@@ -580,10 +597,6 @@ extern "C" sat_result_t sat_skin_project_range(
             if (!add_magnitude(&bound, c[3]) || bound >= (UINT64_C(1) << 31))
                 return SAT_ERR_INVALID_ARG;
         }
-    }
-    if (skin->pos_shift == 15) {
-        project_q15(*skin, clip_joints, first, first + count, width, -(int32_t)height, out);
-        return SAT_OK;
     }
     const ProjectStore store{width, -(int32_t)height, nullptr, 0, 0};
     deform_vertices(skin, clip_joints, first, first + count, out, store);
