@@ -15,8 +15,8 @@
 namespace saturn::scene3d::program_run {
 
 /* Field order is the assembly's: change both together. `max` is at least 1.
- * `order` holds logical faces, `indices` maps them to `entries`; `cached`
- * receives how many written faces were cached projections. */
+ * `order` holds logical faces; `indices` maps them to `entries`, or is null
+ * when a logical face is its own entry. `cached` receives how many written faces were cached projections. */
 struct Job {
     const uint16_t* order;
     const uint16_t* indices;
@@ -40,7 +40,8 @@ inline uint32_t reference(Job& job) {
     uint32_t* out=job.out;
     uint32_t n=0u,cached=0u;
     for(;n<job.max;++n) {
-        const auto& hot=job.entries[job.indices[job.order[n]]];
+        const uint16_t logical=job.order[n];
+        const auto& hot=job.entries[job.indices?job.indices[logical]:logical];
         if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
         const uint16_t* const prefix=hot.program->command;
         /* A shaded face carries the caller's table at CMDGRDA and the
@@ -79,8 +80,62 @@ extern "C" uint32_t sat_scene3d_program_run_sh2(Job* job);
 /* Registers through the loop:
  *   r4 order   r5 indices   r6 entries   r7 command slot   r8 faces left
  *   r9 cached faces   r10 24 (entry size)   r11 -1   r13 the job
- *   r1 entry   r2 program   r3 kind:cached:CMDGRDA, then CMDGRDA
- *   r0, r12 scratch */
+ *   r1 entry index, then entry   r2 program
+ *   r3 kind:cached:CMDGRDA, then CMDGRDA   r0, r12 scratch
+ * One loop per way of finding the entry, chosen once. */
+
+/* The face whose entry index is in r1; loops to `face`. */
+#define SAT_PR_FACE(face, mode, shaded) \
+    "\tmulu.w r10,r1\n" \
+    "\tsts macl,r1\n" \
+    "\tadd r6,r1\n" \
+    "\tmov.l @(20,r1),r3\n" \
+    "\tmov.l @(16,r1),r2\n" \
+    /* kind == program, else stop before this face. */ \
+    "\tmov r3,r0\n" \
+    "\tshlr16 r0\n" \
+    "\tmov r0,r12\n" \
+    "\tshlr8 r12\n" \
+    "\tdt r12\n" \
+    "\tbf .Lpr_stop\n" \
+    "\ttst #255,r0\n" \
+    "\tsubc r11,r9\n" \
+    "\textu.w r3,r3\n" \
+    /* CMDCTRL, then the draw mode and colour. */ \
+    "\tmov.w @r2,r0\n" \
+    "\ttst r3,r3\n" \
+    "\tshll16 r0\n" \
+    "\tbf.s " shaded "\n" \
+    "\tmov.l r0,@r7\n" \
+    "\tmov.l @(4,r2),r0\n" \
+    mode ":\n" \
+    "\tmov.l @(8,r2),r12\n" \
+    "\tmov.l r0,@(4,r7)\n" \
+    "\tmov.l @r1,r0\n" \
+    "\tmov.l r12,@(8,r7)\n" \
+    "\tmov.l @(4,r1),r12\n" \
+    "\tmov.l r0,@(12,r7)\n" \
+    "\tmov.l @(8,r1),r0\n" \
+    "\tmov.l r12,@(16,r7)\n" \
+    "\tmov.l @(12,r1),r12\n" \
+    "\tmov.l r0,@(20,r7)\n" \
+    "\tshll16 r3\n" \
+    "\tmov.l r12,@(24,r7)\n" \
+    "\tmov.l r3,@(28,r7)\n" \
+    "\tdt r8\n" \
+    "\tbf.s " face "\n" \
+    "\tadd #32,r7\n"
+
+/* Shaded: the program's shaded draw mode beside its colour word. */
+#define SAT_PR_SHADED(mode, shaded) \
+    shaded ":\n" \
+    "\tmov.w @(6,r2),r0\n" \
+    "\textu.w r0,r12\n" \
+    "\tmov.w @(2,r2),r0\n" \
+    "\tshll16 r0\n" \
+    "\tbra " mode "\n" \
+    "\tor r12,r0\n"
+
 __asm__(
     "\t.section .text.sat_scene3d_program_run_sh2,\"ax\",@progbits\n"
     "\t.align 2\n"
@@ -101,53 +156,17 @@ __asm__(
     "\tmov.l @r13,r4\n"
     "\tmov #0,r9\n"
     "\tmov #24,r10\n"
+    "\ttst r5,r5\n"
+    "\tbt.s .Lpr_direct\n"
     "\tmov #-1,r11\n"
     "\t.align 2\n"
-    ".Lpr_face:\n"
+    ".Lpr_indirect:\n"
     "\tmov.w @r4+,r0\n"
     "\textu.w r0,r0\n"
     "\tadd r0,r0\n"
     "\tmov.w @(r0,r5),r1\n"
     "\textu.w r1,r1\n"
-    "\tmulu.w r10,r1\n"
-    "\tsts macl,r1\n"
-    "\tadd r6,r1\n"
-    "\tmov.l @(20,r1),r3\n"
-    "\tmov.l @(16,r1),r2\n"
-    /* kind == program, else stop before this face. */
-    "\tmov r3,r0\n"
-    "\tshlr16 r0\n"
-    "\tmov r0,r12\n"
-    "\tshlr8 r12\n"
-    "\tdt r12\n"
-    "\tbf .Lpr_stop\n"
-    "\ttst #255,r0\n"
-    "\tsubc r11,r9\n"
-    "\textu.w r3,r3\n"
-    /* CMDCTRL, then the draw mode and colour. */
-    "\tmov.w @r2,r0\n"
-    "\ttst r3,r3\n"
-    "\tshll16 r0\n"
-    "\tbf.s .Lpr_shaded\n"
-    "\tmov.l r0,@r7\n"
-    "\tmov.l @(4,r2),r0\n"
-    ".Lpr_mode:\n"
-    "\tmov.l @(8,r2),r12\n"
-    "\tmov.l r0,@(4,r7)\n"
-    "\tmov.l @r1,r0\n"
-    "\tmov.l r12,@(8,r7)\n"
-    "\tmov.l @(4,r1),r12\n"
-    "\tmov.l r0,@(12,r7)\n"
-    "\tmov.l @(8,r1),r0\n"
-    "\tmov.l r12,@(16,r7)\n"
-    "\tmov.l @(12,r1),r12\n"
-    "\tmov.l r0,@(20,r7)\n"
-    "\tshll16 r3\n"
-    "\tmov.l r12,@(24,r7)\n"
-    "\tmov.l r3,@(28,r7)\n"
-    "\tdt r8\n"
-    "\tbf.s .Lpr_face\n"
-    "\tadd #32,r7\n"
+    SAT_PR_FACE(".Lpr_indirect", ".Lpr_mode_i", ".Lpr_shaded_i")
     ".Lpr_stop:\n"
     /* Written = max - faces left. */
     "\tmov.l @(16,r13),r0\n"
@@ -160,16 +179,19 @@ __asm__(
     "\tmov.l @r15+,r9\n"
     "\trts\n"
     "\tmov.l @r15+,r8\n"
-    /* Shaded: the program's shaded draw mode beside its colour word. */
-    ".Lpr_shaded:\n"
-    "\tmov.w @(6,r2),r0\n"
-    "\textu.w r0,r12\n"
-    "\tmov.w @(2,r2),r0\n"
-    "\tshll16 r0\n"
-    "\tbra .Lpr_mode\n"
-    "\tor r12,r0\n"
+    SAT_PR_SHADED(".Lpr_mode_i", ".Lpr_shaded_i")
+    "\t.align 2\n"
+    ".Lpr_direct:\n"
+    "\tmov.w @r4+,r1\n"
+    "\textu.w r1,r1\n"
+    SAT_PR_FACE(".Lpr_direct", ".Lpr_mode_d", ".Lpr_shaded_d")
+    "\tbra .Lpr_stop\n"
+    "\tnop\n"
+    SAT_PR_SHADED(".Lpr_mode_d", ".Lpr_shaded_d")
     "\t.size _sat_scene3d_program_run_sh2,.-_sat_scene3d_program_run_sh2\n"
     "\t.text\n");
+#undef SAT_PR_SHADED
+#undef SAT_PR_FACE
 
 inline uint32_t run(Job& job) { return sat_scene3d_program_run_sh2(&job); }
 #else

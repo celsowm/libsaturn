@@ -693,41 +693,18 @@ sat_result_t emit_program_run(sat_scene3d_faces_t* scene,uint32_t* i,uint32_t or
     const uint16_t* const order=scene->order;
     const sat_scene3d_projected_face_t* const entries=scene->projected_entries;
     uint32_t k=*i;
-    if constexpr(Indirect) {
-        /* program_run writes the run; what stopped it is read off the queue. */
-        if(available) {
-            saturn::scene3d::program_run::Job job{order+k,scene->projected_indices,entries,out,
-                ordered-k<available?ordered-k:available,0u};
-            n=saturn::scene3d::program_run::run(job);
-            cached=job.cached;
-            k+=n;
-        }
-        if(n==available && k<ordered &&
-           entries[scene->projected_indices[order[k]]].kind==SAT_SCENE3D_PROJECTED_PROGRAM)
-            st=SAT_ERR_CAPACITY;
-    } else for(;k<ordered;++k) {
-        const uint16_t logical=order[k];
-        const auto& hot=entries[Indirect?scene->projected_indices[logical]:logical];
-        if(hot.kind!=SAT_SCENE3D_PROJECTED_PROGRAM)break;
-        if(n==available) {st=SAT_ERR_CAPACITY;break;}
-        const uint16_t* const prefix=hot.program->command;
-        // A shaded face carries the caller's table at CMDGRDA. Each word is
-        // stored once: the slots are VDP1 VRAM, and a store there is a bus write.
-        const uint32_t grda=hot.reserved;
-        uint32_t mode=load_pair(prefix+2);
-        if(grda)mode=command_pair(prefix[1],prefix[3]);
-        out[0]=command_pair(prefix[0],0u);
-        out[1]=mode;
-        out[2]=load_pair(prefix+4);
-        out[3]=hot.xy[0];
-        out[4]=hot.xy[1];
-        out[5]=hot.xy[2];
-        out[6]=hot.xy[3];
-        out[7]=command_pair(static_cast<uint16_t>(grda),0u);
-        out+=8;
-        ++n;
-        if(hot.cached_projected)++cached;
+    /* program_run writes the run; what stopped it is read off the queue. */
+    const uint16_t* const indices=Indirect?scene->projected_indices:nullptr;
+    if(available) {
+        saturn::scene3d::program_run::Job job{order+k,indices,entries,out,
+            ordered-k<available?ordered-k:available,0u};
+        n=saturn::scene3d::program_run::run(job);
+        cached=job.cached;
+        k+=n;
     }
+    if(n==available && k<ordered &&
+       entries[indices?indices[order[k]]:order[k]].kind==SAT_SCENE3D_PROJECTED_PROGRAM)
+        st=SAT_ERR_CAPACITY;
     saturn::hal::vdp1::commit_projected_programs(n);
     scene->emitted_cached=static_cast<uint16_t>(scene->emitted_cached+cached);
     scene->emitted_faces=static_cast<uint16_t>(scene->emitted_faces+(n-cached));
