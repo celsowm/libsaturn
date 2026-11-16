@@ -22,11 +22,14 @@ assert startup, "manifest lists no startup sources"
 dupes = sorted({f for f in listed + startup if (listed + startup).count(f) > 1})
 assert not dupes, f"sources listed twice: {dupes}"
 
+# Library sources are C, C++ and the hand-scheduled SH-2 routines (*_sh2.s, each beside the
+# header that states its contract); every other assembly file is startup or disc boot code.
 on_disk = sorted(p.relative_to(ROOT).as_posix()
-                 for ext in ("*.c", "*.cpp") for p in (ROOT / "src").rglob(ext))
+                 for ext in ("*.c", "*.cpp", "*_sh2.s") for p in (ROOT / "src").rglob(ext))
 asm_on_disk = sorted({p.relative_to(ROOT).as_posix()
                       for ext in ("*.s", "*.S")
-                      for p in (ROOT / "src").rglob(ext)})
+                      for p in (ROOT / "src").rglob(ext)
+                      if not p.name.endswith("_sh2.s")})
 
 assert sorted(listed) == on_disk, (
     "manifest/src mismatch: only in manifest="

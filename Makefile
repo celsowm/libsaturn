@@ -193,10 +193,13 @@ $(error tools/library_sources.py returned no sources from cmake/LibSaturnSources
 endif
 LIB_CPP_SRCS := $(filter %.cpp,$(LIB_SOURCE_LIST))
 LIB_C_SRCS   := $(filter %.c,$(LIB_SOURCE_LIST))
+# Hand-scheduled SH-2 routines (*_sh2.s), each beside the header that states its contract.
+LIB_S_SRCS   := $(filter %.s,$(LIB_SOURCE_LIST))
 CRT_SRCS     := $(shell $(PYTHON) tools/library_sources.py --startup)
 
 LIB_CPP_OBJS := $(patsubst %.cpp,$(LIB_OBJ_ROOT)/%.o,$(LIB_CPP_SRCS))
 LIB_C_OBJS   := $(patsubst %.c,$(LIB_OBJ_ROOT)/%.o,$(LIB_C_SRCS))
+LIB_S_OBJS   := $(patsubst %.s,$(LIB_OBJ_ROOT)/%.o,$(LIB_S_SRCS))
 LIBRARY := $(LIB_OBJ_ROOT)/libsaturn.a
 
 # -- Example (automatic discovery) ----------------------------
@@ -338,7 +341,7 @@ check-tools:
 
 dirs:
 	@mkdir -p $(BUILD_DIR) $(GENERATED_DIR) $(ISO_ROOT) $(OUTPUT_DIR)
-	@mkdir -p $(dir $(LIB_CPP_OBJS)) $(dir $(LIB_C_OBJS)) $(dir $(CRT_OBJS))
+	@mkdir -p $(dir $(LIB_CPP_OBJS)) $(dir $(LIB_C_OBJS)) $(dir $(LIB_S_OBJS)) $(dir $(CRT_OBJS))
 	@mkdir -p $(dir $(EXAMPLE_OBJS)) $(dir $(ALL_APP_OBJS))
 
 # -- Asset generation ------------------------------------------
@@ -604,6 +607,10 @@ $(LIB_OBJ_ROOT)/%.o: %.cpp
 	$(CXX) $(LIB_CXXFLAGS) $(if $(filter src/graphics/3d/scene/faces.cpp,$<),-O3) \
 		$(if $(filter $(LIB_SIZE_CXX_SRCS),$<),-Os) $(DEPFLAGS) -c $< -o $@
 
+$(LIB_OBJ_ROOT)/%.o: %.s
+	@mkdir -p $(dir $@)
+	$(CC) $(ASFLAGS) -c $< -o $@
+
 $(APP_OBJ_ROOT)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
@@ -617,7 +624,7 @@ $(APP_OBJ_ROOT)/%.o: %.s
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 # -- Linkagem ---------------------------------------------------
-$(LIBRARY): $(LIB_CPP_OBJS) $(LIB_C_OBJS)
+$(LIBRARY): $(LIB_CPP_OBJS) $(LIB_C_OBJS) $(LIB_S_OBJS)
 	@mkdir -p $(dir $@)
 	@rm -f $@
 	$(AR) rcs $@ $^

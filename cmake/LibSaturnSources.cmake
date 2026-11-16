@@ -58,6 +58,8 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/animation/character_render.cpp
     src/graphics/3d/animation/clip.cpp
     src/graphics/3d/animation/skeleton.cpp
+    src/graphics/3d/animation/clip_joints_sh2.s
+    src/graphics/3d/animation/rigid_project_sh2.s
     src/graphics/3d/animation/skin.cpp
     src/graphics/3d/animation/skin_parallel.cpp
     src/graphics/3d/camera/follow.cpp
@@ -68,11 +70,15 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/geometry/transform.cpp
     src/graphics/3d/materials/pool.cpp
     src/graphics/3d/rendering/api.cpp
+    src/graphics/3d/rendering/paint_keys_sh2.s
     src/graphics/3d/rendering/fade.cpp
     src/graphics/3d/rendering/indexed.cpp
     src/graphics/3d/rendering/surface.cpp
     src/graphics/3d/scene/api.cpp
     src/graphics/3d/scene/faces.cpp
+    src/graphics/3d/scene/program_run_sh2.s
+    src/graphics/3d/scene/projected_bounds_sh2.s
+    src/graphics/3d/scene/screen_cull_sh2.s
     src/graphics/3d/scene/managed_texture.cpp
     src/graphics/3d/scene/parallel.cpp
     src/graphics/3d/scene/scene.cpp

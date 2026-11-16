@@ -1,6 +1,6 @@
 #include "saturn/render3d.h"
 
-#define SAT_PAINT_KEYS_SH2_EMIT 1 /* this unit carries the painter key routines */
+
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
