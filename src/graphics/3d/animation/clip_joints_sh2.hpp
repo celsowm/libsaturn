@@ -78,7 +78,7 @@ inline bool reference(const Job& job) {
     return true;
 }
 
-#if defined(__sh__) && !defined(SAT_SKIN_CLIP_JOINTS_REFERENCE)
+#if defined(__sh__)
 #define SAT_SKIN_CLIP_JOINTS_SH2 1
 static_assert(offsetof(Job,joints)==0u && offsetof(Job,out)==4u && offsetof(Job,count)==8u &&
     offsetof(Job,scaled)==12u && offsetof(Job,rows)==16u && offsetof(Job,placement)==20u,

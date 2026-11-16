@@ -61,7 +61,7 @@ inline uint32_t reference(Job& job) {
     return n;
 }
 
-#if defined(__sh__) && !defined(SAT_SCENE3D_PROGRAM_RUN_REFERENCE)
+#if defined(__sh__)
 #define SAT_SCENE3D_PROGRAM_RUN_SH2 1
 static_assert(offsetof(Job,order)==0u && offsetof(Job,indices)==4u && offsetof(Job,entries)==8u &&
     offsetof(Job,out)==12u && offsetof(Job,max)==16u && offsetof(Job,cached)==20u,

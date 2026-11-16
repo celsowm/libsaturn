@@ -73,7 +73,7 @@ inline uint32_t reference(const Job& job) {
     return job.count;
 }
 
-#if defined(__sh__) && !defined(SAT_SKIN_RIGID_PROJECT_REFERENCE)
+#if defined(__sh__)
 #define SAT_SKIN_RIGID_PROJECT_SH2 1
 static_assert(offsetof(Job,rigid)==0u && offsetof(Job,joints)==4u && offsetof(Job,out)==8u && offsetof(Job,count)==12u && offsetof(Job,width)==16u &&
     offsetof(Job,y_scale)==20u && offsetof(Job,mult)==24u && offsetof(Job,w_last)==28u,

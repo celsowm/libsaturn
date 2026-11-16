@@ -43,7 +43,7 @@ inline void reference(const sat_projected_vertex_t* vertices,uint32_t count,Boun
     *out={min_x,max_x,min_y,max_y,min_w};
 }
 
-#if defined(__sh__) && !defined(SAT_SCENE3D_PROJECTED_BOUNDS_REFERENCE)
+#if defined(__sh__)
 #define SAT_SCENE3D_PROJECTED_BOUNDS_SH2 1
 extern "C" void sat_scene3d_projected_bounds_sh2(const sat_projected_vertex_t* vertices,
     uint32_t count,Bounds* out);

@@ -89,7 +89,7 @@ inline uint32_t reference(const Job& job) {
     return static_cast<uint32_t>(key-job.key);
 }
 
-#if defined(__sh__) && !defined(SAT_SCENE3D_SCREEN_CULL_REFERENCE)
+#if defined(__sh__)
 #define SAT_SCENE3D_SCREEN_CULL_SH2 1
 extern "C" uint32_t sat_scene3d_screen_cull_sh2(const Job* job);
 

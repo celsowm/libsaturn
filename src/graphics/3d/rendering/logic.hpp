@@ -13,6 +13,7 @@
 #include "saturn/core.h"
 #include "saturn/render3d.h"
 #include "src/core/math3d/logic.hpp"
+#include "src/graphics/3d/rendering/paint_keys_sh2.hpp"
 
 namespace saturn::core::render3d {
 
@@ -698,9 +699,9 @@ struct RightShift {
  * key below kPaintBuckets, higher buckets paint first, and faces keep
  * ascending index inside a bucket. keys[] is overwritten with buckets. No live
  * key maps above top_bucket, so only the counters up to it are touched. */
-template <typename Index, typename BucketOf>
-inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
-                       uint32_t top_bucket, BucketOf bucket_of) {
+template <typename Index, typename CountPass>
+inline void distribute_counted(uint32_t* keys, uint32_t face_count, Index* out,
+                               uint32_t top_bucket, CountPass count_pass) {
     /* face_count fits uint16_t, so every running position does too. The
      * counters are cleared and summed two to a 32-bit word: each store is a
      * bus write through the SH-2's cache. */
@@ -713,14 +714,8 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
     for (uint32_t w = 0; w < word_count; ++w) {
         counters.words[w] = 0u;
     }
-    for (uint32_t f = 0; f < face_count; ++f) {
-        if (keys[f] == kPaintSkip) {
-            continue;
-        }
-        const uint32_t bucket = bucket_of(keys[f]);
-        keys[f] = bucket;
-        ++start[bucket];
-    }
+    /* keys[] become buckets and start[] their face counts. */
+    count_pass(start);
     uint32_t running = 0u;
     for (uint32_t w = word_count; w-- > 0u;) {
         /* Buckets 2w (lower address) and 2w + 1, the higher one first. */
@@ -748,32 +743,43 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
     }
 }
 
+template <typename Index, typename BucketOf>
+inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
+                       uint32_t top_bucket, BucketOf bucket_of) {
+    distribute_counted(keys, face_count, out, top_bucket,
+        [keys, face_count, &bucket_of](uint16_t* start) {
+            for (uint32_t f = 0; f < face_count; ++f) {
+                if (keys[f] == kPaintSkip) {
+                    continue;
+                }
+                const uint32_t bucket = bucket_of(keys[f]);
+                keys[f] = bucket;
+                ++start[bucket];
+            }
+        });
+}
+
+/* distribute for one depth span: bucket = shift(key - lo). */
+template <typename Index>
+inline void distribute_spread(uint32_t* keys, uint32_t face_count, Index* out,
+                              uint32_t lo, uint32_t hi) {
+    const RightShift shift(range_shift(hi - lo, kPaintBuckets));
+    distribute_counted(keys, face_count, out, shift(hi - lo),
+        [keys, face_count, lo, shift](uint16_t* start) {
+            paint_keys::spread(paint_keys::Spread{keys, face_count, start, lo, shift.multiplier});
+        });
+}
+
 } // namespace paint_detail
 
 template <typename Index>
 inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index* out) {
-    uint32_t lo = 0xFFFFFFFFu;
-    uint32_t hi = 0u;
-    uint32_t live = 0u;
-    for (uint32_t f = 0; f < face_count; ++f) {
-        const uint32_t key = depth[f];
-        if (key == kPaintSkip) {
-            continue;
-        }
-        if (key < lo) {
-            lo = key;
-        }
-        if (key > hi) {
-            hi = key;
-        }
-        ++live;
-    }
+    paint_keys::Range range;
+    const uint32_t live = paint_keys::range(depth, face_count, &range);
     if (live == 0u) {
         return 0u;
     }
-    const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
-    paint_detail::distribute(depth, face_count, out, shift(hi - lo),
-        [lo, shift](uint32_t key) { return shift(key - lo); });
+    paint_detail::distribute_spread(depth, face_count, out, range.lo, range.hi);
     return live;
 }
 
@@ -794,25 +800,12 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         uint32_t id, lo, hi, count, base;
         paint_detail::RightShift shift;
     };
-    uint32_t lo = 0xFFFFFFFFu;
-    uint32_t hi = 0u;
-    uint32_t live = 0u;
-    for (uint32_t f = 0; f < face_count; ++f) {
-        const uint32_t key = keys[f];
-        if (key == kPaintSkip) {
-            continue;
-        }
-        if (key < lo) {
-            lo = key;
-        }
-        if (key > hi) {
-            hi = key;
-        }
-        ++live;
-    }
+    paint_keys::Range range;
+    const uint32_t live = paint_keys::range(keys, face_count, &range);
     if (live == 0u) {
         return 0u;
     }
+    const uint32_t lo = range.lo, hi = range.hi;
     /* One group -- nearly every scene -- costs exactly paint_order_buckets;
      * only a scene with several live groups pays the second scan. */
     Group groups[kPaintMaxGroups];
@@ -850,9 +843,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         ++group.count;
     }
     if (global_spread) {
-        const paint_detail::RightShift shift(paint_detail::range_shift(hi - lo, kPaintBuckets));
-        paint_detail::distribute(keys, face_count, out, shift(hi - lo),
-            [lo, shift](uint32_t key) { return shift(key - lo); });
+        paint_detail::distribute_spread(keys, face_count, out, lo, hi);
         return live;
     }
     /* Ascending id; the highest (farthest) group takes the highest buckets. */
