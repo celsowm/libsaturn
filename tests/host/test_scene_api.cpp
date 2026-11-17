@@ -61,6 +61,7 @@ extern "C" sat_result_t sat_scene3d_faces_begin_camera(
     /* Mirror the real painter's begin(): frame telemetry cannot leak into
      * a budget-rejected frame that never invokes the mocked flush(). */
     scene->emitted_faces=scene->emitted_cached=scene->skipped_faces=0u;
+    scene->culled_faces=scene->clipped_faces=scene->fallback_faces=0u;
     g_pending_cached=0u;
     return SAT_OK;
 }
@@ -224,6 +225,23 @@ int main() {
     assert(stats.commands_used == 3u && stats.commands_capacity == 64u);
     assert(g_replayed == 1u);
     assert(stats.world_commands == 0u);
+
+    // Visibility and clipping counters originate in the face queue; expose
+    // them both while the scene is active and after its flush, then reset.
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,320u,224u,8u)==SAT_OK);
+    scene.faces.culled_faces=3u;
+    scene.faces.clipped_faces=2u;
+    scene.faces.fallback_faces=1u;
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.culled_faces==3u && stats.clipped_faces==2u && stats.fallback_faces==1u);
+    assert(sat_scene_flush(&scene)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.culled_faces==3u && stats.clipped_faces==2u && stats.fallback_faces==1u);
+    assert(scene.culled_faces==3u && scene.clipped_faces==2u && scene.fallback_faces==1u);
+    assert(sat_scene_begin(&scene,&camera,SAT_FX16_ONE,320u,224u,8u)==SAT_OK);
+    assert(sat_scene_stats(&scene,&stats)==SAT_OK);
+    assert(stats.culled_faces==0u && stats.clipped_faces==0u && stats.fallback_faces==0u);
+    assert(sat_scene_flush(&scene)==SAT_OK);
 
     // The physical world-command delta counts clipping/subdivision output
     // instead of assuming one hardware command for every accepted face.

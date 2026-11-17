@@ -235,6 +235,9 @@ static sat_result_t flush_scene(sat_scene_t* scene,bool trusted) {
 #endif
     scene->flushed_faces = scene->faces.emitted_faces;
     scene->skipped_faces = scene->faces.skipped_faces;
+    scene->culled_faces = scene->faces.culled_faces;
+    scene->clipped_faces = scene->faces.clipped_faces;
+    scene->fallback_faces = scene->faces.fallback_faces;
     scene->replayed_items = static_cast<uint16_t>(
         scene->replayed_items + scene->faces.emitted_cached);
     record_frame_result(scene,st);
@@ -377,9 +380,11 @@ extern "C" sat_result_t sat_scene_stats(const sat_scene_t* scene,
     out->submitted_faces = scene->submitted_faces;
     out->flushed_faces = scene->flushed_faces;
     out->skipped_faces = scene->skipped_faces;
-    out->culled_faces = scene->culled_faces;
-    out->clipped_faces = scene->clipped_faces;
-    out->fallback_faces = scene->fallback_faces;
+    /* The face queue owns these counters while submissions/flush are in
+     * progress. Report them live as well as after the wrapper's flush. */
+    out->culled_faces = scene->faces.culled_faces;
+    out->clipped_faces = scene->faces.clipped_faces;
+    out->fallback_faces = scene->faces.fallback_faces;
     out->replayed_items = scene->replayed_items;
     out->queued_view_items = scene->queued_view_items;
     out->budget_blocked_faces = scene->budget_blocked_faces;
