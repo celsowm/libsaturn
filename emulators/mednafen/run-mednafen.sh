@@ -56,4 +56,6 @@ fi
 
 export MEDNAFEN_HOME="$mednafen_home"
 printf '[mednafen] Disc: %s\n[mednafen] BIOS: %s\n' "$disc" "$firmware"
-exec "$mednafen_cmd" "$disc" "$@"
+# Mednafen expects all settings before the game filename. Arguments after
+# the filename are not applied (e.g. -autosave 1 and -sound 0).
+exec "$mednafen_cmd" "$@" "$disc"
