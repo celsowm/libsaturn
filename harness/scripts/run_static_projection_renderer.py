@@ -213,18 +213,28 @@ def main():
                 reports.append(retained_med(case,bios) if args.visual_only else capture_med(case,bios,env,run))
             summary["cases"][name]={"mednafen":compare(*reports)}
         summary["performance_completed"]=True
+        capture_errors={}
         for name in CASES:
             for variant in ("control","candidate"):
                 print("Mednafen visual:",variant,name,flush=True)
                 case=run/variant/name
-                recorded=capture_med(case,bios,env,run,visual=True)
-                timing=retained_med(case,bios)
-                for key in ("elf_sha256","bios_sha256","mednafen_sha256","commands","faces"):
-                    if recorded[key]!=timing[key]:
-                        raise ValueError("Visual capture differs from performance workload: "+key)
-        manifest=build_manifest(run,CASES)
+                try:
+                    recorded=capture_med(case,bios,env,run,visual=True)
+                    timing=retained_med(case,bios)
+                    for key in ("elf_sha256","bios_sha256","mednafen_sha256","commands","faces"):
+                        if recorded[key]!=timing[key]:
+                            raise ValueError("Visual capture differs from performance workload: "+key)
+                except Exception as exc:
+                    import traceback
+                    capture_errors.setdefault(name,{})[variant]=str(exc)
+                    (case/"visual-failure.log").write_text(traceback.format_exc())
+                    print("Visual capture failed:",exc,flush=True)
+                else:
+                    (case/"visual-failure.log").unlink(missing_ok=True)
+        manifest=build_manifest(run,CASES,capture_errors)
         summary["visual_passed"]=manifest["passed"]
-        summary["visual_completed"]=True
+        summary["visual_completed"]=not capture_errors
+        summary["visual_capture_errors"]=capture_errors
         summary["completed"]=manifest["passed"]
         if not manifest["passed"]:raise ValueError("Visual comparison requires review; inspect visual-validation.json and PNGs")
     except BaseException as exc:

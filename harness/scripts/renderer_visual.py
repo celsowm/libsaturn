@@ -126,29 +126,36 @@ def extract_frames(movie,out):
     return paths
 
 
-def build_manifest(run,cases):
+def build_manifest(run,cases,capture_errors=None):
+    capture_errors=capture_errors or {}
+    def pair(control,candidate,out):
+        try:
+            return compare_pair(control,candidate,out,run)
+        except Exception as exc:
+            return dict(passed=False,status="REVIEW_CAPTURE_ERROR",error=str(exc))
     manifest={"version":1,"scope":"Static scenes; compare within each emulator. Full screen includes the changing frame-counter HUD. Magenta marks RGB differences; black means identical.",
               "case_results":{},"passed":False}
     for name in cases:
         dest=run/"visual"/name
         a,b=(run/v/name for v in ("control","candidate"))
-        entry={"ymir":compare_pair(a/"screen.png",b/"screen.png",dest/"ymir",run),"mednafen":{}}
+        entry={"ymir":pair(a/"screen.png",b/"screen.png",dest/"ymir"),"mednafen":{},
+               "capture_errors":capture_errors.get(name,{})}
         commands=[json.loads((p/"analysis.json").read_text())["execution"]["probe"] for p in (a,b)]
         fields=[int(cmd[cmd.index("--screenshot")+1].split(":",1)[0]) for cmd in commands]
         entry["ymir"]["capture_fields"]=fields
         if fields[0]!=fields[1]:raise ValueError("Ymir screenshot fields differ")
         for frame in FRAMES:
             key=f"frame-{frame}"
-            entry["mednafen"][key]=compare_pair(a/"mednafen-visual"/(key+".png"),
-                       b/"mednafen-visual"/(key+".png"),dest/"mednafen"/key,run)
+            entry["mednafen"][key]=pair(a/"mednafen-visual"/(key+".png"),
+                       b/"mednafen-visual"/(key+".png"),dest/"mednafen"/key)
             entry["mednafen"][key]["recorded_frame_index"]=frame
         entry["mednafen_stability"]={}
         for v,p in (("control",a),("candidate",b)):
-            entry["mednafen_stability"][v]=compare_pair(
+            entry["mednafen_stability"][v]=pair(
                 p/"mednafen-visual"/f"frame-{FRAMES[0]}.png",
                 p/"mednafen-visual"/f"frame-{FRAMES[1]}.png",
-                dest/"mednafen"/("stability-"+v),run)
-        entry["passed"]=all(r["passed"] for r in [entry["ymir"],*entry["mednafen"].values(),
+                dest/"mednafen"/("stability-"+v))
+        entry["passed"]=not entry["capture_errors"] and all(r["passed"] for r in [entry["ymir"],*entry["mednafen"].values(),
                                                   *entry["mednafen_stability"].values()])
         manifest["case_results"][name]=entry
         (run/"visual-validation.json").write_text(json.dumps(manifest,indent=2)+"\n")
