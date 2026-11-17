@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Boot the native diagnostic in Mednafen and extract its saved guest report."""
+"""Unattended native CD verification using the Tekken 3 Saturn capture protocol.
+
+Reference: celsowm/tekken3-saturn scripts/record_mednafen.py and
+scripts/mednafen_state.py at f8cce4fc5c301ea4c17c9f22873d0821e16fcaed.
+No keyboard, window focus, movie, or external input automation is needed.
+"""
+import argparse
 import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -17,153 +25,193 @@ from harness.tests.test_sh2_kernel_verify import decode, validate
 from harness.scripts.telemetry import find_symbol
 
 SIZE = 704
-MAGIC = bytes.fromhex("534b5631")
-# Mednafen serializes memory differently across versions/host byte orders.
-ORDERS = ((0, 1, 2, 3), (1, 0, 3, 2), (3, 2, 1, 0), (2, 3, 0, 1))
+HIGH = 0x06000000
+RAM_SIZE = 0x100000
 
 
-def candidates(data):
-    for order in ORDERS:
-        marker = bytes(MAGIC[i] for i in order)
-        start = 0
-        while True:
-            pos = data.find(marker, start)
-            if pos < 0:
-                break
-            start = pos + 1
-            chunk = data[pos:pos + SIZE]
-            if len(chunk) != SIZE:
-                continue
-            raw = bytes(chunk[i + j] for i in range(0, SIZE, 4) for j in order)
-            words = struct.unpack(">176I", raw)
-            # Distinguish the report from a literal pool or unrelated RAM.
-            # Still accept failed/incomplete Slave lanes to diagnose them.
-            if (words[0:3] != (0x534B5631, 1, 1)
-                    or not 10000 < words[6] < 2000000
-                    or words[8] != 0 or words[11] != 1
-                    or words[12] != 128):
-                continue
-            yield raw, {"offset": pos, "byte_order": list(order)}
+def sections(data):
+    if data[:8] != b"MDFNSVST" or len(data) < 32:
+        raise ValueError("Not a Mednafen save state")
+    at = 32
+    while at < len(data):
+        if at+36 > len(data):
+            raise ValueError("Truncated section header")
+        name = data[at:at+32].split(b"\0")[0].decode(errors="replace")
+        size = struct.unpack_from("<I", data, at+32)[0]
+        end = at+36+size
+        if end > len(data):
+            raise ValueError("Truncated section: "+name)
+        yield name, data[at+36:end]
+        at = end
 
 
-def read_state(path, report_offset):
-    data = path.read_bytes()
-    if data.startswith(bytes.fromhex("1f8b")):
+def entries(body):
+    at = 0
+    while at < len(body):
+        n = body[at]
+        end = at+1+n
+        if end+4 > len(body):
+            raise ValueError("Truncated state variable header")
+        name = body[at+1:end].split(b"\0")[0].decode(errors="replace")
+        size = struct.unpack_from("<I", body, end)[0]
+        if end+4+size > len(body):
+            raise ValueError("Truncated state variable: "+name)
+        yield name, body[end+4:end+4+size]
+        at = end+4+size
+
+
+def swap16(raw):
+    result = bytearray(raw)
+    result[0::2], result[1::2] = raw[1::2], raw[0::2]
+    return bytes(result)
+
+
+def work_ram(state):
+    data = state.read_bytes()
+    if data[:2] == bytes.fromhex("1f8b"):
         data = gzip.decompress(data)
-    info = {"file": path.name, "decoded_bytes": len(data),
-            "state_header": data[:8].hex(), "wram_fields": [], "magic_hits": {}}
-    found = {}
-    # Native Mednafen named state variables encode a one-byte name length,
-    # name, little-endian uint32 byte length, and raw contents. Saturn
-    # WRAM-H is 1 MiB of uint16. Read the actual linked report address.
-    name = b"WorkRAMH"
-    start = 0
-    while True:
-        pos = data.find(name, start)
-        if pos < 0:
-            break
-        start = pos + 1
-        end = pos + len(name)
-        if pos == 0 or data[pos-1] != len(name) or end+4 > len(data):
-            continue
-        length = struct.unpack_from("<I", data, end)[0]
-        base = end+4
-        if length != 1048576 or base+length > len(data):
-            continue
-        chunk = data[base+report_offset:base+report_offset+SIZE]
-        if len(chunk) != SIZE:
-            continue
-        field = {"offset": base, "report_offset": report_offset, "headers": []}
-        info["wram_fields"].append(field)
-        for order in ORDERS:
-            raw = bytes(chunk[i+j] for i in range(0, SIZE, 4) for j in order)
-            words = struct.unpack(">176I", raw)
-            field["headers"].append({"order": list(order), "header": list(words[:12])})
-            if words[:2] == (0x534B5631, 1):
-                found[raw] = {"offset": base+report_offset, "byte_order": list(order),
-                              "method": "linked WRAM-H", "state": path.name}
-    for order in ORDERS:
-        marker = bytes(MAGIC[i] for i in order)
-        info["magic_hits"][str(order)] = data.count(marker)
-    # Fallback for emulator forks with different field names.
-    for raw, source in candidates(data):
-        found.setdefault(raw, dict(source, state=path.name, method="signature scan"))
-    return found, info
+    for name, body in sections(data):
+        if name == "MAIN":
+            ram = dict(entries(body))
+            high = ram["WorkRAMH"]
+            if len(high) != RAM_SIZE:
+                raise ValueError("Wrong WRAM-H size")
+            return high
+    raise ValueError("Missing MAIN section")
 
 
-def run():
+def elf_text(elf):
+    output = subprocess.check_output(["sh2eb-elf-objdump", "-h", str(elf)], text=True)
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 6 and parts[1] == ".text":
+            size, address, offset = int(parts[2],16), int(parts[3],16), int(parts[5],16)
+            with elf.open("rb") as f:
+                f.seek(offset)
+                expected = f.read(min(size,4096))
+            if not expected:
+                raise ValueError("Empty ELF text")
+            return (address & 0x0fffffff)-HIGH, expected
+    raise ValueError("No ELF .text section")
+
+
+def normalize(high, text_offset, expected):
+    if not 0 <= text_offset <= RAM_SIZE-len(expected):
+        raise ValueError("ELF text outside WRAM-H")
+    for order, ram in (("big", high), ("swapped16", swap16(high))):
+        if ram[text_offset:text_offset+len(expected)] == expected:
+            return order, ram
+    raise ValueError("Save state does not contain the built ELF's .text")
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def run(args):
     out = ROOT / "harness/build/sh2_kernel_verify_mednafen"
     out.mkdir(parents=True, exist_ok=True)
     archive = out.parent / "sh2_kernel_verify-mednafen-return.zip"
     archive.unlink(missing_ok=True)
-    for name in ("analysis.json", "metadata.json", "run.log", "state-inspection.json"):
-        (out / name).unlink(missing_ok=True)
+    names = ("analysis.json", "metadata.json", "run.log", "telemetry.bin")
+    for name in names:
+        (out/name).unlink(missing_ok=True)
     metadata = {"emulator": "Mednafen", "boot": "native CD",
-                "hardware_status": "PENDING", "result": "FAIL"}
+                "hardware_status": "PENDING", "result": "FAIL",
+                "seconds_requested": args.seconds}
+    env = dict(os.environ)
+    toolchain = Path(env.get("LIBSATURN_TOOLCHAIN_ROOT", str(Path.home()/"dev/saturn-tools")))
+    env["LIBSATURN_TOOLCHAIN_ROOT"] = str(toolchain)
+    env["PATH"] = str(toolchain/"bin")+os.pathsep+env.get("PATH","")
+    os.environ["PATH"] = env["PATH"]  # objdump uses the same compiler tools
     try:
         metadata["checkout"] = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        subprocess.run(["sh", "build-example.sh", "sh2_kernel_verify"],
-                       cwd=ROOT, check=True)
-        elf = ROOT / "build/sh2_kernel_verify.elf"
-        metadata["elf_sha256"] = hashlib.sha256(elf.read_bytes()).hexdigest()
-        report_offset = find_symbol(ROOT / "build/sh2_kernel_verify.map", "_g_sh2_kernel_verify")
-        metadata["report_wram_offset"] = report_offset
-        if not 0 <= report_offset <= 1048576-SIZE:
-            raise ValueError("Report outside WRAM-H")
-        tmp = tempfile.mkdtemp(prefix="mednafen-state-", dir=out)
-        if True:  # retain capture locally, even on extraction failure
-            # Fresh state directory: never load an earlier guest snapshot.
-            cmd = ["sh", "run-example.sh", "sh2_kernel_verify", "--",
-                   "-sound", "0", "-video.driver", "softfb",
-                   "-autosave", "1", "-filesys.path_state", tmp,
-                   "-filesys.fname_state", "sh2-verify.%X", "-filesys.state_comp_level", "-1"]
-            print("Wait for SH2 KERNEL DIFFERENTIAL / ERRORS. Press F5 (fn+F5 on Mac) to save, then Esc.",
-                  flush=True)
-            with (out / "run.log").open("w") as log:
-                subprocess.run(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
-            found = {}
-            inspections = []
-            for state in Path(tmp).rglob("*"):
-                if not state.is_file():
-                    continue
+            ["git","rev-parse","HEAD"], cwd=ROOT, text=True).strip()
+        bios = args.bios or Path(env.get("LIBSATURN_BIOS",
+                                       str(ROOT/"bios/firmware/mpr-17933.bin")))
+        bios = bios.resolve()
+        if bios.stat().st_size != 524288:
+            raise ValueError("BIOS must be a caller-owned 512 KiB image")
+        metadata["bios_sha256"] = sha(bios)
+        with (out/"run.log").open("w") as log:
+            subprocess.run(["sh","build-example.sh","sh2_kernel_verify"],
+                           cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+            elf = ROOT/"build/sh2_kernel_verify.elf"
+            metadata["elf_sha256"] = sha(elf)
+            metadata["cue_sha256"] = sha(ROOT/"build/sh2_kernel_verify.cue")
+            metadata["disc_sha256"] = sha(ROOT/"build/sh2_kernel_verify.bin")
+            offset = find_symbol(ROOT/"build/sh2_kernel_verify.map", "_g_sh2_kernel_verify")
+            if not 0 <= offset <= RAM_SIZE-SIZE:
+                raise ValueError("Telemetry outside WRAM-H")
+            metadata["report_wram_offset"] = offset
+            text_offset, expected = elf_text(elf)
+            with tempfile.TemporaryDirectory(prefix="mednafen-profile-", dir=out) as tmp:
+                profile = Path(tmp)
+                env["LIBSATURN_MEDNAFEN_HOME"] = str(profile)
+                env["MEDNAFEN_HOME"] = str(profile)
+                exe = shutil.which(env.get("MEDNAFEN","mednafen"), path=env["PATH"])
+                if not exe:
+                    raise RuntimeError("Mednafen not on PATH; set MEDNAFEN")
+                env["MEDNAFEN"] = exe
+                metadata["mednafen_sha256"] = sha(Path(exe))
+                # Use the existing LibSaturn launcher but give it a fresh
+                # profile and explicit BIOS. mcs/*.mca is the default
+                # autosave location; do not override filename/path settings.
+                command = ["sh","run-example.sh","sh2_kernel_verify","--bios",str(bios),"--",
+                           "-sound","0","-video.driver","softfb","-ss.region_default","na",
+                           "-ss.bios_na_eu",str(bios),"-autosave","1","-ss.input.port2","none"]
+                for button in ("up","down","left","right","a","b","c","x","y","z","ls","rs","start"):
+                    command += ["-ss.input.port1.gamepad."+button,""]
+                metadata["command"] = command
+                print(f"Running Mednafen unattended for {args.seconds:g} seconds...", flush=True)
+                process = subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
                 try:
-                    reports, info = read_state(state, report_offset)
-                    found.update(reports)
-                    inspections.append(info)
-                except (OSError, ValueError, EOFError) as exc:
-                    inspections.append({"file": state.name, "error": str(exc)})
-            (out / "state-inspection.json").write_text(json.dumps(inspections, indent=2)+"\n")
-            metadata["state_directory"] = tmp
-            metadata["state_files"] = len(inspections)
-            completed = {raw: source for raw, source in found.items()
-                         if struct.unpack_from(">I", raw, 8)[0] == 1}
-            if completed:
-                found = completed
-            if len(found) != 1:
-                raise RuntimeError(f"Expected one distinct completed report; found {len(found)}. "
-                                   "Check native boot, autosave, and wait for the result screen.")
-            raw, source = next(iter(found.items()))
-            result = decode(struct.unpack(">176I", raw))
-            result["scope"] = ("Mednafen native CD boot, FRT sums from diagnostic, "
-                               "not physical-hardware timings")
-            metadata["state_report"] = source
-            (out / "analysis.json").write_text(json.dumps(result, indent=2)+"\n")
-            print(json.dumps(result, indent=2))
-            validate(result)
-            metadata["result"] = "PASS"
+                    try:
+                        process.wait(timeout=args.seconds)
+                    except subprocess.TimeoutExpired:
+                        # Both shell launchers exec, so this is the emulator PID.
+                        process.send_signal(signal.SIGINT)
+                        process.wait(timeout=20)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+                metadata["returncode"] = process.returncode
+                states = sorted((profile/"mcs").glob("*.mca"))
+                metadata["state_files"] = [{"name":p.name,"size":p.stat().st_size} for p in states]
+                if process.returncode:
+                    raise RuntimeError(f"Mednafen exited {process.returncode}; inspect run.log")
+                if len(states) != 1:
+                    metadata["profile_files"] = [str(p.relative_to(profile)) for p in profile.rglob("*") if p.is_file()]
+                    raise RuntimeError(f"Expected one autosave in mcs; found {len(states)}")
+                metadata["state_sha256"] = sha(states[0])
+                order, high = normalize(work_ram(states[0]), text_offset, expected)
+                metadata["wram_order"] = order
+                raw = high[offset:offset+SIZE]
+                (out/"telemetry.bin").write_bytes(raw)
+                result = decode(struct.unpack(">176I",raw))
+                result["scope"] = "Mednafen native CD boot; inclusive diagnostic FRT sums, not hardware timing"
+                (out/"analysis.json").write_text(json.dumps(result,indent=2)+"\n")
+                print(json.dumps(result,indent=2))
+                validate(result)
+                metadata["result"] = "PASS"
     except BaseException as exc:
         metadata["error"] = str(exc)
         raise
     finally:
-        (out / "metadata.json").write_text(json.dumps(metadata, indent=2)+"\n")
-        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
-            for name in ("analysis.json", "metadata.json", "run.log", "state-inspection.json"):
-                path = out / name
-                if path.is_file():
-                    z.write(path, name)
-        print(f"Return: {archive}", flush=True)
+        (out/"metadata.json").write_text(json.dumps(metadata,indent=2)+"\n")
+        with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as z:
+            for name in names:
+                if (out/name).is_file():
+                    z.write(out/name,name)
+        print(f"Return: {archive}",flush=True)
 
 
 if __name__ == "__main__":
-    run()
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--seconds", type=float, default=30)
+    p.add_argument("--bios", type=Path)
+    args = p.parse_args()
+    if not 0 < args.seconds <= 600:
+        p.error("--seconds must be in (0, 600]")
+    run(args)
