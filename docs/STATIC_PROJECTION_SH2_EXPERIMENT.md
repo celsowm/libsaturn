@@ -220,3 +220,49 @@ Resume the existing Ymir capture without rebuilding or replacing the ELFs:
 The resume gate rechecks linked ELF hashes, telemetry, panic and build
 provenance. Native Mednafen remains pending. No kernel or default renderer
 change in this patch.
+
+### Completed renderer A/B — Ymir and Mednafen
+
+Return archive `static_project_renderer-return(2).zip`, resumed at
+`3aebdabc3ab64ff9691b587c536975661720572d`, using the four retained
+`8f172979-dirty` builds. Summary completed=true, resumed=true,
+Ymir passed=true. All eight size-80 panic dumps are entirely zero.
+For each of the eight captures, geometry and work medians were independently
+recomputed from the 69,696-byte guest telemetry, matching analysis JSON.
+The Mednafen ELF hash matches the corresponding Ymir retained ELF hash
+for each variant and case; both use the checked native disc and .text
+identity. Complete Ymir PNGs are byte-identical between control and candidate.
+
+| Emulator/case | Geometry control / candidate ms | Work control / candidate ms | Geometry reduction | Work reduction |
+|---|---:|---:|---:|---:|
+| Ymir projection-864 | 18.148 / 15.427 | 30.038 / 27.325 | 14.99% | 9.03% |
+| Mednafen projection-864 | 22.737 / 19.782 | 37.670 / 34.668 | 12.99% | 7.97% |
+| Ymir texture-384 | 23.311 / 22.100 | 30.636 / 29.424 | 5.20% | 3.95% |
+| Mednafen texture-384 | 29.453 / 28.151 | 43.502 / 42.211 | 4.42% | 2.97% |
+
+Mednafen: all FRT frequencies 210540 Hz; projection-864 has 661 guest
+submissions in each variant (1872 measured fields); texture-384 has 665
+each (1878 measured fields). Zero errors and timeouts. Command ranges
+893–894 and 427–428, faces 847 and 382, match across variants and emulators.
+Geometry/work p95 in Mednafen: projection control 22.737/37.675 ms,
+candidate 19.787/34.673 ms; texture control 29.458/43.502 ms, candidate
+28.156/42.215 ms. Nominal submissions remain 30/s in Ymir and 20/s in
+Mednafen. The dense case saves 3.002 ms of measured work in Mednafen;
+it does not cross the next field pacing threshold. No FPS increase claimed.
+
+**Disposition:** V2 passes synthetic differential and this static renderer
+A/B in both emulators. Keep the internal opt-in; default release unchanged.
+The retained build was dirty (no full library-input manifest), captures
+are one pair per workload, Mednafen does not prove pixel/command-byte
+equality, and both workloads run on the Master. No conclusion about
+physical hardware, actual game FPS, or arbitrary camera/geometry inputs.
+
+Next qualification: (1) clean-tree paired real scene/game A/B, recording
+full build provenance and actual kernel coverage; include sparse/small
+controls, near-plane and off-screen mixed geometry, and Master/Slave
+scene preparation; (2) exact command stream/pose comparison at matched
+simulation ticks; (3) explicit SH-2 callee-saved register, SR.S and divider
+ownership/IRQ audit, plus physical Saturn evidence where available.
+Keep the hierarchy composition experiment independent so its gain can
+be measured separately. Do not combine unqualified kernels into the
+same A/B candidate.
