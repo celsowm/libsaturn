@@ -69,6 +69,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/geometry/model.cpp
     src/graphics/3d/geometry/model_upload.cpp
     src/graphics/3d/geometry/transform.cpp
+    src/graphics/3d/geometry/affine_compose_sh2.s
     src/graphics/3d/materials/pool.cpp
     src/graphics/3d/rendering/api.cpp
     src/graphics/3d/rendering/paint_keys_sh2.s
