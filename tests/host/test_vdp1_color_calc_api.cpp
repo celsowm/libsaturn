@@ -18,6 +18,11 @@ extern "C" sat_result_t sat_draw_sprite_scaled(const sat_scaled_sprite_cmd_t* cm
 extern "C" sat_result_t sat_draw_sprite_distorted(const sat_distorted_sprite_cmd_t* cmd) {
     ++draws;palette=cmd->palette_override;return SAT_OK;
 }
+static uint16_t lut_words[16];
+extern "C" sat_result_t sat_vdp1_upload_lut(const uint16_t* lut,uint16_t* out) {
+    for(unsigned i=0;i<16;++i)lut_words[i]=lut[i];
+    *out=0x1234;return SAT_OK;
+}
 int main() {
     sat_vdp1_texture_t texture{};texture.valid=1;texture.format=SAT_VDP1_TEXTURE_INDEXED8;texture.palette=5;
     sat_sprite_cmd_t normal{};normal.texture=&texture;
@@ -36,7 +41,20 @@ int main() {
     assert(sat_draw_sprite_distorted_color_calc(&distorted,SAT_VDP2_SPRITE_ADD)==SAT_ERR_NOT_INITIALIZED);
     assert(draws==3);
     initialized=true;
-    texture.format=SAT_VDP1_TEXTURE_LUT4;
-    assert(sat_draw_sprite_distorted_color_calc(&distorted,SAT_VDP2_SPRITE_ADD)==SAT_ERR_UNSUPPORTED);
-    assert(draws==3 && claim.claimed==0);
+    /* A LUT4 texture: its table carries the selector, the draw keeps the table and claims the mode. */
+    const uint8_t codes[16]={0,17,18,0,255};
+    uint16_t lut=0;
+    assert(sat_vdp1_upload_color_calc_lut(codes,5,SAT_VDP2_SPRITE_ADD,&lut)==SAT_OK && lut==0x1234);
+    assert(lut_words[0]==0 && lut_words[1]==0x4511 && lut_words[2]==0x4512 && lut_words[3]==0 && lut_words[4]==0x45FF);
+    assert(sat_vdp1_upload_color_calc_lut(codes,5,4,&lut)==SAT_OK && lut_words[1]==0x6511);
+    assert(sat_vdp1_upload_color_calc_lut(codes,8,4,&lut)==SAT_ERR_INVALID_ARG);
+    assert(sat_vdp1_upload_color_calc_lut(nullptr,5,4,&lut)==SAT_ERR_INVALID_ARG);
+    texture.format=SAT_VDP1_TEXTURE_LUT4;texture.palette=0x0777;
+    assert(sat_draw_sprite_distorted_color_calc(&distorted,SAT_VDP2_SPRITE_ADD)==SAT_OK);
+    assert(draws==4 && palette==0x0777 && claim.mode==SAT_VDP2_COLOR_CALC_ADD);
+    distorted.palette_override=0x0888;
+    assert(sat_draw_sprite_distorted_color_calc(&distorted,SAT_VDP2_SPRITE_ADD)==SAT_OK && palette==0x0888);
+    assert(sat_draw_sprite_distorted_color_calc(&distorted,9)==SAT_ERR_INVALID_ARG && draws==5);
+    texture.format=7;
+    assert(sat_draw_sprite_distorted_color_calc(&distorted,SAT_VDP2_SPRITE_ADD)==SAT_ERR_UNSUPPORTED && draws==5);
 }

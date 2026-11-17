@@ -14,7 +14,8 @@ extern "C" {
  * shared by the whole frame; mixing ADD and ratio draws returns BUSY.
  * ADD requires enabled sprite color calculation; otherwise NOT_INITIALIZED.
  * Only the VDP2 image below the sprite participates, not overwritten VDP1
- * pixels. RGB/LUT4 materials cannot carry this indexed selector. */
+ * pixels. RGB materials cannot carry this indexed selector; a LUT4 texture
+ * carries it in a table from sat_vdp1_upload_color_calc_lut. */
 #define SAT_VDP2_SPRITE_ADD 253u
 
 /* Draw one color-bank sprite through VDP2 sprite color calculation.
@@ -27,7 +28,11 @@ extern "C" {
  *
  * Configure the ratio table with sat_vdp2_sprite_color_calc_configure() first.
  * Existing sat_draw_sprite* calls remain normal/opaque with respect to VDP2
- * color calculation. */
+ * color calculation.
+ *
+ * A LUT4 texture is drawn through its table (or `palette_override`, a table
+ * handle), which must come from sat_vdp1_upload_color_calc_lut with the same
+ * slot: half the VRAM of INDEXED8 for a picture of 15 colours. */
 sat_result_t sat_draw_sprite_color_calc(
     const sat_sprite_cmd_t* cmd,
     uint8_t color_calc_slot
@@ -41,6 +46,18 @@ sat_result_t sat_draw_sprite_scaled_color_calc(
 sat_result_t sat_draw_sprite_distorted_color_calc(
     const sat_distorted_sprite_cmd_t* cmd,
     uint8_t color_calc_slot
+);
+
+/* Uploads a lookup table of color-bank codes for LUT4 textures drawn by the
+ * helpers above: texel i shows entry `codes[i]` of 256-color bank
+ * `palette_bank` through `color_calc_slot` (0..7 or SAT_VDP2_SPRITE_ADD).
+ * Texel 0 is transparent as in any LUT4 texture; give a code of 0 only to
+ * texels the picture does not use (it would erase the VDP1 pixel below). */
+sat_result_t sat_vdp1_upload_color_calc_lut(
+    const uint8_t* codes,
+    uint16_t palette_bank,
+    uint8_t color_calc_slot,
+    uint16_t* out_lut
 );
 
 #ifdef __cplusplus
