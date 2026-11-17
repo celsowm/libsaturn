@@ -75,3 +75,6 @@ bios/
 
 # Editor config with absolute paths, written by tools/gen_clangd.py
 /.clangd
+
+# macOS Finder metadata
+.DS_Store
