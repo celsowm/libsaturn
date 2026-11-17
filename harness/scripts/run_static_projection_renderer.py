@@ -11,7 +11,7 @@ import sys
 import tempfile
 import zipfile
 
-from cube_pipeline import ROOT, decode, symbols
+from cube_pipeline import ROOT, decode, symbols, validate_panic
 from sh2_kernel_verify_mednafen import elf_text, normalize, work_ram, sha
 
 CASES=("projection-864","texture-384")
@@ -23,8 +23,13 @@ def capture_med(case,bios,env,out):
     if not exe:
         raise RuntimeError("Mednafen not on PATH")
     elf=case/"cube_pipeline_bench.elf"
-    address,size=symbols(elf,"sh2eb-elf-nm")["g_cube_bench"]
+    syms=symbols(elf,"sh2eb-elf-nm")
+    address,size=syms["g_cube_bench"]
+    panic_address,panic_size=syms["g_sat_last_panic"]
     offset=address-0x06000000
+    panic_offset=panic_address-0x06000000
+    if not 0<=panic_offset<=0x100000-panic_size:
+        raise ValueError("Panic record must be in WRAM-H")
     if not 0<=offset<=0x100000-size:
         raise ValueError("Cube telemetry must be in WRAM-H")
     with tempfile.TemporaryDirectory(prefix="mednafen-",dir=case) as tmp:
@@ -46,6 +51,9 @@ def capture_med(case,bios,env,out):
         states=sorted((Path(tmp)/"mcs").glob("*.mca"))
         if len(states)!=1:raise RuntimeError("Missing or ambiguous Mednafen autosave")
         order,high=normalize(work_ram(states[0]),*elf_text(elf))
+        panic=high[panic_offset:panic_offset+panic_size]
+        (case/"mednafen-panic.bin").write_bytes(panic)
+        validate_panic(panic,panic_size)
         raw=high[offset:offset+size]
         (case/"mednafen-telemetry.bin").write_bytes(raw)
         report=decode(raw)
@@ -113,7 +121,8 @@ def main():
         with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as z:
             for p in run.rglob("*"):
                 if p.is_file() and (p.suffix in (".json",".png",".log") or p.name in
-                                    ("telemetry.bin","mednafen-telemetry.bin")):
+                                    ("telemetry.bin","mednafen-telemetry.bin","native-panic.bin",
+                                     "mednafen-panic.bin","working-ram.bin","working-mask.bin")):
                     z.write(p,p.relative_to(run))
         print("Return:",archive,flush=True)
 

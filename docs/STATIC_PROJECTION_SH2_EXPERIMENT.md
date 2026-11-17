@@ -169,3 +169,21 @@ geometry and full work intervals, commands/faces and Ymir crop pixels;
 the Mednafen part reads native telemetry, not a screenshot or hardware
 cycle counter. Real games, command-byte equality, ABI/IRQ and physical
 hardware remain later qualification gates.
+
+### First renderer capture — harness failure, not a qualified comparison
+
+The uploaded renderer archive at checkout `91dbad1d74592ed4557a53971a2c77baa7ebbb27`
+contains a successful build and 1200-field Ymir control capture for
+projection-864. Its telemetry header reports 592 submissions, 592 samples,
+zero errors/timeouts, 866 vertices and 864 faces per actor. The probe
+reports zero misaligned accesses. The runner incorrectly rejected the
+panic dump because the linked symbol is now 80 bytes (origin diagnostics
+were added), while its guard required exactly 44. The original archive
+omitted the panic bytes, so a zero panic record cannot be asserted from
+that capture. No candidate or Mednafen results were produced.
+
+Use ELF-derived sizes and verify the zero-initialized panic record,
+retain panic dumps in the return archive, and repeat the matched test.
+The same stale 44-byte guard existed in the matrix and memory-copy
+benchmarks and is corrected there as well. No production rendering
+change is necessary.

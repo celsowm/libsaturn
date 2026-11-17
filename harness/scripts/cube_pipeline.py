@@ -106,6 +106,21 @@ def decode(raw,after_field=120):
                 scope='FRT instrumentation; nominal NTSC fields. CPU submissions are not distinct display swaps or physical hardware certification.')
 
 
+def validate_panic(raw, expected_size):
+    """Use the linked ELF's size, not a historical panic-record layout.
+
+    The stable prefix is magic/code/line and the original file[32].
+    A never-written panic record is zero-initialized in BSS. Fail closed
+    on truncation, invalid size, or any nonzero diagnostic bytes.
+    """
+    if expected_size < 44 or expected_size % 4 or len(raw) != expected_size:
+        raise ValueError(f"Invalid native panic dump: expected {expected_size}, got {len(raw)} bytes")
+    if any(raw):
+        magic,code,line=struct.unpack_from('>Iii',raw)
+        name=raw[12:44].split(b'\0')[0].decode(errors='replace')
+        raise ValueError(f"Native guest panic/nonzero record: magic={magic:#010x}, code={code}, line={line}, file={name}")
+
+
 def symbols(elf,nm):
     result={}
     for line in subprocess.check_output([nm,'-S','--defined-only',str(elf)],text=True).splitlines():
@@ -234,8 +249,7 @@ def run(a):
             subprocess.run(probe,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,
                            check=True,timeout=a.timeout)
         panic=(case/'native-panic.bin').read_bytes()
-        if len(panic)!=44 or struct.unpack_from('>I',panic)[0]!=0:
-            raise ValueError('native cube panic (inspect dump/log/screenshot)')
+        validate_panic(panic,panic_size)
         report=decode((case/'telemetry.bin').read_bytes(),a.after_field)
         if (case/'working-ram.bin').read_bytes()!=struct.pack('>I',int(a.high_ram)):
             raise ValueError('cube working RAM does not match requested build')

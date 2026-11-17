@@ -2,7 +2,7 @@
 """Capture and compare guarded normal-RAM memcpy measurements on SH-2."""
 import argparse,hashlib,json,os,shutil,statistics,struct,subprocess,sys
 from pathlib import Path
-from cube_pipeline import ROOT,symbols
+from cube_pipeline import ROOT,symbols,validate_panic
 
 ROWS=512
 WORDS=13
@@ -91,8 +91,7 @@ def run(a):
     with (out/'probe.log').open('w') as log:
         subprocess.run(command,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,check=True,timeout=a.timeout)
     panic=(out/'native-panic.bin').read_bytes()
-    if len(panic)!=44 or struct.unpack_from('>I',panic)[0]:
-        raise ValueError('native copy benchmark panic')
+    validate_panic(panic,panic_size)
     report=decode((out/'telemetry.bin').read_bytes())
     metadata=dict(fields=a.fields,checkout=subprocess.check_output(
         ['git','describe','--always','--dirty'],cwd=ROOT,text=True).strip(),

@@ -2,7 +2,7 @@ import copy,struct,sys,unittest
 from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'harness/scripts'))
-from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols,working_buffers,RAM_ACTORS,RAM_FACES,RAM_ORDER
+from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols,validate_panic,working_buffers,RAM_ACTORS,RAM_FACES,RAM_ORDER
 from analyze_cpu_profile import attribute
 from compare_cube_pipeline import compare_case
 
@@ -22,6 +22,21 @@ class CubeTelemetryTests(unittest.TestCase):
             struct.pack_into('>'+str(len(FIELDS))+'I',raw,
                             4*len(HEADER)+(i%ROWS)*4*len(FIELDS),*(sample[k] for k in FIELDS))
         return raw
+
+    def test_native_panic_uses_elf_size(self):
+        for size in (44,80,96):
+            validate_panic(bytes(size),size)
+            with self.assertRaisesRegex(ValueError,'Invalid native panic dump'):
+                validate_panic(bytes(size-4),size)
+            raw=bytearray(size)
+            struct.pack_into('>Iii',raw,0,0x50414e43,-3,42)
+            with self.assertRaisesRegex(ValueError,'code=-3, line=42'):
+                validate_panic(raw,size)
+            raw=bytearray(size);raw[-1]=1
+            with self.assertRaisesRegex(ValueError,'nonzero record'):
+                validate_panic(raw,size)
+        with self.assertRaises(ValueError):
+            validate_panic(bytes(8),8)
 
     def test_rates_and_frt_units(self):
         report=decode(self.fixture())

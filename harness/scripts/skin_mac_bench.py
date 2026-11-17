@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cube_pipeline import ROOT, symbols
+from cube_pipeline import ROOT, symbols, validate_panic
 
 TELEMETRY_HEADER_WORDS = 8
 SAMPLE_WORDS = 9
@@ -102,8 +102,7 @@ def run(args):
         subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                        check=True, timeout=args.timeout)
     panic = (out / "panic.bin").read_bytes()
-    if len(panic) != panic_size or any(panic):
-        raise ValueError("native skinning benchmark panic")
+    validate_panic(panic, panic_size)
     report = decode((out / "telemetry.bin").read_bytes())
     metadata = {
         "build_command": build_command,
