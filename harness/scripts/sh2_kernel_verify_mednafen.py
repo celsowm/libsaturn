@@ -109,9 +109,15 @@ def sha(path):
 
 
 def run(args):
-    out = ROOT / "harness/build/sh2_kernel_verify_mednafen"
+    example = args.example
+    if example == "static_project_bench":
+        from harness.tests import test_static_project_bench as schema
+    else:
+        from harness.tests import test_sh2_kernel_verify as schema
+    size = getattr(schema, "SIZE", SIZE)
+    out = ROOT / f"harness/build/{example}_mednafen"
     out.mkdir(parents=True, exist_ok=True)
-    archive = out.parent / "sh2_kernel_verify-mednafen-return.zip"
+    archive = out.parent / f"{example}-mednafen-return.zip"
     archive.unlink(missing_ok=True)
     names = ("analysis.json", "metadata.json", "run.log", "telemetry.bin")
     for name in names:
@@ -134,14 +140,14 @@ def run(args):
             raise ValueError("BIOS must be a caller-owned 512 KiB image")
         metadata["bios_sha256"] = sha(bios)
         with (out/"run.log").open("w") as log:
-            subprocess.run(["sh","build-example.sh","sh2_kernel_verify"],
+            subprocess.run(["sh","build-example.sh",example],
                            cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-            elf = ROOT/"build/sh2_kernel_verify.elf"
+            elf = ROOT/f"build/{example}.elf"
             metadata["elf_sha256"] = sha(elf)
-            metadata["cue_sha256"] = sha(ROOT/"build/sh2_kernel_verify.cue")
-            metadata["disc_sha256"] = sha(ROOT/"build/sh2_kernel_verify.bin")
-            offset = find_symbol(ROOT/"build/sh2_kernel_verify.map", "_g_sh2_kernel_verify")
-            if not 0 <= offset <= RAM_SIZE-SIZE:
+            metadata["cue_sha256"] = sha(ROOT/f"build/{example}.cue")
+            metadata["disc_sha256"] = sha(ROOT/f"build/{example}.bin")
+            offset = find_symbol(ROOT/f"build/{example}.map", f"_g_{example}")
+            if not 0 <= offset <= RAM_SIZE-size:
                 raise ValueError("Telemetry outside WRAM-H")
             metadata["report_wram_offset"] = offset
             text_offset, expected = elf_text(elf)
@@ -157,7 +163,7 @@ def run(args):
                 # Use the existing LibSaturn launcher but give it a fresh
                 # profile and explicit BIOS. mcs/*.mca is the default
                 # autosave location; do not override filename/path settings.
-                command = ["sh","run-example.sh","sh2_kernel_verify","--bios",str(bios),"--",
+                command = ["sh","run-example.sh",example,"--bios",str(bios),"--",
                            "-sound","0","-video.driver","softfb","-ss.region_default","na",
                            "-ss.bios_na_eu",str(bios),"-autosave","1","-ss.input.port2","none"]
                 for button in ("up","down","left","right","a","b","c","x","y","z","ls","rs","start"):
@@ -187,13 +193,13 @@ def run(args):
                 metadata["state_sha256"] = sha(states[0])
                 order, high = normalize(work_ram(states[0]), text_offset, expected)
                 metadata["wram_order"] = order
-                raw = high[offset:offset+SIZE]
+                raw = high[offset:offset+size]
                 (out/"telemetry.bin").write_bytes(raw)
-                result = decode(struct.unpack(">176I",raw))
+                result = schema.decode(struct.unpack(f">{size//4}I",raw))
                 result["scope"] = "Mednafen native CD boot; inclusive diagnostic FRT sums, not hardware timing"
                 (out/"analysis.json").write_text(json.dumps(result,indent=2)+"\n")
                 print(json.dumps(result,indent=2))
-                validate(result)
+                schema.validate(result)
                 metadata["result"] = "PASS"
     except BaseException as exc:
         metadata["error"] = str(exc)
@@ -211,6 +217,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--seconds", type=float, default=30)
     p.add_argument("--bios", type=Path)
+    p.add_argument("--example", choices=("sh2_kernel_verify","static_project_bench"), default="sh2_kernel_verify")
     args = p.parse_args()
     if not 0 < args.seconds <= 600:
         p.error("--seconds must be in (0, 600]")
