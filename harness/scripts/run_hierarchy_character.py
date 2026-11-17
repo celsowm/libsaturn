@@ -47,19 +47,28 @@ def command_run(cmd,log,env,timeout=900):
         f.write(repr(cmd)+"\n");f.flush()
         subprocess.run(cmd,cwd=ROOT,env=env,stdout=f,stderr=subprocess.STDOUT,check=True,timeout=timeout)
 
-def build(case,mode,env):
+def build(case,mode,env,skin=False):
     case.mkdir()
     local=dict(env,SKELETAL_ROBOT_DEMO="1",HIERARCHY_CHARACTER_BENCH="1",
-               SAT_HIERARCHY_EXPERIMENT=str(mode),SAT_STATIC_PROJECT_EXPERIMENT="0")
+               SAT_HIERARCHY_EXPERIMENT=str(1 if skin else mode),SAT_STATIC_PROJECT_EXPERIMENT="0",
+               SAT_SKIN_BLEND_BENCH="0",SAT_SKIN_CHARACTER_EXPERIMENT=str(mode if skin else 0),
+               SKIN_CHARACTER_BENCH=str(int(skin)))
     command_run(["sh","build-example.sh",EXAMPLE],case/"build.log",local)
     for ext in (".elf",".map",".app.bin",".iso",".bin",".cue"):
         shutil.copyfile(ROOT/"build"/(EXAMPLE+ext),case/(EXAMPLE+ext))
     elf=case/(EXAMPLE+".elf")
     syms=symbols(elf,"sh2eb-elf-nm")
-    if ("sat_affine_compose_sh2" in syms)!=(mode==3) or "sat_static_project_sh2" in syms:
+    if ("sat_affine_compose_sh2" in syms)!=(not skin and mode==3) or "sat_static_project_sh2" in syms:
         raise ValueError("Unexpected experimental kernel in ELF")
-    dump_json(case/"build.json",dict(mode=mode,elf_sha256=sha(elf),disc_sha256=sha(case/(EXAMPLE+".bin")),
-         flags={k:local[k] for k in ("SKELETAL_ROBOT_DEMO","HIERARCHY_CHARACTER_BENCH","SAT_HIERARCHY_EXPERIMENT","SAT_STATIC_PROJECT_EXPERIMENT")},
+    if ("g_skin_character_mode" in syms)!=skin:
+        raise ValueError("Unexpected skin experiment mode symbol")
+    from profile_skin_weights import inspect
+    source=ROOT/"build/generated/skeletal_animation_3d/robot_police_skeletal.c"
+    asset=inspect(source,"actual generated Robot Police C")
+    if len(asset)!=1:raise ValueError("Expected one generated skin")
+    dump_json(case/"asset-weights.json",asset)
+    dump_json(case/"build.json",dict(mode=mode,elf_sha256=sha(elf),disc_sha256=sha(case/(EXAMPLE+".bin")),asset_sha256=sha(source),
+         flags={k:local[k] for k in ("SKELETAL_ROBOT_DEMO","HIERARCHY_CHARACTER_BENCH","SAT_HIERARCHY_EXPERIMENT","SAT_STATIC_PROJECT_EXPERIMENT","SAT_SKIN_BLEND_BENCH","SAT_SKIN_CHARACTER_EXPERIMENT","SKIN_CHARACTER_BENCH")},
          objdump=subprocess.check_output(["sh2eb-elf-gcc","--version"],env=local,text=True).splitlines()[0]))
     # Preserve disassembly of actual evaluator and native leaf, no large ELF in ZIP.
     dis=subprocess.check_output(["sh2eb-elf-objdump","-d",str(elf)],text=True)
@@ -160,10 +169,13 @@ def pixels(a,b,out):
 from local_changes import capture as capture_local_changes, add_to_zip as add_local_changes
 
 
-def main():
-    OUT.mkdir(parents=True,exist_ok=True)
-    run=Path(tempfile.mkdtemp(prefix="run-",dir=OUT))
-    archive=OUT.parent/"hierarchy_character-return.zip"
+def main(skin=False):
+    out=ROOT/"harness/build/weighted_character" if skin else OUT
+    modes={"control":1,"selective":2} if skin else MODES
+    candidates=tuple(v for v in modes if v!="control")
+    out.mkdir(parents=True,exist_ok=True)
+    run=Path(tempfile.mkdtemp(prefix="run-",dir=out))
+    archive=out.parent/("weighted_character-return.zip" if skin else "hierarchy_character-return.zip")
     env=dict(os.environ)
     tools=Path(env.get("LIBSATURN_TOOLCHAIN_ROOT",str(Path.home()/"dev/saturn-tools")))
     env["LIBSATURN_TOOLCHAIN_ROOT"]=str(tools)
@@ -179,23 +191,25 @@ def main():
         require_ffmpeg()
         summary.update(bios_sha256=sha(bios),probe_sha256=sha(probe))
         reports={}
-        for variant,mode in MODES.items():
+        for variant,mode in modes.items():
             case=run/variant
-            build(case,mode,env)
+            build(case,mode,env,skin=skin)
+            if variant!='control' and json.loads((case/'build.json').read_text())['asset_sha256']!=json.loads((run/'control/build.json').read_text())['asset_sha256']:
+                raise ValueError('Generated asset changed between builds')
             reports[variant]={"ymir":ymir(case,mode,env,bios,probe),"mednafen":mednafen(case,mode,env,bios)}
             visual=mednafen(case,mode,env,bios,True)
             compare(reports[variant]["mednafen"],visual)
             compare(reports[variant]["ymir"],reports[variant]["mednafen"])
-        for variant in ("cpp","assembly"):
+        for variant in candidates:
             summary["comparisons"][variant]={emu:compare(reports["control"][emu],reports[variant][emu])
                                               for emu in ("ymir","mednafen")}
         visual={}
         for emulator,frames in (("ymir",(2999,3599)),("mednafen-visual",VISUAL_FRAMES)):
-            for variant in MODES:
+            for variant in modes:
                 folder=run/variant/emulator
                 visual[emulator+"/"+variant+"/stable"]=pixels(folder/f"frame-{frames[0]}.png",
                     folder/f"frame-{frames[1]}.png",run/"visual"/emulator/variant/"stable-diff.png")
-            for variant in ("cpp","assembly"):
+            for variant in candidates:
                 for frame in frames:
                     visual[f"{emulator}/{variant}/{frame}"]=pixels(run/"control"/emulator/f"frame-{frame}.png",
                         run/variant/emulator/f"frame-{frame}.png",run/"visual"/emulator/variant/f"diff-{frame}.png")

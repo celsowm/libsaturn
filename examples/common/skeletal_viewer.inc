@@ -84,6 +84,9 @@ static uint32_t g_animation_mark;
 #define HIERARCHY_ROWS 48u
 extern volatile uint32_t g_hierarchy_experiment_ticks;
 extern const uint32_t g_hierarchy_experiment_mode;
+#if defined(SKIN_CHARACTER_BENCH) && SKIN_CHARACTER_BENCH
+extern const uint32_t g_skin_character_mode;
+#endif
 typedef struct {
     uint32_t step,pose_time,sample,skeleton,hierarchy,skin,submit,flush,work,
              matrix_hash,vertex_hash,commands,faces,draw_timeouts;
@@ -337,7 +340,12 @@ int main(void) {
 #if defined(HIERARCHY_CHARACTER_BENCH) && HIERARCHY_CHARACTER_BENCH
     g_hierarchy_character.magic=0x48434331u;
     g_hierarchy_character.version=1;
+#if defined(SKIN_CHARACTER_BENCH) && SKIN_CHARACTER_BENCH
+    sat_example_must(g_hierarchy_experiment_mode==1?SAT_OK:SAT_ERR_VERIFY_FAILED);
+    g_hierarchy_character.mode=g_skin_character_mode;
+#else
     g_hierarchy_character.mode=g_hierarchy_experiment_mode;
+#endif
     g_hierarchy_character.frequency=sat_time_frequency_hz();
     g_hierarchy_character.joints=VIEWER_SKELETON.joint_count;
     g_hierarchy_character.vertices=g_mesh.vertex_count;

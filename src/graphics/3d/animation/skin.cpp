@@ -270,13 +270,20 @@ extern "C" sat_result_t sat_skeleton_world_matrices(
     return SAT_OK;
 }
 
+#if defined(SAT_SKIN_CHARACTER_EXPERIMENT) && SAT_SKIN_CHARACTER_EXPERIMENT
+extern "C" const uint32_t g_skin_character_mode=SAT_SKIN_CHARACTER_EXPERIMENT;
+#endif
 extern "C" sat_result_t sat_skin_deform_range(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
     uint32_t first, uint32_t count, sat_vec3_t* out, uint32_t out_capacity) {
     SAT_TRY(check_args(skin, joint_world, joint_world_count, out_capacity, out));
     const uint32_t total = sat_skin_vertex_count(skin);
     if (first > total || count > total - first) return SAT_ERR_INVALID_ARG;
+#if defined(SAT_SKIN_CHARACTER_EXPERIMENT) && SAT_SKIN_CHARACTER_EXPERIMENT == 2
+    deform_vertices<2>(skin, joint_world, first, first + count, out, PlainStore{});
+#else
     deform_vertices(skin, joint_world, first, first + count, out, PlainStore{});
+#endif
     return SAT_OK;
 }
 
