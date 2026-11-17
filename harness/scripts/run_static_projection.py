@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import zipfile
+from local_changes import capture as capture_local_changes, add_to_zip as add_local_changes
 
 ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/"harness/build/static_project_bench"
@@ -30,6 +31,7 @@ def run():
     archive=OUT.parent/f"{EXAMPLE}-v2-return.zip"
     archive.unlink(missing_ok=True)
     status=0
+    local_changes=capture_local_changes(ROOT)
     try:
         with (OUT/"run.log").open("w") as log:
             commands=[
@@ -54,6 +56,7 @@ def run():
         status |= int(result.returncode!=0)
     finally:
         with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as z:
+            add_local_changes(z,local_changes)
             for name in names[:-1]:
                 if (OUT/name).is_file():z.write(OUT/name,"ymir/"+name)
             if med.is_file():

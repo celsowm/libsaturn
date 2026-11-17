@@ -170,6 +170,9 @@ def retained_med(case,bios,visual=False):
     return report
 
 
+from local_changes import capture as capture_local_changes, add_to_zip as add_local_changes
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resume",type=Path,help="reuse a completed Ymir run directory and execute native Mednafen")
@@ -195,6 +198,7 @@ def main():
     summary={"checkout":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),
              "cases":{},"completed":False}
     (run/"failure.log").unlink(missing_ok=True)
+    local_changes=capture_local_changes(ROOT)
     try:
         require_ffmpeg()
         summary["resumed"]=bool(args.resume)
@@ -260,6 +264,7 @@ def main():
         (run/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
         temporary_archive=archive.with_suffix(".tmp.zip")
         with zipfile.ZipFile(temporary_archive,"w",zipfile.ZIP_DEFLATED) as z:
+            add_local_changes(z,local_changes)
             for p in run.rglob("*"):
                 if p.is_file() and (p.suffix in (".json",".png",".log") or p.name in
                                     ("telemetry.bin","mednafen-telemetry.bin","native-panic.bin",

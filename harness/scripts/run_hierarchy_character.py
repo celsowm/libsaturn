@@ -157,6 +157,9 @@ def pixels(a,b,out):
     if result["different_pixels"]:raise ValueError("Frozen-pose screenshots differ: "+str(out))
     return result
 
+from local_changes import capture as capture_local_changes, add_to_zip as add_local_changes
+
+
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix="run-",dir=OUT))
@@ -171,6 +174,7 @@ def main():
     summary={"checkout":subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),
              "git_status":subprocess.check_output(["git","status","--porcelain"],cwd=ROOT,text=True),
              "completed":False,"comparisons":{}}
+    local_changes=capture_local_changes(ROOT)
     try:
         require_ffmpeg()
         summary.update(bios_sha256=sha(bios),probe_sha256=sha(probe))
@@ -205,6 +209,7 @@ def main():
         dump_json(run/"summary.json",summary)
         tmp=archive.with_suffix(".tmp.zip")
         with zipfile.ZipFile(tmp,"w",zipfile.ZIP_DEFLATED) as z:
+            add_local_changes(z,local_changes)
             for p in run.rglob("*"):
                 if p.is_file() and p.suffix in (".json",".png",".log",".txt",".bin") and p.name not in (EXAMPLE+".bin",EXAMPLE+".app.bin"):
                     z.write(p,p.relative_to(run))
