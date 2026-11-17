@@ -109,3 +109,76 @@ projected/placed path qualification are still pending.
 Run `python3 harness/scripts/run_weighted_blend.py` and return
 `harness/build/weighted_blend_bench-v2-return.zip`. Includes local
 changes, diagnostics and asset-weights.json. No production activation.
+
+## V2 target results — 2026-11-17
+
+Checkout `16a31792bb1bb6b0304a1adf13657f3f5d6d25f8`. Both 1568-byte
+telemetry records independently decoded and matched to all report fields.
+Standalone Mednafen return is byte-identical to the corresponding combined
+archive entries. Local changes manifest complete: tracking main, empty
+staged/unstaged/combined patches, no nonignored untracked files.
+
+4608 scenarios, 350208 vertices per implementation, 26880 additional
+edge checks, zero errors. Three completed lanes per emulator, init and
+parallel status zero, slave available, SR.S clear on lane entry, CCR 1,
+210540 Hz. Oracle classified 190080 unequal pair axes, 408960 triple
+axes, 73728 V1 fallback axes. Of these fallbacks 36864 are pair axes
+relevant to V2 (extreme scenario only). Ymir reported no misaligned
+accesses, completed target unittest. Mednafen native CD exit zero,
+data-only cache, verified swapped16 WRAM, ELF SHA256
+`ad4dcccd90bb36dbd7f026a1359e8a73ecf0fe97aef21097f885c7ca66f903e3`.
+No retained Ymir ELF identity or explicit panic dump.
+
+### Serial Master FRT sums (64 timed calls)
+
+| Workload | Ymir control / V1 / V2 | Mednafen control / V1 / V2 | V2 reduction Ymir / Mednafen |
+|---|---:|---:|---:|
+| empty | 94 / 82 / 83 | 129 / 114 / 99 | 11.70% / 23.26% |
+| singleton | 313 / 277 / 277 | 376 / 322 / 322 | 11.50% / 14.36% |
+| rigid | 5506 / 5589 / 5580 | 5488 / 5597 / 5189 | -1.34% / 5.45% |
+| single | 6194 / 6607 / 6226 | 6277 / 6657 / 6182 | -0.52% / 1.51% |
+| half | 15234 / 14406 / 14542 | 15098 / 14253 / 14218 | 4.54% / 5.83% |
+| uneven_pair | 17780 / 15750 / 15552 | 16967 / 15312 / 15267 | 12.53% / 10.02% |
+| triple | 20765 / 24018 / 21467 | 19308 / 23165 / 19759 | -3.38% / -2.34% |
+| mixed | 11707 / 12099 / 11401 | 11216 / 11822 / 10855 | 2.61% / 3.22% |
+| q12 | 27536 / 30664 / 27958 | 26130 / 29885 / 26199 | -1.53% / -0.26% |
+| q0 | 26244 / 29354 / 26664 | 24825 / 28590 / 24892 | -1.60% / -0.27% |
+| partial | 7024 / 7246 / 6776 | 6712 / 7066 / 6472 | 3.53% / 3.58% |
+| extreme | 14935 / 16834 / 15074 | 14212 / 16240 / 14365 | -0.93% / -1.08% |
+
+Uneven pair reductions across lanes: Ymir 12.53–12.56%, Mednafen
+10.02–11.04%. Mixed 2.56–2.61% and 3.22–3.38%. Residual triple
+regression 3.37–3.38% and 2.18–2.34%. Semantically unchanged paths
+still exhibit code generation/layout effects; no guarantee of zero
+regression. Q12/Q0 cases contain triples only and do not measure
+non-Q15 unequal pair speed. Direct V1/V2 incremental improvement is
+small; the dominant benefit is avoiding V1 triple regression.
+
+### Exported asset distribution (inventory errors: none)
+
+| Asset | Vertices | Rigid | Half | Unequal pair | Triple | Pair share | Pair runs / max run |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Robot tracked (Q10) | 943 | 241 | 0 | 326 | 376 | 34.57% | 83 / 22 |
+| Robot existing local generated (Q10) | 933 | 210 | 0 | 391 | 332 | 41.91% | 97 / 32 |
+| Fighter High (Q15) | 338 | 181 | 59 | 98 | 0 | 28.99% | 8 / 25 |
+| Fighter Medium (Q15) | 260 | 141 | 45 | 74 | 0 | 28.46% | 8 / 19 |
+| Fighter Low (Q15) | 143 | 81 | 24 | 38 | 0 | 26.57% | 8 / 10 |
+
+No single-blend records or unequal-pair endpoint weights. Robot
+local generated C SHA256
+`df7ef0c17187c88b6bea96f1378a57b30f942a0433ec682fb93434cb62debca5`;
+tracked snapshot SHA256
+`de729caf2590729cc9e389c4c678ea50263c6ba07eb610a818212011879b6305`.
+Do not equate snapshots or assume cached generated source is current.
+The fighter LODs were freshly generated. Pair share is eligible vertex
+coverage, not time share or demonstrated performance. No remapping
+justified yet.
+
+**Disposition:** V2 passes exactness and is promising enough for consumer
+qualification, not default activation. Use matched public plain-deform
+control vs selective build on Robot Police with B1/B2 disabled, fixed
+simulation, separate phase timing, full final arrays, visual checks,
+generated asset hashes, panic and local source evidence. Add unequal
+pairs for Q10/Q12/Q0 and representative mixed distributions to target
+coverage; the Robot is Q10. Follow with Fighter and relevant placed/
+projected consumers if justified. No physical or explicit IRQ proof.
