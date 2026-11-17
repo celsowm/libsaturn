@@ -13,7 +13,7 @@ EXAMPLE="weighted_blend_bench"
 
 def run():
     OUT.mkdir(parents=True,exist_ok=True)
-    env=dict(os.environ,SAT_SKIN_BLEND_BENCH="1",SAT_STATIC_PROJECT_EXPERIMENT="0",SAT_HIERARCHY_EXPERIMENT="0")
+    env=dict(os.environ,SAT_SKIN_BLEND_BENCH="1",SAT_STATIC_PROJECT_EXPERIMENT="0",SAT_HIERARCHY_EXPERIMENT="0",SAT_SKIN_CHARACTER_EXPERIMENT="0")
     tools=Path(env.get("LIBSATURN_TOOLCHAIN_ROOT",str(Path.home()/"dev/saturn-tools")))
     env["LIBSATURN_TOOLCHAIN_ROOT"]=str(tools)
     env["PATH"]=str(tools/"bin")+os.pathsep+env.get("PATH","")
@@ -28,7 +28,7 @@ def run():
         (OUT/name).unlink(missing_ok=True)
     med=OUT.parent/f"{EXAMPLE}-mednafen-return.zip"
     med.unlink(missing_ok=True)
-    archive=OUT.parent/f"{EXAMPLE}-v2-return.zip"
+    archive=OUT.parent/f"{EXAMPLE}-v3-return.zip"
     archive.unlink(missing_ok=True)
     status=0
     local_changes=capture_local_changes(ROOT)
@@ -38,9 +38,9 @@ def run():
             commands=[
                 ["git","rev-parse","HEAD"],
                 ["sh","build-example.sh",EXAMPLE],
-                ["sh","harness/run-harness.sh",EXAMPLE,"--frames","4800","--out",str(OUT/"probe.json"),
+                ["sh","harness/run-harness.sh",EXAMPLE,"--frames","6000","--out",str(OUT/"probe.json"),
                  "--","--sh2-cache","on","--dump-wram-high",str(dump),
-                 "--misaligned-report",str(OUT/"misaligned.txt"),"--screenshot",f"4799:{OUT}/screen.png"],
+                 "--misaligned-report",str(OUT/"misaligned.txt"),"--screenshot",f"5999:{OUT}/screen.png"],
                 [sys.executable,"-m","unittest","discover","-s","harness/tests","-p","test_weighted_blend_bench.py","-v"]]
             for command in commands:
                 print("Running:",*command,flush=True)
@@ -53,7 +53,7 @@ def run():
                 log.write("Missing Ymir target analysis\n")
         # Run independently even if the first emulator fails.
         result=subprocess.run([sys.executable,"harness/scripts/sh2_kernel_verify_mednafen.py",
-                               "--example",EXAMPLE,"--seconds","150"],cwd=ROOT,env=env)
+                               "--example",EXAMPLE,"--seconds","180"],cwd=ROOT,env=env)
         status |= int(result.returncode!=0)
     finally:
         with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as z:
