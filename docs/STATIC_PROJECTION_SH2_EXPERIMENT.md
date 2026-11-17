@@ -298,3 +298,35 @@ rerun or unrecorded Mednafen rerun. Fresh runs generate both timing and
 visual evidence. The ZIP contains PNGs, manifest, visual logs and guest
 telemetry but not the large movies. Review required is a failed visual
 gate, not automatic evidence of an ASM bug.
+
+### Completed visual captures — raster validator correction
+
+Return archive `static_project_renderer-return(3).zip` at checkout
+`5de6cecbb3825379d2bc6b6c95d8a7476c203d46` contains all four successful
+Mednafen visual recording passes, both Ymir images, and no visual capture
+errors. The original manifest rejected the 682x448 Mednafen movie raster
+as unrecognized, not as a pixel mismatch.
+
+All six control/candidate full-screen pairs are identical: Ymir field
+1199 for both cases (320x224, 71,680 pixels), and Mednafen recorded
+frames 900/1200 for both cases (682x448, 305,536 pixels each).
+The four Mednafen within-variant stability comparisons differ only in the
+frame-counter HUD bounding box [134,64,180,78): 308 pixels for projection,
+316 for texture, identical counts in each variant. Independent RGB
+inspection of the uploaded originals confirms zero model-band differences
+in all four, with nonuniform rendered cubes in all images.
+
+Accept this specific Mednafen raster explicitly: full width, doubled
+vertical model band [0,96,682,384), with no rescaling or guessed horizontal
+offset. Other unrecognized raster sizes remain rejected. The new
+`--compare-only` resume mode verifies retained ELF/BIOS, telemetry/panic,
+workload and original screenshot hashes before rebuilding the manifest
+and PNG diffs without running either emulator.
+
+```sh
+python3 harness/scripts/run_static_projection_renderer.py --resume harness/build/static_project_renderer/run-wcg63f7x --compare-only
+```
+
+Static A/B visual equality is established for these captures; this is not
+a certification of arbitrary gameplay, command-byte equality, clean-tree
+builds, hardware, or interrupt/ABI safety. No production change.

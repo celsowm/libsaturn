@@ -67,16 +67,22 @@ def diff(a,b,w,h):
                 bounds=[xmin,ymin,xmax+1,ymax+1] if count else None),bytes(mask)
 
 
-def model_box(w,h):
+def model_box(w,h,emulator=None):
     # Capture requests scanlines 0..223 and no overscan/aspect correction.
     # Do not guess offsets or resize unexpected rasters.
+    # Mednafen 1.32.1 CSCD capture of the Saturn 320x224 mode can
+    # retain a 341-dot horizontal raster, doubled to 682x448.
+    # The observed full-width model band is exactly rows 96..383.
+    # Keep padding too: no horizontal crop, stretching or resampling.
+    if emulator=="mednafen" and (w,h)==(682,448):
+        return (0,96,w,384)
     if w%320 or h%224:return None
     sx,sy=w//320,h//224
     if sx not in (1,2,3,4) or sy not in (1,2,3,4):return None
     return (0,48*sy,w,192*sy)
 
 
-def compare_pair(control,candidate,out,root):
+def compare_pair(control,candidate,out,root,emulator=None):
     out.mkdir(parents=True,exist_ok=True)
     before,after=load_rgb(control),load_rgb(candidate)
     shutil.copyfile(control,out/"control-screen.png")
@@ -90,7 +96,7 @@ def compare_pair(control,candidate,out,root):
     w,h,a=before;b=after[2]
     result["screen"],mask=diff(a,b,w,h)
     write_rgb(out/"diff-screen.png",w,h,mask)
-    box=model_box(w,h)
+    box=model_box(w,h,emulator)
     if box is None:
         result.update(status="REVIEW_UNKNOWN_MODEL_RASTER",passed=False)
         return result
@@ -128,12 +134,12 @@ def extract_frames(movie,out):
 
 def build_manifest(run,cases,capture_errors=None):
     capture_errors=capture_errors or {}
-    def pair(control,candidate,out):
+    def pair(control,candidate,out,emulator=None):
         try:
-            return compare_pair(control,candidate,out,run)
+            return compare_pair(control,candidate,out,run,emulator)
         except Exception as exc:
             return dict(passed=False,status="REVIEW_CAPTURE_ERROR",error=str(exc))
-    manifest={"version":1,"scope":"Static scenes; compare within each emulator. Full screen includes the changing frame-counter HUD. Magenta marks RGB differences; black means identical.",
+    manifest={"version":2,"scope":"Static scenes; compare within each emulator. Full screen includes the changing frame-counter HUD. Magenta marks RGB differences; black means identical.",
               "case_results":{},"passed":False}
     for name in cases:
         dest=run/"visual"/name
@@ -147,14 +153,14 @@ def build_manifest(run,cases,capture_errors=None):
         for frame in FRAMES:
             key=f"frame-{frame}"
             entry["mednafen"][key]=pair(a/"mednafen-visual"/(key+".png"),
-                       b/"mednafen-visual"/(key+".png"),dest/"mednafen"/key)
+                       b/"mednafen-visual"/(key+".png"),dest/"mednafen"/key,"mednafen")
             entry["mednafen"][key]["recorded_frame_index"]=frame
         entry["mednafen_stability"]={}
         for v,p in (("control",a),("candidate",b)):
             entry["mednafen_stability"][v]=pair(
                 p/"mednafen-visual"/f"frame-{FRAMES[0]}.png",
                 p/"mednafen-visual"/f"frame-{FRAMES[1]}.png",
-                dest/"mednafen"/("stability-"+v))
+                dest/"mednafen"/("stability-"+v),"mednafen")
         entry["passed"]=not entry["capture_errors"] and all(r["passed"] for r in [entry["ymir"],*entry["mednafen"].values(),
                                                   *entry["mednafen_stability"].values()])
         manifest["case_results"][name]=entry

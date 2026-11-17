@@ -17,6 +17,9 @@ class RendererVisualTests(unittest.TestCase):
         self.assertEqual(model_box(320,224),(0,48,320,192))
         self.assertEqual(model_box(640,448),(0,96,640,384))
         self.assertIsNone(model_box(352,240))
+        self.assertIsNone(model_box(682,448))
+        self.assertEqual(model_box(682,448,"mednafen"),(0,96,682,384))
+        self.assertIsNone(model_box(683,448,"mednafen"))
         with self.assertRaises(ValueError):diff(a,b,4,2)
 
     @unittest.skipUnless(shutil.which("ffmpeg"),"ffmpeg not available")
@@ -41,5 +44,24 @@ class RendererVisualTests(unittest.TestCase):
             write_rgb(a,320,224,bytes(320*224*3))
             write_rgb(b,320,224,bytes(320*224*3))
             self.assertFalse(compare_pair(a,b,root/"report",root)["passed"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg"),"ffmpeg not available")
+    def test_mednafen_recorded_raster(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);a=root/"a.png";b=root/"b.png"
+            w,h=682,448
+            pixels=bytearray(w*h*3)
+            pixels[(200*w+170)*3]=248
+            write_rgb(a,w,h,pixels)
+            pixels[(64*w+134)*3]=248 # frame counter outside model band
+            write_rgb(b,w,h,pixels)
+            result=compare_pair(a,b,root/"report",root,"mednafen")
+            self.assertTrue(result["passed"])
+            self.assertEqual(result["screen"]["different_pixels"],1)
+            self.assertEqual(result["model"]["different_pixels"],0)
+            self.assertEqual(load_rgb(root/"report/diff-crop.png")[:2],(682,288))
+            pixels[(200*w+171)*3]=248
+            write_rgb(b,w,h,pixels)
+            self.assertFalse(compare_pair(a,b,root/"report",root,"mednafen")["passed"])
 
 if __name__=="__main__":unittest.main()

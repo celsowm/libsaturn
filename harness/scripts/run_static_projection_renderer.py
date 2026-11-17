@@ -15,7 +15,7 @@ import zipfile
 from cube_pipeline import ROOT, decode, symbols, validate_panic
 from compare_cube_pipeline import compare as compare_ymir, load_reports
 from sh2_kernel_verify_mednafen import elf_text, normalize, work_ram, sha
-from renderer_visual import require_ffmpeg, extract_frames, build_manifest
+from renderer_visual import require_ffmpeg, extract_frames, build_manifest, FRAMES
 
 CASES=("projection-864","texture-384")
 OUT=ROOT/"harness/build/static_project_renderer"
@@ -146,18 +146,27 @@ def check_retained(run,bios,probe):
     return {name:matrices["control"][name][0]["revision"] for name in CASES}
 
 
-def retained_med(case,bios):
+def retained_med(case,bios,visual=False):
+    prefix="mednafen-visual" if visual else "mednafen"
     elf=case/"cube_pipeline_bench.elf"
     syms=symbols(elf,"sh2eb-elf-nm")
-    validate_panic((case/"mednafen-panic.bin").read_bytes(),syms["g_sat_last_panic"][1])
-    report=json.loads((case/"mednafen-analysis.json").read_text())
+    validate_panic((case/(prefix+"-panic.bin")).read_bytes(),syms["g_sat_last_panic"][1])
+    report=json.loads((case/(prefix+"-analysis.json")).read_text())
     if report["elf_sha256"]!=sha(elf) or report["bios_sha256"]!=sha(bios):
         raise ValueError("Retained Mednafen ELF/BIOS mismatch")
-    actual=decode((case/"mednafen-telemetry.bin").read_bytes())
+    actual=decode((case/(prefix+"-telemetry.bin")).read_bytes())
     for key in ("header","samples","first_field","last_field","measured_fields",
                 "stage_us","commands","faces","submissions_per_nominal_second"):
         if actual[key]!=report[key]:raise ValueError("Retained Mednafen telemetry differs: "+key)
     if actual["measured_fields"]<600:raise ValueError("Short retained Mednafen interval")
+    if visual:
+        if report.get("visual_only") is not True or not report.get("movie_sha256"):
+            raise ValueError("Missing visual recording provenance")
+        for frame in FRAMES:
+            image=case/prefix/f"frame-{frame}.png"
+            entry=report["visual_frames"][str(frame)]
+            if entry["file"]!=image.name or entry["sha256"]!=sha(image):
+                raise ValueError("Retained visual PNG hash differs: "+str(image))
     return report
 
 
@@ -165,8 +174,12 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resume",type=Path,help="reuse a completed Ymir run directory and execute native Mednafen")
     parser.add_argument("--visual-only",action="store_true",help="reuse existing verified performance captures; record visual evidence only")
+    parser.add_argument("--compare-only",action="store_true",help="verify retained captures and regenerate visual evidence, without running emulators")
     args=parser.parse_args()
-    if args.visual_only and not args.resume:parser.error("--visual-only requires --resume")
+    if (args.visual_only or args.compare_only) and not args.resume:
+        parser.error("--visual-only and --compare-only require --resume")
+    if args.visual_only and args.compare_only:
+        parser.error("choose only one of --visual-only and --compare-only")
     OUT.mkdir(parents=True,exist_ok=True)
     run=args.resume.resolve() if args.resume else Path(tempfile.mkdtemp(prefix="run-",dir=OUT))
     if args.resume and (run.parent!=OUT.resolve() or not run.is_dir()):
@@ -186,6 +199,7 @@ def main():
         require_ffmpeg()
         summary["resumed"]=bool(args.resume)
         summary["visual_only"]=args.visual_only
+        summary["compare_only"]=args.compare_only
         (run/"visual-validation.json").unlink(missing_ok=True)
         shutil.rmtree(run/"visual",ignore_errors=True)
         for variant in (() if args.resume else ("control","candidate")):
@@ -210,7 +224,7 @@ def main():
             for variant in ("control","candidate"):
                 print("Mednafen performance:",variant,name,flush=True)
                 case=run/variant/name
-                reports.append(retained_med(case,bios) if args.visual_only else capture_med(case,bios,env,run))
+                reports.append(retained_med(case,bios) if (args.visual_only or args.compare_only) else capture_med(case,bios,env,run))
             summary["cases"][name]={"mednafen":compare(*reports)}
         summary["performance_completed"]=True
         capture_errors={}
@@ -219,7 +233,7 @@ def main():
                 print("Mednafen visual:",variant,name,flush=True)
                 case=run/variant/name
                 try:
-                    recorded=capture_med(case,bios,env,run,visual=True)
+                    recorded=retained_med(case,bios,visual=True) if args.compare_only else capture_med(case,bios,env,run,visual=True)
                     timing=retained_med(case,bios)
                     for key in ("elf_sha256","bios_sha256","mednafen_sha256","commands","faces"):
                         if recorded[key]!=timing[key]:
