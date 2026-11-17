@@ -23,16 +23,17 @@ def run():
     dump=OUT/"wram.bin"
     env["LIBSATURN_WEIGHTED_BLEND_BENCH_DUMP"]=str(dump)
     env["LIBSATURN_WEIGHTED_BLEND_BENCH_MAP"]=str(ROOT/f"build/{EXAMPLE}.map")
-    names=("analysis.json","telemetry.bin","probe.json","misaligned.txt","run.log","screen.png","wram.bin")
+    names=("asset-weights.json","analysis.json","telemetry.bin","probe.json","misaligned.txt","run.log","screen.png","wram.bin")
     for name in names:
         (OUT/name).unlink(missing_ok=True)
     med=OUT.parent/f"{EXAMPLE}-mednafen-return.zip"
     med.unlink(missing_ok=True)
-    archive=OUT.parent/f"{EXAMPLE}-return.zip"
+    archive=OUT.parent/f"{EXAMPLE}-v2-return.zip"
     archive.unlink(missing_ok=True)
     status=0
     local_changes=capture_local_changes(ROOT)
     try:
+        subprocess.run([sys.executable,"harness/scripts/profile_skin_weights.py","--out",str(OUT/"asset-weights.json")],cwd=ROOT,env=env,check=False)
         with (OUT/"run.log").open("w") as log:
             commands=[
                 ["git","rev-parse","HEAD"],

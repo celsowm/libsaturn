@@ -5,13 +5,15 @@
 #include "src/graphics/3d/animation/weighted_delta_sh2.hpp"
 extern "C" sat_result_t sat_skin_deform_range_weighted_delta(
     const sat_skin_asset_t*,const sat_mat4_t*,uint16_t,uint32_t,uint32_t,sat_vec3_t*,uint32_t);
+extern "C" sat_result_t sat_skin_deform_range_weighted_selective(
+    const sat_skin_asset_t*,const sat_mat4_t*,uint16_t,uint32_t,uint32_t,sat_vec3_t*,uint32_t);
 namespace {
 constexpr unsigned N=96,J=16,R=64,S=12;
-struct Row {uint32_t cases,errors,first_error,control_ticks,candidate_ticks,vertices,pair_axes,triple_axes,fallback_axes,reserved;};
+struct Row {uint32_t cases,errors,first_error,control_ticks,candidate_ticks,vertices,pair_axes,triple_axes,fallback_axes,selective_ticks;};
 struct alignas(16) Lane {uint32_t slave,sr,ccr,done,edge_checks,edge_errors,reserved[2];Row rows[S];};
 struct alignas(16) Report {uint32_t magic,version,done,init_status,slave_ready,parallel_status,frequency,reserved;Lane lanes[3];};
 static_assert(sizeof(Lane)==512&&sizeof(Report)==1568);
-struct Work {sat_skin_rigid_t rigid[N];sat_skin_blend_t blend[N];sat_mat4_t mats[J];sat_vec3_t a[N+2],b[N+2],ref[N+2];};
+struct Work {sat_skin_rigid_t rigid[N];sat_skin_blend_t blend[N];sat_mat4_t mats[J];sat_vec3_t a[N+2],b[N+2],c[N+2],ref[N+2];};
 static Work work[2];
 uint32_t rng(uint32_t& s){s=s*1664525u+1013904223u;return s;}
 int32_t random(uint32_t& s,int32_t r){return int32_t((rng(s)>>8)%uint32_t(2*r+1))-r;}
@@ -56,6 +58,8 @@ void edge(Lane& l,unsigned chunk){
     for(auto b:p)for(auto w:weights){
         ++l.edge_checks;
         if(pair(a,b,w)!=floorq(int64_t(a)*w+int64_t(b)*(32768-w)+16384,32768))++l.edge_errors;
+        ++l.edge_checks;
+        if(pair_selective(a,b,w)!=floorq(int64_t(a)*w+int64_t(b)*(32768-w)+16384,32768))++l.edge_errors;
         for(auto c:p){
             int32_t v=(32768-w)/3;
             ++l.edge_checks;
@@ -104,18 +108,29 @@ void scenario(Work& w,Row& r,unsigned sc,unsigned k){
     }
     sat_skin_asset_t skin{w.rigid,w.blend,nullptr,uint16_t(rigid),uint16_t(total-rigid),J,uint8_t(shift),highest};
     bool ok=sat_skin_validate(&skin)==SAT_OK;
-    for(unsigned i=0;i<N+2;++i)w.a[i]=w.b[i]=w.ref[i]={0x12345678,-12345678,0x11223344};
-    sat_result_t a=SAT_ERR_INVALID_ARG,b=a;
+    for(unsigned i=0;i<N+2;++i)w.a[i]=w.b[i]=w.c[i]=w.ref[i]={0x12345678,-12345678,0x11223344};
+    sat_result_t a=SAT_ERR_INVALID_ARG,b=a,c=a;
     auto control=[&]{auto t=sat_time_frc();a=sat_skin_deform_range(&skin,w.mats,J,first,count,w.a+1,N);
         r.control_ticks+=uint16_t(sat_time_frc()-t);};
     auto candidate=[&]{auto t=sat_time_frc();b=sat_skin_deform_range_weighted_delta(&skin,w.mats,J,first,count,w.b+1,N);
         r.candidate_ticks+=uint16_t(sat_time_frc()-t);};
-    if(k&1){candidate();control();}else{control();candidate();}
+    auto selective=[&]{auto t=sat_time_frc();c=sat_skin_deform_range_weighted_selective(&skin,w.mats,J,first,count,w.c+1,N);
+        r.selective_ticks+=uint16_t(sat_time_frc()-t);};
+    switch(k%6){
+        case 0:control();candidate();selective();break;
+        case 1:selective();candidate();control();break;
+        case 2:candidate();selective();control();break;
+        case 3:control();selective();candidate();break;
+        case 4:selective();control();candidate();break;
+        default:candidate();control();selective();break;
+    }
     oracle(w,skin,first,count,r);
-    ok=ok&&a==SAT_OK&&b==a;
-    for(unsigned i=0;i<N+2;++i)ok=ok&&equal(w.a[i],w.ref[i])&&equal(w.b[i],w.ref[i]);
+    ok=ok&&a==SAT_OK&&b==a&&c==a;
+    for(unsigned i=0;i<N+2;++i)ok=ok&&equal(w.a[i],w.ref[i])&&equal(w.b[i],w.ref[i])&&equal(w.c[i],w.ref[i]);
     // Rejected range must leave output untouched.
     auto bad=sat_skin_deform_range_weighted_delta(&skin,w.mats,J,total+1,1,w.b+1,N);
+    ok=ok&&bad==SAT_ERR_INVALID_ARG;
+    bad=sat_skin_deform_range_weighted_selective(&skin,w.mats,J,total+1,1,w.c+1,N);
     ok=ok&&bad==SAT_ERR_INVALID_ARG;
     for(unsigned i=0;i<N+2;++i)ok=ok&&equal(w.b[i],w.ref[i]);
     ++r.cases;r.vertices+=count;
@@ -135,7 +150,7 @@ void run(void* p,uint32_t first,uint32_t last){
 }
 extern "C" {Report g_weighted_blend_bench;}
 extern "C" unsigned weighted_blend_verify(void){
-    auto& r=g_weighted_blend_bench;r.magic=0x57424231u;r.version=1;r.frequency=sat_time_frequency_hz();
+    auto& r=g_weighted_blend_bench;r.magic=0x57424231u;r.version=2;r.frequency=sat_time_frequency_hz();
     for(unsigned k=0;k<R;++k)for(unsigned sc=0;sc<S;++sc){Context c{r.lanes,k,sc};run(&c,0,1);}
     sat_parallel_config_t config{SAT_PARALLEL_SLAVE,nullptr,0,0,60000u};
     r.init_status=uint32_t(-sat_parallel_init(&config));r.slave_ready=sat_parallel_slave_available();

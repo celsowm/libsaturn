@@ -84,3 +84,28 @@ Require no meaningful mixed-record or fallback regression, and
 measure actual consumer performance and pixels before activation.
 B1/B2 remain independent. No physical hardware, explicit interrupt
 stress, projected range or placed range qualification in this run.
+
+## V2 selective experiment
+
+Retain V1 and the original control in one binary. V2 changes only unequal
+two-weight blends, leaves the original three-weight arithmetic in place,
+and uses SH-2 SUBV/MOVT to detect signed delta overflow (with the original
+64-bit fallback). Rigid/single/half remain semantically unchanged; code
+layout can still affect timing. All three outputs (including untouched
+guard records) are compared against the same oracle, same input seeds and
+12 scenarios as V1. Rotate six call orders. Additional edge checks cover
+the selective pair itself (4480 total per lane). Report version 2 retains
+the 1568-byte layout and uses the former row reserved word for selective
+FRT ticks. Fallback axes continue to describe V1's oracle predictions;
+on V2, triple axes are not optimized at all.
+
+The runner also generates a weight inventory for the tracked Robot Police
+snapshot, any existing locally generated robot, and fresh procedural
+fighter high/medium/low exports. Include source hashes, per-kind record
+counts, run lengths and joint locality. Missing assets/generation errors
+are explicit, not interpreted as zero weights. The real renderer and
+projected/placed path qualification are still pending.
+
+Run `python3 harness/scripts/run_weighted_blend.py` and return
+`harness/build/weighted_blend_bench-v2-return.zip`. Includes local
+changes, diagnostics and asset-weights.json. No production activation.

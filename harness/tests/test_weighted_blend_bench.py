@@ -16,20 +16,22 @@ def decode(words):
         lane["scenarios"]={}
         for j,sc in enumerate(NAMES):
             idx=base+8+j*10
-            row=dict(zip(("cases","errors","first_error","control_ticks","candidate_ticks","vertices","pair_axes","triple_axes","fallback_axes","reserved"),words[idx:idx+10]))
+            row=dict(zip(("cases","errors","first_error","control_ticks","candidate_ticks","vertices","pair_axes","triple_axes","fallback_axes","selective_ticks"),words[idx:idx+10]))
             c=row["control_ticks"]
             row["reduction_percent"]=100*(c-row["candidate_ticks"])/c if c else None
+            if r["version"]==2:
+                row["selective_reduction_percent"]=100*(c-row["selective_ticks"])/c if c else None
             lane["scenarios"][sc]=row
         r["lanes"][name]=lane
     return r
 
 def validate(r):
-    assert (r["magic"],r["version"],r["done"])==(0x57424231,1,1),r
+    assert r["magic"]==0x57424231 and r["version"] in (1,2) and r["done"]==1,r
     assert (r["init_status"],r["slave_ready"],r["parallel_status"])==(0,1,0),r
     assert r["frequency"]>0,r
     for i,name in enumerate(LANES):
         l=r["lanes"][name]
-        assert (l["on_slave"],l["done"],l["edge_checks"],l["edge_errors"])==(int(i==2),1,4032,0),l
+        assert (l["on_slave"],l["done"],l["edge_checks"],l["edge_errors"])==(int(i==2),1,4480 if r["version"]==2 else 4032,0),l
         assert not l["sr"]&2,l
         for j,sc in enumerate(NAMES):
             row=l["scenarios"][sc]

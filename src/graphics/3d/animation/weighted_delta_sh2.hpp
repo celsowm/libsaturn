@@ -47,6 +47,20 @@ inline int32_t pair(int32_t a,int32_t b,int32_t w) {
     if(delta(a,b,d))return int32_t(uint32_t(b)+uint32_t(round_one(d,w)));
     return int32_t((int64_t(w)*a+int64_t(32768-w)*b+16384)>>15);
 }
+// V2: use SH-2 signed subtraction overflow flag instead of the
+// three logical operations in the V1 guard. Same exact fallback.
+inline int32_t pair_selective(int32_t a,int32_t b,int32_t w) {
+    int32_t d=a;
+#if defined(__sh__)
+    uint32_t overflow;
+    asm volatile("subv %[b],%[d]\n\tmovt %[overflow]"
+        :[d]"+&r"(d),[overflow]"=&r"(overflow):[b]"r"(b):"t");
+    if(!overflow)return int32_t(uint32_t(b)+uint32_t(round_one(d,w)));
+#else
+    if(delta(a,b,d))return int32_t(uint32_t(b)+uint32_t(round_one(d,w)));
+#endif
+    return int32_t((int64_t(w)*a+int64_t(32768-w)*b+16384)>>15);
+}
 inline int32_t triple(int32_t a,int32_t b,int32_t c,int32_t w,int32_t v) {
     int32_t da,db;
     if(delta(a,c,da)&&delta(b,c,db))
