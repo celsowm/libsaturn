@@ -187,3 +187,36 @@ retain panic dumps in the return archive, and repeat the matched test.
 The same stale 44-byte guard existed in the matrix and memory-copy
 benchmarks and is corrected there as well. No production rendering
 change is necessary.
+
+### Second renderer capture — Ymir completed, comparator stopped
+
+Checkout `8f1729793b5792db989dd66ffd9588a33c51bbe0`, retained
+`run-wcg63f7x`. All four 1200-field captures completed. All 80-byte panic
+records are zero, no errors/timeouts or misaligned accesses. Source, mesh,
+Makefile, runner, BIOS and probe hashes match for each A/B pair; reported
+build revisions are `8f172979-dirty`, so a clean source tree is not certified.
+Complete PNGs match byte-for-byte for both pairs. Matched command ranges
+893–894 and 427–428, respectively; face counts 847 and 382. Measured
+intervals 1074 and 1076 fields respectively.
+
+| Case | Geometry control/candidate ms | Work control/candidate ms | Geometry reduction | Work reduction |
+|---|---:|---:|---:|---:|
+| projection-864 | 18.148 / 15.427 | 30.038 / 27.325 | 14.99% | 9.03% |
+| texture-384 | 23.311 / 22.100 | 30.636 / 29.424 | 5.20% | 3.95% |
+
+All runs 30 nominal submissions/s. The first pair reported independently
+calibrated FRT 210600 vs 210540 Hz (one timer tick per nominal NTSC field);
+the second pair both 210540 Hz. The previous comparator requires exact
+frequency equality unless explicitly authorized to normalize. Its child
+traceback was not retained, so the exact exception is not confirmed, but
+this frequency mismatch independently violates its default policy. This
+runner now checks matched NTSC calibration with at most one tick per field
+difference, compares decoded microseconds, and records both frequencies.
+Identical PNGs no longer need Pillow; nonidentical images still require
+decoded pixel comparison. Comparator exceptions are captured directly.
+
+Resume the existing Ymir capture without rebuilding or replacing the ELFs:
+`python3 harness/scripts/run_static_projection_renderer.py --resume harness/build/static_project_renderer/run-wcg63f7x`.
+The resume gate rechecks linked ELF hashes, telemetry, panic and build
+provenance. Native Mednafen remains pending. No kernel or default renderer
+change in this patch.

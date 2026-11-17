@@ -4,7 +4,8 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'harness/scripts'))
 from cube_pipeline import HEADER,FIELDS,ROWS,decode,symbols,validate_panic,working_buffers,RAM_ACTORS,RAM_FACES,RAM_ORDER
 from analyze_cpu_profile import attribute
-from compare_cube_pipeline import compare_case
+from compare_cube_pipeline import compare_case, compare_model_pixels
+from run_static_projection_renderer import check_ntsc_calibration
 
 
 class CubeTelemetryTests(unittest.TestCase):
@@ -109,6 +110,28 @@ class CubeTelemetryTests(unittest.TestCase):
         self.assertEqual(result['costs']['work']['reduction_percent'],20)
         self.assertEqual(result['before_working_bytes']-result['after_working_bytes'],1600)
         self.assertEqual(result['before_submit_s'],result['after_submit_s'])
+
+    def test_static_projection_ntsc_calibration_gate(self):
+        a={"header":{"frequency":210600}}
+        for frequency in (210540,210600,210660):
+            check_ntsc_calibration(a,{"header":{"frequency":frequency}})
+        for frequency in (0,210601,210720,175500):
+            with self.assertRaises(ValueError):
+                check_ntsc_calibration(a,{"header":{"frequency":frequency}})
+
+    def test_identical_png_without_pillow(self):
+        import tempfile,zlib
+        def chunk(name,data):
+            return struct.pack(">I",len(data))+name+data+struct.pack(">I",zlib.crc32(name+data))
+        image=(bytes.fromhex("89504e470d0a1a0a")+
+               chunk(b"IHDR",struct.pack(">IIBBBBB",320,224,8,2,0,0,0))+
+               chunk(b"IDAT",zlib.compress(bytes((320*3+1)*224)))+chunk(b"IEND",b""))
+        with tempfile.TemporaryDirectory() as tmp:
+            a,b=Path(tmp)/"a.png",Path(tmp)/"b.png"
+            a.write_bytes(image);b.write_bytes(image)
+            self.assertEqual(compare_model_pixels(a,b),0)
+            b.write_bytes(b"invalid")
+            with self.assertRaises(ValueError):compare_model_pixels(a,b)
 
     def test_calibration_normalization_requires_explicit_choice(self):
         before=self.comparison_fixture();after=copy.deepcopy(before)

@@ -85,8 +85,27 @@ def load_reports(paths):
     return cases
 
 
-def compare(baseline, candidate, normalize_calibration=False, allow_working_ram_change=False):
+def compare_model_pixels(before, after):
+    # The probe emits RGB PNGs. Identical valid-sized PNG bytes guarantee
+    # equality without requiring Pillow on a fresh macOS Python install.
+    import struct
+    a,b=before.read_bytes(),after.read_bytes()
+    for data in (a,b):
+        if (len(data)<33 or data[:8]!=bytes.fromhex("89504e470d0a1a0a") or
+                data[12:16]!=b'IHDR' or struct.unpack_from(">II",data,16)!=(320,224)):
+            raise ValueError("unexpected cube screenshot dimensions or format")
+    if a==b:
+        return 0
     from PIL import Image, ImageChops
+    images=[]
+    for path in (before,after):
+        with Image.open(path) as picture:
+            images.append(picture.convert('RGB').crop((0,48,320,192)))
+    pixels=ImageChops.difference(*images).tobytes()
+    return sum(pixels[i:i+3]!=b'\0\0\0' for i in range(0,len(pixels),3))
+
+
+def compare(baseline, candidate, normalize_calibration=False, allow_working_ram_change=False):
     before = load_reports(baseline)
     after = load_reports([candidate])
     if not after or not after.keys() <= before.keys():
@@ -95,15 +114,7 @@ def compare(baseline, candidate, normalize_calibration=False, allow_working_ram_
     for name, (new, new_dir) in after.items():
         old, old_dir = before[name]
         result = compare_case(old, new, normalize_calibration, allow_working_ram_change)
-        images = []
-        for directory in (old_dir, new_dir):
-            with Image.open(directory/'screen.png') as picture:
-                if picture.size != (320, 224):
-                    raise ValueError('unexpected cube screenshot dimensions')
-                images.append(picture.convert('RGB').crop((0, 48, 320, 192)))
-        pixels = ImageChops.difference(*images).tobytes()
-        result['different_model_pixels'] = sum(
-            pixels[i:i+3] != b'\0\0\0' for i in range(0, len(pixels), 3))
+        result['different_model_pixels'] = compare_model_pixels(old_dir/'screen.png',new_dir/'screen.png')
         result['before_elf_sha256'] = old['elf_sha256']
         result['after_elf_sha256'] = new['elf_sha256']
         cases[name] = result
