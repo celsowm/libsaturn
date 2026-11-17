@@ -278,7 +278,7 @@ CRT_OBJS     := $(patsubst %.s,$(APP_OBJ_ROOT)/%.o,$(CRT_SRCS))
 
 # Computed after the include so Makefile.inc can contribute to it.
 EXAMPLE_SRCS    := $(wildcard $(EXAMPLE_DIR)/*.c) $(EXAMPLE_EXTRA_SRCS)
-EXAMPLE_OBJS    := $(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_SRCS))
+EXAMPLE_OBJS    := $(patsubst %.cpp,$(APP_OBJ_ROOT)/%.o,$(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_SRCS)))
 EXAMPLE_ASSET_OBJS := $(patsubst %.c,$(APP_OBJ_ROOT)/%.o,$(EXAMPLE_ASSETS))
 
 ALL_APP_OBJS := $(EXAMPLE_OBJS) $(EXAMPLE_ASSET_OBJS)
