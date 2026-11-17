@@ -266,3 +266,35 @@ ownership/IRQ audit, plus physical Saturn evidence where available.
 Keep the hierarchy composition experiment independent so its gain can
 be measured separately. Do not combine unqualified kernels into the
 same A/B candidate.
+
+### Visual evidence extension
+
+The renderer runner generates `visual-validation.json`, full RGB PNG pairs,
+magenta difference masks and model-region crops/masks for both emulators.
+An independent Mednafen visual pass records a temporary lossless QuickTime
+movie (`-qtrecord`, CSCD), extracts zero-based recorded video frame indices
+900 and 1200 without resizing, checks guest panic, ELF, BIOS, emulator and
+face/command workload, then deletes the movie and temporary profile.
+Performance reports remain from unrecorded runs.
+
+Capture requests scanlines 0..223, no overscan or aspect correction and
+no recorder doubling. Only a 320x224 raster or integral multiples are
+eligible for the established model crop; unexpected raster sizes are
+retained for review without guessing placement. Full-screen differences
+are reported separately because the HUD includes a changing frame counter.
+The static model must match at both frames, be stable between them within
+each variant and cannot be uniform/blank. No claim about animated gameplay
+at unmatched simulation ticks follows from this evidence.
+
+Requires FFmpeg on PATH (also used by Tekken 3's recorder); no Pillow
+required for visual reports. On the completed retained run:
+
+```sh
+python3 harness/scripts/run_static_projection_renderer.py --resume harness/build/static_project_renderer/run-wcg63f7x --visual-only
+```
+
+Original timing telemetry is revalidated and preserved: no rebuild, Ymir
+rerun or unrecorded Mednafen rerun. Fresh runs generate both timing and
+visual evidence. The ZIP contains PNGs, manifest, visual logs and guest
+telemetry but not the large movies. Review required is a failed visual
+gate, not automatic evidence of an ASM bug.

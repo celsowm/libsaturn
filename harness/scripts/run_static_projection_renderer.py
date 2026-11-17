@@ -15,12 +15,19 @@ import zipfile
 from cube_pipeline import ROOT, decode, symbols, validate_panic
 from compare_cube_pipeline import compare as compare_ymir, load_reports
 from sh2_kernel_verify_mednafen import elf_text, normalize, work_ram, sha
+from renderer_visual import require_ffmpeg, extract_frames, build_manifest
 
 CASES=("projection-864","texture-384")
 OUT=ROOT/"harness/build/static_project_renderer"
 
 
-def capture_med(case,bios,env,out):
+def capture_med(case,bios,env,out,visual=False):
+    prefix="mednafen-visual" if visual else "mednafen"
+    if visual:
+        shutil.rmtree(case/prefix,ignore_errors=True)
+        (case/prefix).mkdir()
+        for suffix in ("-analysis.json","-telemetry.bin","-panic.bin",".log"):
+            (case/(prefix+suffix)).unlink(missing_ok=True)
     exe=shutil.which(env.get("MEDNAFEN","mednafen"),path=env["PATH"])
     if not exe:
         raise RuntimeError("Mednafen not on PATH")
@@ -40,8 +47,14 @@ def capture_med(case,bios,env,out):
                  "-ss.bios_na_eu",str(bios),"-autosave","1","-ss.input.port2","none"]
         for button in ("up","down","left","right","a","b","c","x","y","z","ls","rs","start"):
             command += ["-ss.input.port1.gamepad."+button,""]
+        if visual:
+            movie=Path(tmp)/"capture.mov"
+            command += ["-ss.correct_aspect","0","-ss.h_overscan","0",
+                        "-ss.slstart","0","-ss.slend","223","-qtrecord.vcodec","cscd",
+                        "-qtrecord.w_double_threshold","0","-qtrecord.h_double_threshold","0",
+                        "-qtrecord",str(movie)]
         command.append(str(case/"cube_pipeline_bench.cue"))
-        with (case/"mednafen.log").open("w") as log:
+        with (case/(prefix+".log")).open("w") as log:
             p=subprocess.Popen(command,cwd=ROOT,env=local,stdout=log,stderr=subprocess.STDOUT)
             try:
                 try:p.wait(timeout=45)
@@ -54,15 +67,20 @@ def capture_med(case,bios,env,out):
         if len(states)!=1:raise RuntimeError("Missing or ambiguous Mednafen autosave")
         order,high=normalize(work_ram(states[0]),*elf_text(elf))
         panic=high[panic_offset:panic_offset+panic_size]
-        (case/"mednafen-panic.bin").write_bytes(panic)
+        (case/(prefix+"-panic.bin")).write_bytes(panic)
         validate_panic(panic,panic_size)
         raw=high[offset:offset+size]
-        (case/"mednafen-telemetry.bin").write_bytes(raw)
+        (case/(prefix+"-telemetry.bin")).write_bytes(raw)
         report=decode(raw)
         if report["measured_fields"]<600:raise ValueError("Short Mednafen interval")
         report.update(elf_sha256=sha(elf),bios_sha256=sha(bios),mednafen_sha256=sha(Path(exe)),
                       wram_order=order,command=command,state_sha256=sha(states[0]))
-        (case/"mednafen-analysis.json").write_text(json.dumps(report,indent=2)+"\n")
+        if visual:
+            # Separate recording pass: do not mix its timing with performance.
+            report["visual_frames"]=extract_frames(movie,case/prefix)
+            report["visual_only"]=True
+            report["movie_sha256"]=sha(movie)
+        (case/(prefix+"-analysis.json")).write_text(json.dumps(report,indent=2)+"\n")
         return report
 
 
@@ -128,10 +146,27 @@ def check_retained(run,bios,probe):
     return {name:matrices["control"][name][0]["revision"] for name in CASES}
 
 
+def retained_med(case,bios):
+    elf=case/"cube_pipeline_bench.elf"
+    syms=symbols(elf,"sh2eb-elf-nm")
+    validate_panic((case/"mednafen-panic.bin").read_bytes(),syms["g_sat_last_panic"][1])
+    report=json.loads((case/"mednafen-analysis.json").read_text())
+    if report["elf_sha256"]!=sha(elf) or report["bios_sha256"]!=sha(bios):
+        raise ValueError("Retained Mednafen ELF/BIOS mismatch")
+    actual=decode((case/"mednafen-telemetry.bin").read_bytes())
+    for key in ("header","samples","first_field","last_field","measured_fields",
+                "stage_us","commands","faces","submissions_per_nominal_second"):
+        if actual[key]!=report[key]:raise ValueError("Retained Mednafen telemetry differs: "+key)
+    if actual["measured_fields"]<600:raise ValueError("Short retained Mednafen interval")
+    return report
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--resume",type=Path,help="reuse a completed Ymir run directory and execute native Mednafen")
+    parser.add_argument("--visual-only",action="store_true",help="reuse existing verified performance captures; record visual evidence only")
     args=parser.parse_args()
+    if args.visual_only and not args.resume:parser.error("--visual-only requires --resume")
     OUT.mkdir(parents=True,exist_ok=True)
     run=args.resume.resolve() if args.resume else Path(tempfile.mkdtemp(prefix="run-",dir=OUT))
     if args.resume and (run.parent!=OUT.resolve() or not run.is_dir()):
@@ -148,7 +183,11 @@ def main():
              "cases":{},"completed":False}
     (run/"failure.log").unlink(missing_ok=True)
     try:
+        require_ffmpeg()
         summary["resumed"]=bool(args.resume)
+        summary["visual_only"]=args.visual_only
+        (run/"visual-validation.json").unlink(missing_ok=True)
+        shutil.rmtree(run/"visual",ignore_errors=True)
         for variant in (() if args.resume else ("control","candidate")):
             cmd=[sys.executable,str(ROOT/"harness/scripts/cube_pipeline.py"),"--out",str(run/variant),
                  "--bios",str(bios),"--probe",str(probe),"--compiler-dir",str(tools),
@@ -169,10 +208,25 @@ def main():
         for name in CASES:
             reports=[]
             for variant in ("control","candidate"):
-                print("Mednafen:",variant,name,flush=True)
-                reports.append(capture_med(run/variant/name,bios,env,run))
+                print("Mednafen performance:",variant,name,flush=True)
+                case=run/variant/name
+                reports.append(retained_med(case,bios) if args.visual_only else capture_med(case,bios,env,run))
             summary["cases"][name]={"mednafen":compare(*reports)}
-        summary["completed"]=True
+        summary["performance_completed"]=True
+        for name in CASES:
+            for variant in ("control","candidate"):
+                print("Mednafen visual:",variant,name,flush=True)
+                case=run/variant/name
+                recorded=capture_med(case,bios,env,run,visual=True)
+                timing=retained_med(case,bios)
+                for key in ("elf_sha256","bios_sha256","mednafen_sha256","commands","faces"):
+                    if recorded[key]!=timing[key]:
+                        raise ValueError("Visual capture differs from performance workload: "+key)
+        manifest=build_manifest(run,CASES)
+        summary["visual_passed"]=manifest["passed"]
+        summary["visual_completed"]=True
+        summary["completed"]=manifest["passed"]
+        if not manifest["passed"]:raise ValueError("Visual comparison requires review; inspect visual-validation.json and PNGs")
     except BaseException as exc:
         import traceback
         summary["error"]=str(exc)
@@ -185,7 +239,8 @@ def main():
             for p in run.rglob("*"):
                 if p.is_file() and (p.suffix in (".json",".png",".log") or p.name in
                                     ("telemetry.bin","mednafen-telemetry.bin","native-panic.bin",
-                                     "mednafen-panic.bin","working-ram.bin","working-mask.bin")):
+                                     "mednafen-panic.bin","working-ram.bin","working-mask.bin",
+                                     "mednafen-visual-panic.bin","mednafen-visual-telemetry.bin")):
                     z.write(p,p.relative_to(run))
         temporary_archive.replace(archive)
         print("Return:",archive,flush=True)
