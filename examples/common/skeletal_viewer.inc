@@ -79,6 +79,27 @@ volatile struct {
     uint32_t frames, sample_ms, skeleton_ms, skin_ms, submit_ms, flush_ms, total_ms;
 } g_skeletal_profile;
 static uint32_t g_animation_mark;
+#if defined(HIERARCHY_CHARACTER_BENCH) && HIERARCHY_CHARACTER_BENCH
+/* Test-only fixed simulation and compact telemetry. No changes to normal viewer. */
+#define HIERARCHY_ROWS 48u
+extern volatile uint32_t g_hierarchy_experiment_ticks;
+extern const uint32_t g_hierarchy_experiment_mode;
+typedef struct {
+    uint32_t step,pose_time,sample,skeleton,hierarchy,skin,submit,flush,work,
+             matrix_hash,vertex_hash,commands,faces,draw_timeouts;
+} hierarchy_row_t;
+volatile struct {
+    uint32_t magic,version,mode,frequency,count,done,joints,vertices;
+    hierarchy_row_t rows[HIERARCHY_ROWS];
+} g_hierarchy_character;
+static uint32_t bench_now(void){return (uint32_t)sat_time_ticks();}
+static uint32_t bench_hash(const void* ptr,uint32_t size){
+    const unsigned char* p=(const unsigned char*)ptr;
+    uint32_t h=2166136261u;
+    for(uint32_t i=0;i<size;++i)h=(h^p[i])*16777619u;
+    return h;
+}
+#endif
 static sat_fx16_t g_floor_y, g_floor_step;
 static sat_vec3_t g_floor_center;
 
@@ -313,7 +334,70 @@ int main(void) {
     g_fps_mark = sat_time_ms();
     g_animation_mark = sat_time_ms();
 
+#if defined(HIERARCHY_CHARACTER_BENCH) && HIERARCHY_CHARACTER_BENCH
+    g_hierarchy_character.magic=0x48434331u;
+    g_hierarchy_character.version=1;
+    g_hierarchy_character.mode=g_hierarchy_experiment_mode;
+    g_hierarchy_character.frequency=sat_time_frequency_hz();
+    g_hierarchy_character.joints=VIEWER_SKELETON.joint_count;
+    g_hierarchy_character.vertices=g_mesh.vertex_count;
+#endif
     while (1) {
+#if defined(HIERARCHY_CHARACTER_BENCH) && HIERARCHY_CHARACTER_BENCH
+        const uint32_t step=g_hierarchy_character.count;
+        const uint32_t active=step<HIERARCHY_ROWS;
+        /* Pairs at the same explicit time exercise unchanged dirty-cache paths.
+         * Once the measured sequence completes, freeze the final pose forever.
+         * The fixed camera and constant HUD let whole-screen RGB be compared. */
+        const uint32_t index=active?step:HIERARCHY_ROWS-1u;
+        const sat_fx16_t pose_time=(sat_fx16_t)((index/2u)*65536u/15u);
+        hierarchy_row_t row={0};row.step=index;row.pose_time=(uint32_t)pose_time;
+        sat_example_must(sat_wait_vblank());
+        const uint32_t start=bench_now();
+        sat_example_must(sat_begin_frame());
+        uint32_t stamp=bench_now();
+        sat_example_must(sat_clip_sample(g_viewer_clips[0],pose_time,g_pose,VIEWER_SKELETON.joint_count));
+        row.sample=bench_now()-stamp;
+        stamp=bench_now();
+        sat_example_must(sat_skeleton_evaluate(&g_skeleton,g_pose,VIEWER_SKELETON.joint_count));
+        row.skeleton=bench_now()-stamp;
+        row.hierarchy=g_hierarchy_experiment_ticks;
+        stamp=bench_now();
+        for(uint16_t j=0;j<VIEWER_SKELETON.joint_count;++j)g_joint_world[j]=g_skeleton_nodes[j].world;
+        sat_example_must(update_skin());
+        row.skin=bench_now()-stamp;
+        sat_camera3d_t camera={0};
+        camera.eye=g_orbit.eye;camera.target=g_orbit.target;
+        camera.up=(sat_vec3_t){0,SAT_FX16_ONE,0};camera.view_proj=g_orbit.view_proj;
+        sat_example_must(sat_scene_begin(&g_scene,&camera,g_orbit.near_z,
+            sat_video_width(),sat_video_height(),VIEWER_HUD_RESERVE));
+        draw_stage();
+        stamp=bench_now();
+        sat_example_must(sat_scene_submit_instance(&g_scene,&g_instance,
+            SAT_SCENE3D_SLOT_INHERIT,g_mesh_screen,NULL));
+        row.submit=bench_now()-stamp;
+        stamp=bench_now();
+        sat_example_must(sat_scene_flush(&g_scene));
+        row.flush=bench_now()-stamp;
+        sat_example_must(sat_ascii_font_draw_text_screen_indexed8(&g_font,
+            active?"ROBOT POLICE / RUNNING":"ROBOT POLICE / FINAL POSE",8,8,8,0,0));
+        sat_vdp1_command_stats_t commands={0};sat_vdp1_frame_stats_t frame={0};
+        sat_example_must(sat_vdp1_command_stats(&commands));
+        row.commands=commands.used;row.faces=g_scene.flushed_faces;
+        sat_example_must(sat_end_frame());
+        row.work=bench_now()-start;
+        sat_example_must(sat_vdp1_frame_stats(&frame));
+        row.draw_timeouts=frame.draw_timeouts;
+        if(active){
+            // Exclude equality hashes from all timed work, use bytes with no padding.
+            row.matrix_hash=bench_hash(g_joint_world,VIEWER_SKELETON.joint_count*sizeof(sat_mat4_t));
+            row.vertex_hash=bench_hash(g_mesh.vertices,g_mesh.vertex_count*sizeof(sat_vec3_t));
+            g_hierarchy_character.rows[index]=row;
+            __asm__ volatile("":::"memory");
+            g_hierarchy_character.count=step+1u;
+            if(step+1u==HIERARCHY_ROWS)g_hierarchy_character.done=1;
+        }
+#else
         sat_pad_state_t pad = {0};
         sat_example_must(sat_wait_vblank());
         sat_example_must(sat_begin_frame());
@@ -368,6 +452,7 @@ int main(void) {
         g_skeletal_profile.total_ms = sat_time_ms() - frame_start;
         g_skeletal_profile.frames++;
         sat_example_must(sat_end_frame());
+#endif
     }
     return 0;
 }

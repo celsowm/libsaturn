@@ -115,11 +115,11 @@ def compare_pair(control,candidate,out,root,emulator=None):
     return result
 
 
-def extract_frames(movie,out):
+def extract_frames(movie,out,frames=FRAMES):
     """Decode fixed zero-based recorded frame indices without resampling."""
     out.mkdir(parents=True,exist_ok=True)
     paths={}
-    for frame in FRAMES:
+    for frame in frames:
         target=out/f"frame-{frame}.png"
         target.unlink(missing_ok=True)
         subprocess.run(["ffmpeg","-v","error","-y","-i",str(movie),"-map","0:v:0",
