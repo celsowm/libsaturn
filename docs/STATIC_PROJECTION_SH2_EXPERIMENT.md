@@ -330,3 +330,25 @@ python3 harness/scripts/run_static_projection_renderer.py --resume harness/build
 Static A/B visual equality is established for these captures; this is not
 a certification of arbitrary gameplay, command-byte equality, clean-tree
 builds, hardware, or interrupt/ABI safety. No production change.
+
+### Final retained visual gate — PASS
+
+Archive `static_project_renderer-return(4).zip`, checkout
+`2459b06bf46415a56f60fbd6ad0e1a9b163e7135`, compare-only mode.
+Summary: completed=true, performance_completed=true, visual_completed=true,
+visual_passed=true, no visual capture errors. Manifest v2 contains ten
+passing comparisons (six A/B full-screen pairs and four within-variant
+stability comparisons). Independent PNG RGB decoding and SHA-256 checks
+against the manifest confirm 1,365,504 full-screen A/B pixels compared,
+zero differing pixels. All ten model-region comparisons are identical
+and all ten generated model difference masks are black. The four
+stability pairs have only the previously identified frame-counter HUD
+changes (308 or 316 pixels). All twelve 80-byte panic records are zero.
+The archive includes 72 PNGs; original performance results are retained,
+not new timing measurements. No additional emulator runs were needed.
+
+Static renderer visual qualification is complete for the tested scenes.
+Keep the production flag opt-in pending real-game coverage, matched
+simulation/command-stream checks, clean-tree builds, ABI/IRQ and hardware
+qualification. Proceed with the independent hierarchy matrix-composition
+experiment without enabling or combining the experimental projection path.
