@@ -78,3 +78,31 @@ zero unexpected mismatches, and require representative dense/general wins
 without material regressions. If guarded dispatch is sound, qualify with
 actual cube/world/consumer workload A/B captures and matching frame/command
 hashes before enabling it. Hardware and ABI/IRQ audit remain open.
+
+## V2 — single-prefix guarded dispatch
+
+The original V1 retry wrapper and assembly are retained unchanged. The
+experimental V2 wrapper bypasses batches below 32 vertices and sparse camera
+matrices, attempts the assembly exactly once, then gives the whole remaining
+suffix to the existing general C++ batch. No scanning, speculative matrix
+classification cache, or production change. The threshold is deliberately
+a hypothesis until measured. A first-vertex refusal still incurs one setup
+and partial projection, so zero regressions cannot be promised in advance.
+
+The V2 capture compares V1, V2, and production in the same executable,
+rotating their timed order (all six permutations), and checks all against
+the independent oracle over the entire guarded output arrays. Original ten
+scenario input streams are preserved. Nine more scenarios test sizes 8,
+16, 31, 64, and 128-vertex early, middle, late, alternating and late-Y
+rejections; exact fast-prefix counts are asserted. Parallel work is divided
+into groups of at most three scenarios per dispatch. The schema is versioned
+and the analysis retains separate V1/V2 elapsed FRT counts and coverage.
+
+Run `python3 harness/scripts/run_static_projection.py` from the repository
+root. Send `harness/build/static_project_bench-v2-return.zip` (combined
+Ymir and Mednafen). The former V1 archive is not overwritten by the V2
+combined runner. Compare timings within the same V2 capture rather than
+assuming earlier binary/cache layouts match. Review all three CPU lanes;
+verify dense savings, threshold overhead, sparse and rejected fallback costs.
+If these gates hold, move to a real renderer workload A/B; do not enable
+production based solely on synthetic results.

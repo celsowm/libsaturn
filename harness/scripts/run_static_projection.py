@@ -27,7 +27,7 @@ def run():
         (OUT/name).unlink(missing_ok=True)
     med=OUT.parent/f"{EXAMPLE}-mednafen-return.zip"
     med.unlink(missing_ok=True)
-    archive=OUT.parent/f"{EXAMPLE}-return.zip"
+    archive=OUT.parent/f"{EXAMPLE}-v2-return.zip"
     archive.unlink(missing_ok=True)
     status=0
     try:
@@ -35,7 +35,7 @@ def run():
             commands=[
                 ["git","rev-parse","HEAD"],
                 ["sh","build-example.sh",EXAMPLE],
-                ["sh","harness/run-harness.sh",EXAMPLE,"--frames","2400","--out",str(OUT/"probe.json"),
+                ["sh","harness/run-harness.sh",EXAMPLE,"--frames","4800","--out",str(OUT/"probe.json"),
                  "--","--sh2-cache","on","--dump-wram-high",str(dump),
                  "--misaligned-report",str(OUT/"misaligned.txt")],
                 [sys.executable,"-m","unittest","discover","-s","harness/tests","-p","test_static_project_bench.py","-v"]]
@@ -50,7 +50,7 @@ def run():
                 log.write("Missing Ymir target analysis\n")
         # Run independently even if the first emulator fails.
         result=subprocess.run([sys.executable,"harness/scripts/sh2_kernel_verify_mednafen.py",
-                               "--example",EXAMPLE,"--seconds","90"],cwd=ROOT,env=env)
+                               "--example",EXAMPLE,"--seconds","150"],cwd=ROOT,env=env)
         status |= int(result.returncode!=0)
     finally:
         with zipfile.ZipFile(archive,"w",zipfile.ZIP_DEFLATED) as z:

@@ -55,4 +55,30 @@ inline uint32_t candidate(const sat_fx16_t* matrix,const sat_vec3_t* points,
     project_vertices(matrix,points,count,width,height,out);
     return 0;
 }
+/* V2 policy experiment: a single prefix attempt, followed by the original
+ * optimized batch for the entire refused suffix. The 32-vertex gate is a
+ * benchmark hypothesis, not a production decision. Keep sparse camera
+ * classification identical to project_vertices. No pre-scan or new state.
+ * Returns accepted prefix length for diagnostic coverage. */
+constexpr uint16_t kGuardedMinCount=32;
+[[gnu::noinline]] inline uint32_t candidate_guarded(
+    const sat_fx16_t* matrix,const sat_vec3_t* points,uint16_t count,
+    int16_t width,int16_t height,sat_projected_vertex_t* out) {
+#if defined(__sh__)
+    const int32_t largest=width>height?width:height;
+    if(count>=kGuardedMinCount &&
+       (matrix[1]||matrix[2]||matrix[4]||matrix[12]) &&
+       width>0 && height>0 && largest<=4096) {
+        const uint32_t mult=4096u/static_cast<uint32_t>(largest);
+        const uint32_t last=(1u<<29)/mult-1u;
+        const Job job{points,matrix,out,count,width,-int32_t(height),mult,last};
+        const uint32_t n=sat_static_project_sh2(&job);
+        if(n<count)
+            project_vertices_general(matrix,points+n,uint16_t(count-n),width,height,out+n);
+        return n;
+    }
+#endif
+    project_vertices(matrix,points,count,width,height,out);
+    return 0;
+}
 } // namespace saturn::core::render3d::static_project
