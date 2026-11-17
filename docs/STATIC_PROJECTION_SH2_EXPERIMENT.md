@@ -106,3 +106,66 @@ assuming earlier binary/cache layouts match. Review all three CPU lanes;
 verify dense savings, threshold overhead, sparse and rejected fallback costs.
 If these gates hold, move to a real renderer workload A/B; do not enable
 production based solely on synthetic results.
+
+## V2 results — 2026-11-17
+
+Source `03cb71bbac667a59fe34e1e1a2ea11af9ef5f3a4`. Uploaded combined
+`static_project_bench-v2-return.zip` and separate Mednafen archive; every
+entry of the latter is byte-identical to the corresponding combined entry.
+
+Both emulators: 19 scenarios x 128 rounds x 3 CPU lanes, 14,592 batch
+executions and 1,052,928 vertex executions per implementation across the
+two captures. Zero errors, exact expected prefix counts, all lanes done,
+init/parallel status zero, Slave-ready 1, all CCR=1 and SR.S clear.
+Ymir recorded zero misaligned accesses on either CPU and both Python tests
+passed. Mednafen returned zero and its 2,144-byte binary report matched
+every integer data field in JSON. FRT 210540 Hz in both. Mednafen ELF
+SHA-256 `29a8709baed42f074a7fdb502f08e640845d00e122c67d3226bc77a7863a1640`.
+Ymir capture does not establish the identical ELF hash.
+
+| Scenario | Ymir V1 / V2 / control ticks | Mednafen V1 / V2 / control ticks | V2 reduction Ymir / Mednafen |
+|---|---:|---:|---:|
+| empty | 227 / 188 / 143 | 285 / 268 / 191 | -31.47% / -40.31% |
+| singleton | 546 / 444 / 396 | 673 / 527 / 464 | -12.12% / -13.58% |
+| rotated_32 | 6971 / 6972 / 8140 | 5842 / 5829 / 7071 | 14.35% / 17.56% |
+| rotated_256 | 53471 / 53485 / 64163 | 43326 / 43339 / 54913 | 16.64% / 21.08% |
+| sparse_64 | 13603 / 13712 / 13641 | 11201 / 11740 / 11629 | -0.52% / -0.95% |
+| behind | 7718 / 7604 / 7235 | 6848 / 6725 / 6325 | -5.10% / -6.32% |
+| clamp_x | 8589 / 8525 / 8151 | 7835 / 7519 / 7114 | -4.59% / -5.69% |
+| clamp_y | 9058 / 8516 / 8077 | 8205 / 7511 / 7030 | -5.44% / -6.84% |
+| large_w | 14060 / 8430 / 8073 | 15657 / 7379 / 6969 | -4.42% / -5.88% |
+| mixed_640 | 28970 / 30013 / 29650 | 24711 / 25899 / 25494 | -1.22% / -1.59% |
+| rotated_8 | 1989 / 2190 / 2147 | 1844 / 2026 / 1948 | -2.00% / -4.00% |
+| rotated_16 | 3659 / 4186 / 4148 | 3183 / 3732 / 3661 | -0.92% / -1.94% |
+| rotated_31 | 6769 / 7939 / 7891 | 5689 / 6930 / 6857 | -0.61% / -1.06% |
+| rotated_64 | 13599 / 13616 / 16144 | 11196 / 11180 / 13899 | 15.66% / 19.56% |
+| reject_first | 26964 / 32341 / 31962 | 21980 / 27823 / 27414 | -1.19% / -1.49% |
+| reject_middle | 26975 / 29624 / 31977 | 22009 / 24860 / 27423 | 7.36% / 9.35% |
+| reject_last | 26879 / 26941 / 31986 | 21841 / 21943 / 27383 | 15.77% / 19.87% |
+| alternating | 31717 / 21992 / 21674 | 29367 / 19142 / 18808 | -1.47% / -1.78% |
+| late_y | 27161 / 28450 / 32089 | 22209 / 23563 / 27514 | 11.34% / 14.36% |
+
+Serial Master, elapsed inclusive ticks. Both parallel lanes agree in
+direction; dense 256 V2 reduction spans 16.63–16.65% Ymir and
+21.02–21.10% Mednafen. V2 dramatically bounds the bad retry behavior
+but not every regression: first rejection still does redundant work,
+and a separate wrapper is costly for very short batches. Retain 32 as
+a conservative experiment threshold; do not infer that it is optimal.
+No default production activation.
+
+### Renderer A/B experiment
+
+An internal GNU Make-only `SAT_STATIC_PROJECT_EXPERIMENT=1` opt-in
+routes eligible `sat_project_vertices` batches to V2. The default build
+does not define it. Small and sparse batches bypass the wrapper at the
+API boundary, reducing the extra call cost. CMake release dispatch is
+unchanged. The internal flag participates in the existing library build
+profile hash. The cube ladder has a fixed rotated camera option; match
+the same camera and topology in both variants. Existing cube runner
+retains images and timing telemetry and checks the linked kernel symbol.
+Use `python3 harness/scripts/run_static_projection_renderer.py` for the
+first matched native renderer A/B in Ymir and Mednafen. Compare stage
+geometry and full work intervals, commands/faces and Ymir crop pixels;
+the Mednafen part reads native telemetry, not a screenshot or hardware
+cycle counter. Real games, command-byte equality, ABI/IRQ and physical
+hardware remain later qualification gates.

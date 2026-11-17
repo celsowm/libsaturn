@@ -30,6 +30,9 @@
 #ifndef CUBE_BENCH_HIGH_ORDER
 #define CUBE_BENCH_HIGH_ORDER CUBE_BENCH_HIGH_RAM
 #endif
+#ifndef CUBE_BENCH_ROTATED_CAMERA
+#define CUBE_BENCH_ROTATED_CAMERA 0
+#endif
 #ifndef CUBE_BENCH_TIMING_HUD
 #define CUBE_BENCH_TIMING_HUD 0
 #endif
@@ -264,7 +267,7 @@ static void initialize(void) {
     for(unsigned y=0;y<8;++y)for(unsigned x=0;x<4;++x)pixels[y*4+x]=(x+y)&1?0x11:0x22;
     uint16_t lut;must(sat_vdp1_upload_lut(palette,&lut));must(sat_tex_upload_lut4_pixels(&texture,pixels,8,8,lut));
     build_mesh();
-    sat_vec3_t eye={0,FX(2),-FX(5)},target={0,0,0},up={0,FX(1),0};
+    sat_vec3_t eye={CUBE_BENCH_ROTATED_CAMERA?FX(2):0,FX(2),-FX(5)},target={0,0,0},up={0,FX(1),0};
     must(sat_camera3d_init(&camera,&eye,&target,&up,FX(45),W*SAT_FX16_ONE/H,FX(1)/8,FX(20)));
     for(unsigned i=0;i<2;++i) {
         actor_t* a=&actors[i];must(sat_mesh_init(&a->mesh,a->vertices,V,indices,F));

@@ -199,6 +199,8 @@ def run(a):
         command=[make_program(),'all','EXAMPLE=cube_pipeline_bench',f'CUBE_BENCH_STAGE={stage}',
                  f'CUBE_BENCH_DIV={density}',f'CUBE_BENCH_HUD={int(not a.no_hud)}',
                  f'CUBE_BENCH_TIMING_HUD={int(a.timing_hud)}',
+                 f'CUBE_BENCH_ROTATED_CAMERA={int(a.rotated_camera)}',
+                 f'SAT_STATIC_PROJECT_EXPERIMENT={int(a.static_project_experiment)}',
                  f'CUBE_BENCH_HIGH_RAM={int(a.high_ram)}',
                  f'CUBE_BENCH_HIGH_ACTORS={int(a.high_ram or a.high_actors)}',
                  f'CUBE_BENCH_HIGH_FACES={int(a.high_ram or a.high_faces)}',
@@ -211,6 +213,8 @@ def run(a):
             for suffix in ('.elf','.map','.app.bin','.iso','.bin','.cue'):
                 shutil.copyfile(ROOT/'build'/('cube_pipeline_bench'+suffix),case/('cube_pipeline_bench'+suffix))
         elf=case/'cube_pipeline_bench.elf';syms=symbols(elf,nm)
+        if ('sat_static_project_sh2' in syms) != a.static_project_experiment:
+            raise ValueError('ELF does not match requested static projection variant')
         address,size=syms['g_cube_bench'];panic_address,panic_size=syms['g_sat_last_panic']
         ram_address,ram_size=syms['g_cube_bench_high_ram']
         mask_address,mask_size=syms['g_cube_bench_ram_mask']
@@ -248,6 +252,8 @@ def run(a):
         if report['measured_fields']<a.minimum_fields:raise ValueError('cube measurement window too short')
         report['elf_sha256']=hashlib.sha256(elf.read_bytes()).hexdigest()
         report['execution']=dict(build=command,probe=probe)
+        report['rotated_camera']=a.rotated_camera
+        report['static_project_experiment']=a.static_project_experiment
         if a.profile:
             profile=json.loads((case/'debug.json').read_text())
             if profile.get('truncated',True) or profile.get('dropped_frames',1):
@@ -285,6 +291,8 @@ if __name__=='__main__':
     p.add_argument('--cases',choices=tuple(CASES),nargs='+',default=list(CASES))
     p.add_argument('--frames',type=int,default=1200);p.add_argument('--after-field',type=int,default=120)
     p.add_argument('--minimum-fields',type=int,default=600);p.add_argument('--timeout',type=int,default=300)
+    p.add_argument('--rotated-camera',action='store_true',help='fixed non-axis-aligned camera for projection experiments')
+    p.add_argument('--static-project-experiment',action='store_true',help='internal opt-in V2 library, never default')
     p.add_argument('--no-hud',action='store_true');p.add_argument('--profile',action='store_true')
     p.add_argument('--timing-hud',action='store_true',
                    help='show the measured geometry FRT ticks on the guest HUD')

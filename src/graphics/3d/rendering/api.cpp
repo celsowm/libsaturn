@@ -2,6 +2,9 @@
 
 
 #include "src/graphics/3d/rendering/logic.hpp"
+#if defined(__sh__) && defined(SAT_STATIC_PROJECT_EXPERIMENT) && SAT_STATIC_PROJECT_EXPERIMENT
+#include "src/graphics/3d/rendering/static_project_sh2.hpp"
+#endif
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 
@@ -150,6 +153,13 @@ extern "C" sat_result_t sat_project_vertices(const sat_mat4_t* view_proj, const 
     const sat_video_config_t& cfg = saturn::core::g_state.config;
     const int16_t screen_w = static_cast<int16_t>(cfg.width);
     const int16_t screen_h = static_cast<int16_t>(cfg.height);
+#if defined(__sh__) && defined(SAT_STATIC_PROJECT_EXPERIMENT) && SAT_STATIC_PROJECT_EXPERIMENT
+    // Bypass before the extra wrapper call; default library is unchanged.
+    if (count >= static_project::kGuardedMinCount &&
+        (view_proj->m[1] || view_proj->m[2] || view_proj->m[4] || view_proj->m[12])) {
+        static_project::candidate_guarded(view_proj->m, points, count, screen_w, screen_h, out);
+    } else
+#endif
     project_vertices(view_proj->m, points, count, screen_w, screen_h, out);
     return SAT_OK;
 }

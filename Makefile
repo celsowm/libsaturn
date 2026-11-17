@@ -168,8 +168,13 @@ LIB_PROFILE_METRICS := 1
 endif
 LIB_FAULT_MODE := $(if $(strip $(SAT_PARALLEL_TEST_FAULT)),$(SAT_PARALLEL_TEST_FAULT),0)
 SAT_LEGACY_EARLY_SCU ?= 0
+# Internal opt-in for matched renderer experiments; absent from release builds.
+SAT_STATIC_PROJECT_EXPERIMENT ?= 0
 LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_LEGACY_EARLY_SCU=$(SAT_LEGACY_EARLY_SCU) -DSAT_PROFILE_METRICS=$(LIB_PROFILE_METRICS) \
               -DSAT_PARALLEL_TEST_FAULT=$(LIB_FAULT_MODE)
+ifeq ($(SAT_STATIC_PROJECT_EXPERIMENT),1)
+LIB_CFLAGS += -DSAT_STATIC_PROJECT_EXPERIMENT=1
+endif
 LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                 -fno-threadsafe-statics -fno-use-cxa-atexit
 # Keep these paced control/streaming translation units compact in both the
