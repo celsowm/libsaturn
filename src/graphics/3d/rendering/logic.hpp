@@ -343,17 +343,73 @@ inline bool project_quad(
  * Keeping this before projection avoids folding or enormous distorted
  * sprites when the follow camera approaches a large nearby deck. The
  * un-clipped fast path retains the original face and UV corner order. */
+template<unsigned Experiment=0>
 inline int64_t world_view_depth(
     const sat_vec3_t& p,const sat_vec3_t& eye,const sat_vec3_t& forward) {
+    if constexpr(Experiment>=1) {
+        // Exact axis-aligned camera: subtract at full width. In particular
+        // the difference may exceed int32 even for valid int32 endpoints.
+        if(!forward.x && !forward.y) {
+            if(forward.z==SAT_FX16_ONE)return int64_t(p.z)-eye.z;
+            if(forward.z==-SAT_FX16_ONE)return int64_t(eye.z)-p.z;
+        }
+        if(!forward.x && !forward.z) {
+            if(forward.y==SAT_FX16_ONE)return int64_t(p.y)-eye.y;
+            if(forward.y==-SAT_FX16_ONE)return int64_t(eye.y)-p.y;
+        }
+        if(!forward.y && !forward.z) {
+            if(forward.x==SAT_FX16_ONE)return int64_t(p.x)-eye.x;
+            if(forward.x==-SAT_FX16_ONE)return int64_t(eye.x)-p.x;
+        }
+        const int64_t x=int64_t(p.x)-eye.x,y=int64_t(p.y)-eye.y,z=int64_t(p.z)-eye.z;
+        if(x>=INT32_MIN&&x<=INT32_MAX&&y>=INT32_MIN&&y<=INT32_MAX&&z>=INT32_MIN&&z<=INT32_MAX) {
+            // Narrow only the factors, not the products or their sum.
+            const int64_t dot=int64_t(int32_t(x))*forward.x+
+                              int64_t(int32_t(y))*forward.y+
+                              int64_t(int32_t(z))*forward.z;
+            return dot/SAT_FX16_ONE;
+        }
+    }
     return ((static_cast<int64_t>(p.x)-eye.x)*forward.x+
             (static_cast<int64_t>(p.y)-eye.y)*forward.y+
             (static_cast<int64_t>(p.z)-eye.z)*forward.z)/SAT_FX16_ONE;
 }
+// Same truncation as the control, not a Q16 approximation of the ratio.
+// Only used for a strict crossing (0 <= numerator/denominator <= 1).
+inline sat_fx16_t near_intersection_axis_bounded(sat_fx16_t a,sat_fx16_t b,
+                                                 int32_t numerator,int32_t denominator) {
+    const int64_t diff=int64_t(b)-a;
+    if(!diff || !numerator)return a;
+    if(numerator==denominator)return b;
+    // |quotient| <= |diff|; the strict bound excludes SH7604 divider
+    // overflow edge cases. The signed 32x32 product fits in int64.
+    if(diff>=-int64_t(INT32_MAX-1)&&diff<=INT32_MAX-1) {
+        const int64_t product=int64_t(int32_t(diff))*numerator;
+        const int32_t q=saturn::core::math3d::div_s64_s32(product,denominator);
+        return static_cast<sat_fx16_t>(int64_t(a)+q);
+    }
+    return static_cast<sat_fx16_t>(int64_t(a)+diff*numerator/denominator);
+}
+
+template<unsigned Experiment=0>
 inline sat_vec3_t near_intersection(
     const sat_vec3_t& a,const sat_vec3_t& b,
     int64_t da,int64_t db,int64_t clip_depth) {
     const int64_t numerator=clip_depth-da;
     const int64_t denominator=db-da; /* caller guarantees a strict crossing */
+    if constexpr(Experiment>=2) {
+        // Numerator lies between zero and denominator, including endpoints.
+        // Keep the old widened formula for wider denominators.
+        if(!numerator)return a;
+        if(numerator==denominator)return b;
+        if(denominator>=-int64_t(INT32_MAX)&&denominator<=INT32_MAX&&denominator!=0) {
+            const int32_t num=static_cast<int32_t>(numerator);
+            const int32_t den=static_cast<int32_t>(denominator);
+            return {near_intersection_axis_bounded(a.x,b.x,num,den),
+                    near_intersection_axis_bounded(a.y,b.y,num,den),
+                    near_intersection_axis_bounded(a.z,b.z,num,den)};
+        }
+    }
     return sat_vec3_t{
         static_cast<sat_fx16_t>(
             static_cast<int64_t>(a.x)+
@@ -366,6 +422,7 @@ inline sat_vec3_t near_intersection(
             (static_cast<int64_t>(b.z)-a.z)*numerator/denominator)
     };
 }
+template<unsigned Experiment=0>
 inline sat_result_t clip_world_quad_near(
     const sat_quad3_t* quad,const sat_vec3_t* eye,
     const sat_vec3_t* forward,sat_fx16_t near_depth,
@@ -376,7 +433,7 @@ inline sat_result_t clip_world_quad_near(
     int64_t depths[4];
     uint8_t in_count=0;
     for(uint8_t i=0;i<4u;++i) {
-        depths[i]=world_view_depth(quad->v[i],*eye,*forward);
+        depths[i]=world_view_depth<Experiment>(quad->v[i],*eye,*forward);
         if(depths[i]>=near_depth)++in_count;
     }
     if(in_count==4u) {
@@ -395,7 +452,7 @@ inline sat_result_t clip_world_quad_near(
         const int64_t current_depth=depths[i];
         const bool current_inside=current_depth>=near_depth;
         if(previous_inside!=current_inside) {
-            clipped[n++]=near_intersection(
+            clipped[n++]=near_intersection<Experiment>(
                 previous,current,previous_depth,current_depth,near_depth);
         }
         if(current_inside) clipped[n++]=current;
