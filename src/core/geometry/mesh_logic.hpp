@@ -280,6 +280,62 @@ template<unsigned Experiment=0>
     return hi > 0 || (hi == 0 && (lo & kNormalLowMask) != 0);
 }
 
+// Signed16 edge proof above the callers bounds every partial dot by
+// (2^32-1)*2^31. Thus the full 64-bit accumulator never overflows.
+// Separate leaves to measure call / materialization costs rather than
+// assuming MAC.L is cheaper than the compiler's register products.
+[[gnu::noinline]] inline bool visible_dot_dmuls(
+    int32_t nx,int32_t ny,int32_t nz,int32_t vx,int32_t vy,int32_t vz) {
+#if defined(__sh__)
+    uint32_t hi,lo,ph,pl,saveh,savel;
+    asm volatile(
+        "sts mach,%[sh]\n\tsts macl,%[sl]\n\t"
+        "dmuls.l %[nx],%[vx]\n\tsts mach,%[h]\n\tsts macl,%[l]\n\t"
+        "dmuls.l %[ny],%[vy]\n\tsts mach,%[ph]\n\tsts macl,%[pl]\n\t"
+        "clrt\n\taddc %[pl],%[l]\n\taddc %[ph],%[h]\n\t"
+        "dmuls.l %[nz],%[vz]\n\tsts mach,%[ph]\n\tsts macl,%[pl]\n\t"
+        "clrt\n\taddc %[pl],%[l]\n\taddc %[ph],%[h]\n\t"
+        "lds %[sh],mach\n\tlds %[sl],macl"
+        : [h]"=&r"(hi),[l]"=&r"(lo),[ph]"=&r"(ph),[pl]"=&r"(pl),
+          [sh]"=&r"(saveh),[sl]"=&r"(savel)
+        : [nx]"r"(nx),[ny]"r"(ny),[nz]"r"(nz),
+          [vx]"r"(vx),[vy]"r"(vy),[vz]"r"(vz)
+        : "mach","macl","t");
+    return !(hi&0x80000000u)&&(hi||lo);
+#else
+    return int64_t(nx)*vx+int64_t(ny)*vy+int64_t(nz)*vz>0;
+#endif
+}
+
+[[gnu::noinline]] inline bool visible_dot_mac(
+    int32_t nx,int32_t ny,int32_t nz,int32_t vx,int32_t vy,int32_t vz) {
+#if defined(__sh__)
+    uint32_t sr;
+    asm volatile("stc sr,%0":"=r"(sr));
+    // SR.S selects saturation (48-bit for MAC.L). Do not change SR;
+    // callers with saturation enabled take the exact C++ path.
+    if(!(sr&2u)) {
+        const int32_t normals[3]={nx,ny,nz};
+        const int32_t offsets[3]={vx,vy,vz};
+        const int32_t* n=normals;
+        const int32_t* v=offsets;
+        uint32_t hi,lo,saveh,savel;
+        asm volatile(
+            "sts mach,%[sh]\n\tsts macl,%[sl]\n\tclrmac\n\t"
+            "mac.l @%[n]+,@%[v]+\n\t"
+            "mac.l @%[n]+,@%[v]+\n\t"
+            "mac.l @%[n]+,@%[v]+\n\t"
+            "sts mach,%[h]\n\tsts macl,%[l]\n\t"
+            "lds %[sh],mach\n\tlds %[sl],macl"
+            : [n]"+&r"(n),[v]"+&r"(v),[h]"=&r"(hi),[l]"=&r"(lo),
+              [sh]"=&r"(saveh),[sl]"=&r"(savel)
+            : : "mach","macl","memory");
+        return !(hi&0x80000000u)&&(hi||lo);
+    }
+#endif
+    return int64_t(nx)*vx+int64_t(ny)*vy+int64_t(nz)*vz>0;
+}
+
 template<unsigned Experiment=0>
 [[gnu::noinline]] inline bool quad_visible_general(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
@@ -313,12 +369,16 @@ template<unsigned Experiment=0>
                 static_cast<sat_fx16_t>((static_cast<int64_t>(a.y)+b.y+c.y+d.y)/4),
                 static_cast<sat_fx16_t>((static_cast<int64_t>(a.z)+b.z+c.z+d.z)/4));
             const sat_vec3_t v=vec3_sub(eye,centre);
+            if constexpr(Experiment==4)
+                return visible_dot_dmuls(nx,ny,nz,v.x,v.y,v.z);
+            if constexpr(Experiment==5)
+                return visible_dot_mac(nx,ny,nz,v.x,v.y,v.z);
             return static_cast<int64_t>(nx)*v.x+static_cast<int64_t>(ny)*v.y+
                 static_cast<int64_t>(nz)*v.z>0;
         }
     }
     // Degenerate corners and larger faces retain the general exact path.
-    return quad_visible_wide<Experiment>(a,b,c,d,eye);
+    return quad_visible_wide<(Experiment>=3?2:Experiment)>(a,b,c,d,eye);
 }
 
 /* The common case of quad_visible_general in 32-bit arithmetic: returns 1
@@ -361,7 +421,7 @@ template<unsigned Experiment=0>
             (static_cast<uint32_t>(az)+(1u<<28)))>>29)|
            (((static_cast<uint32_t>(cx)+(1u<<29))|(static_cast<uint32_t>(cy)+(1u<<29))|
             (static_cast<uint32_t>(cz)+(1u<<29)))>>30)) return -1;
-        if constexpr(Experiment>=1) {
+        if constexpr(Experiment==1||Experiment==2) {
             // The preceding range proof applies to each sum, so no
             // narrowing or different rounding is introduced.
             if(!ny&&!nz)return visible_axis(nx,eye.x,(ax+pb->x+pd->x+cx)/4);
@@ -372,6 +432,10 @@ template<unsigned Experiment=0>
         vy=eye.y-(ay+pb->y+pd->y+cy)/4;
         vz=eye.z-(az+pb->z+pd->z+cz)/4;
     }
+    if constexpr(Experiment==4)
+        return visible_dot_dmuls(nx,ny,nz,vx,vy,vz);
+    if constexpr(Experiment==5)
+        return visible_dot_mac(nx,ny,nz,vx,vy,vz);
     return static_cast<int64_t>(nx)*vx+static_cast<int64_t>(ny)*vy+
         static_cast<int64_t>(nz)*vz>0;
 }
@@ -389,7 +453,7 @@ template<unsigned Experiment=0>
 inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
-    const int small=quad_visible_small<Experiment>(a,b,c,d,eye);
+    const int small=quad_visible_small<(Experiment==3?0:Experiment)>(a,b,c,d,eye);
     return small>=0 ? small!=0 : quad_visible_general<Experiment>(a,b,c,d,eye);
 }
 
