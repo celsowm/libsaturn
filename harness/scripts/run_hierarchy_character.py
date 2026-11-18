@@ -97,7 +97,7 @@ def ymir(case,mode,env,bios,probe):
          "--misaligned-report",str(sub/"misaligned.txt")]
     for name,target in DUMPS:
         address,size=syms[name];cmd+=["--dump-mem",f"{address:#x}:{size}:{sub/target}"]
-    done=syms["g_hierarchy_character"][0]+20
+    done=syms[DUMPS[0][0]][0]+20
     cmd+=["--screenshot-when",f"{done:#x}:1+120:{sub}/done.png"]
     command_run(cmd,sub/"run.log",env)
     # The event-triggered reference certifies that late screenshots are of
