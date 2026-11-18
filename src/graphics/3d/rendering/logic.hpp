@@ -732,7 +732,7 @@ inline void place_reference(const uint32_t* keys, uint32_t face_count, Index* ou
  * key below kPaintBuckets, higher buckets paint first, and faces keep
  * ascending index inside a bucket. keys[] is overwritten with buckets. No live
  * key maps above top_bucket, so only the counters up to it are touched. */
-template <typename Index, typename CountPass>
+template <typename Index, unsigned Experiment=0, typename CountPass>
 inline void distribute_counted(uint32_t* keys, uint32_t face_count, Index* out,
                                uint32_t top_bucket, CountPass count_pass) {
     /* face_count fits uint16_t, so every running position does too. The
@@ -750,13 +750,18 @@ inline void distribute_counted(uint32_t* keys, uint32_t face_count, Index* out,
     /* keys[] become buckets and start[] their face counts. */
     count_pass(start);
     prefix_reference(counters.words, word_count);
-    place_reference(keys, face_count, out, start);
+#if defined(__sh__)
+    if constexpr (Experiment != 0 && sizeof(Index)==1)
+        paint_keys::sat_paint_place8_sh2(keys,face_count,out,start);
+    else
+#endif
+        place_reference(keys, face_count, out, start);
 }
 
-template <typename Index, typename BucketOf>
+template <typename Index, unsigned Experiment=0, typename BucketOf>
 inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
                        uint32_t top_bucket, BucketOf bucket_of) {
-    distribute_counted(keys, face_count, out, top_bucket,
+    distribute_counted<Index,Experiment>(keys, face_count, out, top_bucket,
         [keys, face_count, &bucket_of](uint16_t* start) {
             for (uint32_t f = 0; f < face_count; ++f) {
                 if (keys[f] == kPaintSkip) {
@@ -770,11 +775,24 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
 }
 
 /* distribute for one depth span: bucket = shift(key - lo). */
-template <typename Index>
+template <typename Index, unsigned Experiment=0>
 inline void distribute_spread(uint32_t* keys, uint32_t face_count, Index* out,
                               uint32_t lo, uint32_t hi) {
+    // When all live keys are identical, the exact mapping is bucket zero.
+    // The fused pass preserves the skip sentinel and ascending index.
+    if constexpr (Experiment >= 2) {
+        if (lo==hi) {
+            uint32_t written=0;
+            for(uint32_t f=0;f<face_count;++f) {
+                if(keys[f]==kPaintSkip)continue;
+                keys[f]=0;
+                out[written++]=static_cast<Index>(f);
+            }
+            return;
+        }
+    }
     const RightShift shift(range_shift(hi - lo, kPaintBuckets));
-    distribute_counted(keys, face_count, out, shift(hi - lo),
+    distribute_counted<Index,Experiment>(keys, face_count, out, shift(hi - lo),
         [keys, face_count, lo, shift](uint16_t* start) {
             paint_keys::spread(paint_keys::Spread{keys, face_count, start, lo, shift.multiplier});
         });
@@ -782,14 +800,14 @@ inline void distribute_spread(uint32_t* keys, uint32_t face_count, Index* out,
 
 } // namespace paint_detail
 
-template <typename Index>
+template <typename Index, unsigned Experiment=0>
 inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index* out) {
     paint_keys::Range range;
     const uint32_t live = paint_keys::range(depth, face_count, &range);
     if (live == 0u) {
         return 0u;
     }
-    paint_detail::distribute_spread(depth, face_count, out, range.lo, range.hi);
+    paint_detail::distribute_spread<Index,Experiment>(depth, face_count, out, range.lo, range.hi);
     return live;
 }
 
@@ -803,7 +821,7 @@ constexpr uint32_t kPaintMaxGroups = 8u;
  * spread instead gives every bucket at least 2^group_shift / 1024 of depth as
  * soon as two groups are live. One group is exactly paint_order_buckets;
  * more than kPaintMaxGroups fall back to it (coarser, still in order). */
-template <typename Index>
+template <typename Index, unsigned Experiment=0>
 inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                                             Index* out, uint32_t group_shift) {
     struct Group {
@@ -816,6 +834,12 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         return 0u;
     }
     const uint32_t lo = range.lo, hi = range.hi;
+    if constexpr (Experiment>=2) {
+        if(lo==hi) {
+            paint_detail::distribute_spread<Index,Experiment>(keys,face_count,out,lo,hi);
+            return live;
+        }
+    }
     /* One group -- nearly every scene -- costs exactly paint_order_buckets;
      * only a scene with several live groups pays the second scan. */
     Group groups[kPaintMaxGroups];
@@ -853,7 +877,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         ++group.count;
     }
     if (global_spread) {
-        paint_detail::distribute_spread(keys, face_count, out, lo, hi);
+        paint_detail::distribute_spread<Index,Experiment>(keys, face_count, out, lo, hi);
         return live;
     }
     /* Ascending id; the highest (farthest) group takes the highest buckets. */
@@ -869,15 +893,24 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
     /* Shares sum to at most group_count + (kPaintBuckets - group_count). */
     uint32_t base = 0u;
     for (uint32_t g = 0u; g < group_count; ++g) {
-        const uint32_t share = 1u + static_cast<uint32_t>(
-            (static_cast<uint64_t>(kPaintBuckets - group_count) * groups[g].count) / live);
+        uint32_t share;
+        if constexpr (Experiment >= 2) {
+            // count <= 65535 and bucket budget <= 1024: no 32-bit overflow.
+            share=1u+((kPaintBuckets-group_count)*groups[g].count)/live;
+        } else {
+            share=1u+static_cast<uint32_t>(
+                (static_cast<uint64_t>(kPaintBuckets-group_count)*groups[g].count)/live);
+        }
         groups[g].base = base;
         groups[g].shift = paint_detail::RightShift(
             paint_detail::range_shift(groups[g].hi - groups[g].lo, share));
         base += share;
     }
     last = 0u;
-    paint_detail::distribute(keys, face_count, out, kPaintBuckets - 1u,
+    // Unassigned buckets above base are empty; their descending prefix
+    // contributes zero. Dropping them cannot change any output index.
+    const uint32_t top_bucket=Experiment>=2?base-1u:kPaintBuckets-1u;
+    paint_detail::distribute<Index,Experiment>(keys, face_count, out, top_bucket,
         [&groups, group_count, group_of, low_mask, &last](uint32_t key) {
             const uint32_t id = group_of(key);
             if (groups[last].id != id) {
