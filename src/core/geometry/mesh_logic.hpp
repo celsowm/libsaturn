@@ -202,6 +202,14 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
  *
  * The corners are taken by reference, so a caller holding shared vertex
  * arrays need not copy them into a sat_quad3_t first. */
+// Experiments are opt-in; use comparisons instead of multiplying by a
+// single nonzero normal component. This preserves the sign on the
+// original defined arithmetic domain (eye-centre fits signed int32).
+inline bool visible_axis(int64_t normal,int32_t eye,int32_t centre) {
+    return normal>0 ? eye>centre : eye<centre;
+}
+
+template<unsigned Experiment=0>
 [[gnu::noinline]] inline bool quad_visible_wide(
     const sat_vec3_t& a,const sat_vec3_t& b,const sat_vec3_t& c,
     const sat_vec3_t& d,const sat_vec3_t& eye) {
@@ -223,6 +231,18 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
                                 vec3_sub(eye, quad_center(quad))) > 0;
         }
     }
+    if constexpr(Experiment>=1) {
+        // Do not bypass the historical scaled-normal fallback above.
+        // Retain the exact quarter of the four corners and tie-to-hidden.
+        if(!n[1]&&!n[2]) {
+            if(!n[0])return false;
+            return visible_axis(n[0],eye.x,int32_t((int64_t(a.x)+b.x+c.x+d.x)/4));
+        }
+        if(!n[0]&&!n[2])
+            return visible_axis(n[1],eye.y,int32_t((int64_t(a.y)+b.y+c.y+d.y)/4));
+        if(!n[0]&&!n[1])
+            return visible_axis(n[2],eye.z,int32_t((int64_t(a.z)+b.z+c.z+d.z)/4));
+    }
     const sat_vec3_t centre = vec3(
         static_cast<sat_fx16_t>((static_cast<int64_t>(a.x) + b.x + c.x + d.x) / 4),
         static_cast<sat_fx16_t>((static_cast<int64_t>(a.y) + b.y + c.y + d.y) / 4),
@@ -231,6 +251,22 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
     const int32_t w[3] = {v.x, v.y, v.z};
     constexpr unsigned kNormalSplitBits = 24;
     constexpr int64_t kNormalLowMask = (int64_t{1} << kNormalSplitBits) - 1;
+    if constexpr(Experiment>=2) {
+        // Split exactly as the reference. The high dot fits signed 64
+        // under the same 2^50 normal bound; skip the low dot only when
+        // all three remainders are exactly zero.
+        const int32_t h0=int32_t(n[0]>>kNormalSplitBits);
+        const int32_t h1=int32_t(n[1]>>kNormalSplitBits);
+        const int32_t h2=int32_t(n[2]>>kNormalSplitBits);
+        const int32_t l0=int32_t(n[0]&kNormalLowMask);
+        const int32_t l1=int32_t(n[1]&kNormalLowMask);
+        const int32_t l2=int32_t(n[2]&kNormalLowMask);
+        int64_t high=int64_t(h0)*w[0]+int64_t(h1)*w[1]+int64_t(h2)*w[2];
+        if(!(l0|l1|l2))return high>0;
+        const int64_t low=int64_t(l0)*w[0]+int64_t(l1)*w[1]+int64_t(l2)*w[2];
+        high+=low>>kNormalSplitBits;
+        return high>0||(high==0&&(low&kNormalLowMask)!=0);
+    }
     int64_t hi = 0;
     int64_t lo = 0;
     for (int i = 0; i < 3; ++i) {
@@ -244,6 +280,7 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
     return hi > 0 || (hi == 0 && (lo & kNormalLowMask) != 0);
 }
 
+template<unsigned Experiment=0>
 [[gnu::noinline]] inline bool quad_visible_general(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
@@ -281,7 +318,7 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
         }
     }
     // Degenerate corners and larger faces retain the general exact path.
-    return quad_visible_wide(a,b,c,d,eye);
+    return quad_visible_wide<Experiment>(a,b,c,d,eye);
 }
 
 /* The common case of quad_visible_general in 32-bit arithmetic: returns 1
@@ -290,6 +327,7 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
  * sum 3a + (b-a) + (d-a) + c is below 2^31 in magnitude, so its truncating
  * quarter equals the 64-bit one; a zero normal is left to the general path,
  * which makes the same decisions in the same order. */
+template<unsigned Experiment=0>
 [[gnu::always_inline]] inline int quad_visible_small_body(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
@@ -323,6 +361,13 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
             (static_cast<uint32_t>(az)+(1u<<28)))>>29)|
            (((static_cast<uint32_t>(cx)+(1u<<29))|(static_cast<uint32_t>(cy)+(1u<<29))|
             (static_cast<uint32_t>(cz)+(1u<<29)))>>30)) return -1;
+        if constexpr(Experiment>=1) {
+            // The preceding range proof applies to each sum, so no
+            // narrowing or different rounding is introduced.
+            if(!ny&&!nz)return visible_axis(nx,eye.x,(ax+pb->x+pd->x+cx)/4);
+            if(!nx&&!nz)return visible_axis(ny,eye.y,(ay+pb->y+pd->y+cy)/4);
+            if(!nx&&!ny)return visible_axis(nz,eye.z,(az+pb->z+pd->z+cz)/4);
+        }
         vx=eye.x-(ax+pb->x+pd->x+cx)/4;
         vy=eye.y-(ay+pb->y+pd->y+cy)/4;
         vz=eye.z-(az+pb->z+pd->z+cz)/4;
@@ -331,23 +376,26 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
         static_cast<int64_t>(nz)*vz>0;
 }
 
+template<unsigned Experiment=0>
 [[gnu::noinline]] inline int quad_visible_small(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
-    return quad_visible_small_body(a,b,c,d,eye);
+    return quad_visible_small_body<Experiment>(a,b,c,d,eye);
 }
 
 /* Keep the kernels out of large scene loops: forcing them inline inflates
  * their code and live register set on the 4 KiB-cache SH-2. */
+template<unsigned Experiment=0>
 inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
-    const int small=quad_visible_small(a,b,c,d,eye);
-    return small>=0 ? small!=0 : quad_visible_general(a,b,c,d,eye);
+    const int small=quad_visible_small<Experiment>(a,b,c,d,eye);
+    return small>=0 ? small!=0 : quad_visible_general<Experiment>(a,b,c,d,eye);
 }
 
+template<unsigned Experiment=0>
 inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
-    return quad_visible(quad.v[0], quad.v[1], quad.v[2], quad.v[3], eye);
+    return quad_visible<Experiment>(quad.v[0], quad.v[1], quad.v[2], quad.v[3], eye);
 }
 
 inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t& eye) {
