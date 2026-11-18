@@ -142,3 +142,101 @@ _sat_paint_keys_quantise_sh2:
 	mov r3,r1
 	.size _sat_paint_keys_quantise_sh2,.-_sat_paint_keys_quantise_sh2
 	.text
+
+
+/* C1 experimental prefix: pairs are [low bucket:high bucket] on the
+ * big-endian Saturn. Walk words backward. running never exceeds 65535.
+ * r4 pointer, r5 words, r6 running, r7 pair, r0/r1/r2/r3 temporaries. */
+	.section .text.sat_paint_prefix_sh2,"ax",@progbits
+	.align 2
+	.global _sat_paint_prefix_sh2
+	.type _sat_paint_prefix_sh2,@function
+_sat_paint_prefix_sh2:
+	tst r5,r5
+	bt .Lpc_prefix_done
+	mov r5,r0
+	shll2 r0
+	add r0,r4
+	mov #0,r6
+.Lpc_prefix_loop:
+	add #-4,r4
+	mov.l @r4,r7
+	extu.w r7,r0
+	mov r6,r2
+	add r0,r6
+	swap.w r7,r1
+	extu.w r1,r1
+	mov r6,r3
+	add r1,r6
+	swap.w r3,r3
+	or r2,r3
+	mov.l r3,@r4
+	dt r5
+	bf .Lpc_prefix_loop
+.Lpc_prefix_done:
+	rts
+	nop
+	.size _sat_paint_prefix_sh2,.-_sat_paint_prefix_sh2
+
+/* Stable scatter: ascending face index, unsigned halfword cursor.
+ * r4 keys, r5 remaining, r6 output, r7 starts, r2 face index.
+ * Keep byte/halfword stores separate; arbitrary output alignment for
+ * uint8_t, natural 2-byte alignment for uint16_t. No extra scratch. */
+	.section .text.sat_paint_place8_sh2,"ax",@progbits
+	.align 2
+	.global _sat_paint_place8_sh2
+	.type _sat_paint_place8_sh2,@function
+_sat_paint_place8_sh2:
+	tst r5,r5
+	bt.s .Lpc_place8_done
+	mov #0,r2
+.Lpc_place8_loop:
+	mov.l @r4+,r0
+	cmp/eq #-1,r0
+	bt .Lpc_place8_next
+	add r0,r0
+	mov.w @(r0,r7),r1
+	extu.w r1,r1
+	mov r1,r3
+	add #1,r3
+	mov.w r3,@(r0,r7)
+	mov r1,r0
+	mov.b r2,@(r0,r6)
+.Lpc_place8_next:
+	dt r5
+	bf.s .Lpc_place8_loop
+	add #1,r2
+.Lpc_place8_done:
+	rts
+	nop
+	.size _sat_paint_place8_sh2,.-_sat_paint_place8_sh2
+	.section .text.sat_paint_place16_sh2,"ax",@progbits
+	.align 2
+	.global _sat_paint_place16_sh2
+	.type _sat_paint_place16_sh2,@function
+_sat_paint_place16_sh2:
+	tst r5,r5
+	bt.s .Lpc_place16_done
+	mov #0,r2
+.Lpc_place16_loop:
+	mov.l @r4+,r0
+	cmp/eq #-1,r0
+	bt .Lpc_place16_next
+	add r0,r0
+	mov.w @(r0,r7),r1
+	extu.w r1,r1
+	mov r1,r3
+	add #1,r3
+	mov.w r3,@(r0,r7)
+	mov r1,r0
+	add r0,r0
+	mov.w r2,@(r0,r6)
+.Lpc_place16_next:
+	dt r5
+	bf.s .Lpc_place16_loop
+	add #1,r2
+.Lpc_place16_done:
+	rts
+	nop
+	.size _sat_paint_place16_sh2,.-_sat_paint_place16_sh2
+	.text

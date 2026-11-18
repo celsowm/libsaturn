@@ -695,6 +695,39 @@ struct RightShift {
     }
 };
 
+/* Shared reference stages; extracted without changing production ordering. */
+inline void prefix_reference(uint32_t* words, uint32_t word_count) {
+    uint32_t running = 0u;
+    for (uint32_t w = word_count; w-- > 0u;) {
+        /* Buckets 2w (lower address) and 2w + 1, the higher one first. */
+        const uint32_t pair = words[w];
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        const uint32_t low_bucket = pair & 0xFFFFu, high_bucket = pair >> 16u;
+#else
+        const uint32_t low_bucket = pair >> 16u, high_bucket = pair & 0xFFFFu;
+#endif
+        const uint32_t high_start = running;
+        const uint32_t low_start = running + high_bucket;
+        running = low_start + low_bucket;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        words[w] = (high_start << 16u) | (low_start & 0xFFFFu);
+#else
+        words[w] = (low_start << 16u) | (high_start & 0xFFFFu);
+#endif
+    }
+}
+template <typename Index>
+inline void place_reference(const uint32_t* keys, uint32_t face_count, Index* out,
+                            uint16_t* start) {
+    for (uint32_t f = 0; f < face_count; ++f) {
+        const uint32_t bucket = keys[f];
+        if (bucket == kPaintSkip) {
+            continue;
+        }
+        out[start[bucket]++] = static_cast<Index>(f);
+    }
+}
+
 /* Counting pass shared by the painter orders: bucket_of(key) maps every live
  * key below kPaintBuckets, higher buckets paint first, and faces keep
  * ascending index inside a bucket. keys[] is overwritten with buckets. No live
@@ -716,31 +749,8 @@ inline void distribute_counted(uint32_t* keys, uint32_t face_count, Index* out,
     }
     /* keys[] become buckets and start[] their face counts. */
     count_pass(start);
-    uint32_t running = 0u;
-    for (uint32_t w = word_count; w-- > 0u;) {
-        /* Buckets 2w (lower address) and 2w + 1, the higher one first. */
-        const uint32_t pair = counters.words[w];
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-        const uint32_t low_bucket = pair & 0xFFFFu, high_bucket = pair >> 16u;
-#else
-        const uint32_t low_bucket = pair >> 16u, high_bucket = pair & 0xFFFFu;
-#endif
-        const uint32_t high_start = running;
-        const uint32_t low_start = running + high_bucket;
-        running = low_start + low_bucket;
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-        counters.words[w] = (high_start << 16u) | (low_start & 0xFFFFu);
-#else
-        counters.words[w] = (low_start << 16u) | (high_start & 0xFFFFu);
-#endif
-    }
-    for (uint32_t f = 0; f < face_count; ++f) {
-        const uint32_t bucket = keys[f];
-        if (bucket == kPaintSkip) {
-            continue;
-        }
-        out[start[bucket]++] = static_cast<Index>(f);
-    }
+    prefix_reference(counters.words, word_count);
+    place_reference(keys, face_count, out, start);
 }
 
 template <typename Index, typename BucketOf>
