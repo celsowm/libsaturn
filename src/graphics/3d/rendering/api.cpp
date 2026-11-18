@@ -1,4 +1,11 @@
 #include "saturn/render3d.h"
+#if defined(SAT_NEAR_CLIP_EXPERIMENT) && SAT_NEAR_CLIP_EXPERIMENT
+#include "saturn/time.h"
+extern "C" {
+    extern const uint32_t g_near_clip_mode=SAT_NEAR_CLIP_EXPERIMENT;
+    volatile uint32_t g_near_clip_ticks=0,g_near_clip_calls=0,g_near_clip_partial=0,g_near_clip_pieces=0;
+}
+#endif
 #if defined(SAT_SCREEN_CLIP_EXPERIMENT) && SAT_SCREEN_CLIP_EXPERIMENT
 #include "saturn/time.h"
 extern "C" {
@@ -52,8 +59,21 @@ extern "C" sat_result_t sat_clip_quad_near(
     const sat_quad3_t* quad,const sat_vec3_t* eye,
     const sat_vec3_t* forward,sat_fx16_t near_depth,
     sat_quad3_t out_triangles[4],uint8_t* out_count) {
+#if defined(SAT_NEAR_CLIP_EXPERIMENT) && SAT_NEAR_CLIP_EXPERIMENT
+    const uint16_t t=sat_time_frc();
+    const sat_result_t st=saturn::core::render3d::clip_world_quad_near<(SAT_NEAR_CLIP_EXPERIMENT==2?2:0)>(
+        quad,eye,forward,near_depth,out_triangles,out_count);
+    g_near_clip_ticks+=uint16_t(sat_time_frc()-t);
+    ++g_near_clip_calls;
+    if(st==SAT_OK && out_count) {
+        g_near_clip_pieces+=*out_count;
+        if(*out_count>1)++g_near_clip_partial;
+    }
+    return st;
+#else
     return saturn::core::render3d::clip_world_quad_near(
         quad,eye,forward,near_depth,out_triangles,out_count);
+#endif
 }
 extern "C" sat_result_t sat_clip_quad_screen(
     const sat_quad2_t* quad,uint16_t width,uint16_t height,
