@@ -1,4 +1,11 @@
 #include "saturn/render3d.h"
+#if defined(SAT_SCREEN_CLIP_EXPERIMENT) && SAT_SCREEN_CLIP_EXPERIMENT
+#include "saturn/time.h"
+extern "C" {
+    extern const uint32_t g_screen_clip_mode=SAT_SCREEN_CLIP_EXPERIMENT;
+    volatile uint32_t g_screen_clip_ticks=0,g_screen_clip_calls=0,g_screen_clip_partial=0,g_screen_clip_pieces=0;
+}
+#endif
 
 
 #include "src/graphics/3d/rendering/logic.hpp"
@@ -51,8 +58,21 @@ extern "C" sat_result_t sat_clip_quad_near(
 extern "C" sat_result_t sat_clip_quad_screen(
     const sat_quad2_t* quad,uint16_t width,uint16_t height,
     sat_quad2_t out_triangles[6],uint8_t* out_count) {
+#if defined(SAT_SCREEN_CLIP_EXPERIMENT) && SAT_SCREEN_CLIP_EXPERIMENT
+    const uint16_t t=sat_time_frc();
+    const sat_result_t st=saturn::core::render3d::clip_quad_screen<(SAT_SCREEN_CLIP_EXPERIMENT==2?2:0)>(
+        quad,width,height,out_triangles,out_count);
+    g_screen_clip_ticks+=uint16_t(sat_time_frc()-t);
+    ++g_screen_clip_calls;
+    if(st==SAT_OK && out_count) {
+        g_screen_clip_pieces+=*out_count;
+        if(*out_count>1)++g_screen_clip_partial;
+    }
+    return st;
+#else
     return saturn::core::render3d::clip_quad_screen(
         quad,width,height,out_triangles,out_count);
+#endif
 }
 
 
