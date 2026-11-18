@@ -126,6 +126,8 @@ def run(args):
         from harness.tests import test_near_clip_bench as schema
     elif example == "near_clip_v2_bench":
         from harness.tests import test_near_clip_v2_bench as schema
+    elif example == "world_cull_bench":
+        from harness.tests import test_world_cull_bench as schema
     else:
         from harness.tests import test_sh2_kernel_verify as schema
     size = getattr(schema, "SIZE", SIZE)
@@ -231,7 +233,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--seconds", type=float, default=30)
     p.add_argument("--bios", type=Path)
-    p.add_argument("--example", choices=("sh2_kernel_verify","static_project_bench","hierarchy_compose_bench","weighted_blend_bench","paint_distribution_bench","paint_order_bench","screen_clip_bench","near_clip_bench","near_clip_v2_bench"), default="sh2_kernel_verify")
+    p.add_argument("--example", choices=("sh2_kernel_verify","static_project_bench","hierarchy_compose_bench","weighted_blend_bench","paint_distribution_bench","paint_order_bench","screen_clip_bench","near_clip_bench","near_clip_v2_bench","world_cull_bench"), default="sh2_kernel_verify")
     args = p.parse_args()
     if not 0 < args.seconds <= 600:
         p.error("--seconds must be in (0, 600]")
