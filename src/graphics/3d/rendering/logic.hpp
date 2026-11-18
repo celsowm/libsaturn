@@ -428,12 +428,28 @@ inline bool screen_inside(ScreenPoint p,uint8_t edge,int32_t bound) {
     const int32_t value=(edge<2u)?p.x:p.y;
     return (edge&1u)?value<=bound:value>=bound;
 }
+template<unsigned Experiment=0>
 inline ScreenPoint screen_intersection(
     ScreenPoint a,ScreenPoint b,uint8_t edge,int32_t bound) {
     const int32_t av=edge<2u?a.x:a.y;
     const int32_t bv=edge<2u?b.x:b.y;
     const int32_t delta=bv-av;
     ScreenPoint out=a;
+    if constexpr(Experiment>=2) {
+        // All native VDP1 points fit this bound. The extra coordinate
+        // difference and distance to the crossing plane are each <=32767.
+        // A crossing guarantees nonzero delta and a ratio in [0,1].
+        const int32_t other_a=edge<2u?a.y:a.x;
+        const int32_t other_b=edge<2u?b.y:b.x;
+        const int32_t diff=other_b-other_a,dist=bound-av;
+        if ((uint32_t(diff)+32767u)<=65534u &&
+            (uint32_t(dist)+32767u)<=65534u) {
+            const int16_t other=static_cast<int16_t>(other_a+diff*dist/delta);
+            if(edge<2u){out.x=static_cast<int16_t>(bound);out.y=other;}
+            else{out.y=static_cast<int16_t>(bound);out.x=other;}
+            return out;
+        }
+    }
     if(edge<2u) {
         out.x=static_cast<int16_t>(bound);
         out.y=static_cast<int16_t>(
@@ -450,6 +466,7 @@ inline ScreenPoint screen_intersection(
 inline bool screen_equal(ScreenPoint a,ScreenPoint b) {
     return a.x==b.x && a.y==b.y;
 }
+template<unsigned Experiment=0>
 inline sat_result_t clip_quad_screen(
     const sat_quad2_t* quad,uint16_t width,uint16_t height,
     sat_quad2_t out[6],uint8_t* out_count) {
@@ -463,15 +480,24 @@ inline sat_result_t clip_quad_screen(
         static_cast<int32_t>(height+1u)/2-1
     };
     bool fully_inside=true;
+    uint8_t outside_edges=0;
     ScreenPoint previous[12],next[12];
     uint8_t n=0u;
     for(uint8_t i=0u;i<4u;++i) {
         const ScreenPoint point={quad->x[i],quad->y[i]};
         if(n==0u || !screen_equal(point,previous[n-1u]))
             previous[n++]=point;
-        for(uint8_t edge=0u;edge<4u;++edge)
-            if(!screen_inside(point,edge,bounds[edge]))fully_inside=false;
+        if constexpr(Experiment>=1) {
+            outside_edges |= (point.x<bounds[0]?1u:0u) |
+                             (point.x>bounds[1]?2u:0u) |
+                             (point.y<bounds[2]?4u:0u) |
+                             (point.y>bounds[3]?8u:0u);
+        } else {
+            for(uint8_t edge=0u;edge<4u;++edge)
+                if(!screen_inside(point,edge,bounds[edge]))fully_inside=false;
+        }
     }
+    if constexpr(Experiment>=1)fully_inside=outside_edges==0;
     if(fully_inside) {
         out[0]=*quad;
         *out_count=1u;
@@ -479,6 +505,10 @@ inline sat_result_t clip_quad_screen(
     }
     if(n>1u && screen_equal(previous[n-1u],previous[0]))--n;
     for(uint8_t edge=0u;edge<4u && n>=3u;++edge) {
+        // Intersections are coordinate-wise between their endpoints even
+        // under truncation. A plane containing all original vertices also
+        // contains all later vertices. Adjacent duplicates already removed.
+        if constexpr(Experiment>=1)if(!(outside_edges&(1u<<edge)))continue;
         uint8_t produced=0u;
         ScreenPoint last=previous[n-1u];
         bool was_inside=screen_inside(last,edge,bounds[edge]);
@@ -487,7 +517,7 @@ inline sat_result_t clip_quad_screen(
             const bool inside=screen_inside(current,edge,bounds[edge]);
             if(inside!=was_inside) {
                 if(produced>=12u)return SAT_ERR_UNSUPPORTED;
-                next[produced++]=screen_intersection(
+                next[produced++]=screen_intersection<Experiment>(
                     last,current,edge,bounds[edge]);
             }
             if(inside) {
@@ -510,9 +540,15 @@ inline sat_result_t clip_quad_screen(
     for(uint8_t i=1u;i+1u<n;++i) {
         const ScreenPoint p0=previous[0],p1=previous[i],
                           p2=previous[i+1u];
-        const int64_t area=
-            static_cast<int64_t>(p1.x-p0.x)*(p2.y-p0.y)-
-            static_cast<int64_t>(p1.y-p0.y)*(p2.x-p0.x);
+        // All surviving points are inside a viewport <=2048 per axis.
+        // Each product <=2047^2 and their difference fits int32.
+        int64_t area;
+        if constexpr(Experiment>=2)
+            area=(int32_t(p1.x)-p0.x)*(int32_t(p2.y)-p0.y)-
+                 (int32_t(p1.y)-p0.y)*(int32_t(p2.x)-p0.x);
+        else
+            area=static_cast<int64_t>(p1.x-p0.x)*(p2.y-p0.y)-
+                 static_cast<int64_t>(p1.y-p0.y)*(p2.x-p0.x);
         if(!area)continue;
         sat_quad2_t& result=out[triangles++];
         result.x[0]=p0.x;result.y[0]=p0.y;
