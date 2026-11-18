@@ -147,6 +147,13 @@ ASFLAGS     := -m2 -mb
 # defines never enter generic translation units, and profile changes select
 # different object/archive paths instead of touching every .o on each build.
 LIB_PROFILE_METRICS := 0
+ifeq ($(EXAMPLE),world_cull_renderer)
+LIB_PROFILE_METRICS := 1
+SAT_WORLD_CULL_EXPERIMENT ?= 1
+ifeq ($(SAT_WORLD_CULL_EXPERIMENT),0)
+$(error world_cull_renderer requires SAT_WORLD_CULL_EXPERIMENT=1, 2 or 3)
+endif
+endif
 ifneq ($(filter skeletal_animation_3d fighter_arena_3d skinning_stress_3d killer_clown_demo,$(EXAMPLE)),)
 LIB_PROFILE_METRICS := 1
 endif

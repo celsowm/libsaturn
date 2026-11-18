@@ -9,7 +9,9 @@
 #include "saturn/color.h"
 #include "example_util.h"
 #include "src/hal/vdp1/vdp1.hpp"
+extern "C" {
 #include "world_cull_renderer/sonic_model.h"
+}
 
 extern "C" {
 extern const uint32_t g_world_cull_mode;
