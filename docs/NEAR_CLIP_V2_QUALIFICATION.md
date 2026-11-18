@@ -76,3 +76,98 @@ used as qualification evidence. Fix the mode-to-slot mapping
 explicitly with compile-time assertions: 0->0, 3->1, 4->2.
 No candidate algorithm changes. Re-run the complete qualification
 from scratch; do not bypass the synthetic gate.
+
+## Corrected V2 qualification — 2026-11-18
+
+Checkout `dac68006a248f54c49480a388914fbc2154c071e`. Both
+stages returned 0 and qualification completed=true. Outer and nested
+archives pass integrity checks; standalone renderer ZIP is byte-identical
+to nested renderer ZIP. All three local manifests complete and clean.
+No array-bounds warning in corrected Ymir synthetic build log.
+
+Synthetic: independently decoded both 2432-byte big-endian reports
+and compared lane and row fields against JSON. Six lanes completed,
+9216 batches, 294912 quads and 492042 output pieces per implementation,
+zero errors. Both parallel init and execution status zero, slave ready,
+CCR 1, SR.S clear on entry. Ymir target unittest PASS and zero reported
+misaligned accesses on both CPUs. Mednafen native CD PASS, exit 0,
+swapped16 normalized WRAM, ELF SHA256
+`f718b85941500a8e8964332d8203822f0caf386913786a17ba92004f1057e73b`.
+No separate synthetic panic capture.
+
+### Synthetic serial Master reductions versus control (%)
+
+| Workload | Ymir V2-A | Ymir V2-B | Mednafen V2-A | Mednafen V2-B |
+|---|---:|---:|---:|---:|
+| inside | -0.61 | 55.88 | -0.97 | 53.62 |
+| outside | -0.36 | 58.40 | -0.92 | 56.16 |
+| two_inside | 42.12 | 54.88 | 38.42 | 50.41 |
+| alternating | 50.39 | 58.46 | 46.69 | 54.09 |
+| on_plane | 49.20 | 61.89 | 47.24 | 59.26 |
+| oblique_xz | 45.11 | 44.13 | 42.00 | 41.04 |
+| oblique_xyz | 42.79 | 41.70 | 40.23 | 39.21 |
+| wide_coordinate_delta | 20.99 | 34.27 | 17.27 | 29.80 |
+| wide_depth_delta | -5.79 | 8.58 | -5.85 | 7.64 |
+| oblique_inside | -0.69 | -2.03 | -0.99 | -1.86 |
+| oblique_outside | -0.41 | -3.41 | -1.14 | -2.78 |
+| wide_axial_eye | -0.66 | 55.86 | -0.92 | 53.59 |
+
+Summing equal-repeat workload ticks within each lane: V2-A
+37.573–37.589% / 34.338–34.421% reduction (Ymir / Mednafen);
+V2-B 48.628–48.630% / 44.557–44.810%. Peak V2-B 61.904%
+Ymir parallel master and 59.264% Mednafen serial master (on_plane).
+Synthetic FRT 210540/210600 Hz respectively. No gameplay weighting.
+
+Renderer: all nine 1568-byte telemetry captures decoded against JSON;
+independently recomputed phase medians (six frames after first pair).
+GCC 13.2.0, matching flags except near-clip mode. FRT 210540 Hz
+except Ymir DIVU-only build at 210600 Hz; normalize each capture using
+its own frequency. 288 frames, 8352 clip calls, 2592 multi-piece calls,
+10656 near output pieces, 15498 native commands including END and
+4320 Gouraud tables. Commands 43–66 and tables 12–18 per frame.
+Nine 80-byte panic records all zero, no draw timeouts, all three
+Ymir misalignment reports master/slave zero.
+
+All nine full 262144-byte command snapshots identical, SHA256
+`7a9683df8a2b465260653d4f1309c9ff33cc51d5078ca048054aef89b01feb12`.
+All nine 65536-byte Gouraud snapshots identical, SHA256
+`d89529f2470f53974d8d0540981d39dd1a4a990a37e288863a76aab068360368`.
+Verified each live slice hash, END bit and zero tails. Six Mednafen
+captures agree with their build ELF hashes, swapped16 normalization.
+ELFs control `a69107eaec4c0b4c058881af5ecccc5d5465fa5f9b12abd53a8473c23e696850`,
+DIVU `ca7482b00e1933a847f08281db8c272fe7933518f2d012ab3c25924c9f9a2bff`,
+axial `c809bf39029f73332a75821cde002b605ae52451151f13e14488eb17d55e9e11`.
+All 15 original screenshots independently decoded, exact RGB within
+each emulator: nine Ymir 320x224 (three done-triggered) and six
+Mednafen 682x448, 106 colors each. Fourteen manifest comparisons
+cover 2640512 pixel comparisons, plus three Ymir done comparisons.
+These are frozen final oblique crossing rasters; intermediate
+poses qualified by commands, not per-pose raster captures.
+
+### Renderer phase medians in milliseconds
+
+| Emulator / phase | Clip control / A / B | Submit control / A / B | B submit reduction |
+|---|---:|---:|---:|
+| Ymir axial crossing | 2.14686 / 1.45062 / 1.04968 | 17.62610 / 16.92783 / 16.53368 | 6.198% |
+| Ymir axial inside | 0.73858 / 0.75261 / 0.34673 | 14.23482 / 14.23789 / 13.83585 | 2.803% |
+| Ymir oblique inside | 0.75520 / 0.77160 / 0.76233 | 14.18020 / 14.18329 / 14.19445 | -0.100% |
+| Ymir oblique crossing | 2.15161 / 1.43637 / 1.45578 | 17.62610 / 16.92545 / 16.94452 | 3.867% |
+| Mednafen axial crossing | 2.25848 / 1.61252 / 1.22305 | 18.58079 / 17.94433 / 17.55011 | 5.547% |
+| Mednafen axial inside | 0.77657 / 0.78607 / 0.39185 | 14.95915 / 14.96153 / 14.55305 | 2.715% |
+| Mednafen oblique inside | 0.78370 / 0.79082 / 0.80270 | 14.89503 / 14.89741 / 14.90453 | -0.064% |
+| Mednafen oblique crossing | 2.26798 / 1.62914 / 1.63864 | 18.57842 / 17.93721 / 17.94908 | 3.387% |
+
+Mednafen visual and timing phase medians agree. V2-B cuts clip
+time 51.106/45.846% axial crossing, 53.055/49.541% axial inside,
+32.340/27.749% oblique crossing (Ymir/Mednafen); residual oblique
+inside regression 0.943/2.424%. Submission savings up to 1.092/1.031
+ms, residual oblique inside cost 0.01425/0.00950 ms.
+V2-A is marginally preferable in oblique-only submission, but loses
+the large axial gains. Choose V2-B as general opt-in qualification
+candidate; neither candidate unconditionally improves every case.
+Do not activate by default. No reason for another narrow timing-only
+iteration before assessing broader workloads. Next investigate
+world-space face visibility/backface classification (C2), and
+qualify combined near/screen paths and IRQ/DIVU ownership separately.
+Ymir divider model is immediate-result-no-busy-wait; no physical
+timing, IRQ/ABI, textured cells or real game performance claim.
