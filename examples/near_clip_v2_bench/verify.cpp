@@ -108,10 +108,14 @@ bool oracle(const Work& w,unsigned i,const Result& o){
     }
     return true;
 }
-template<unsigned M>void run_batch(Work& w,uint32_t& ticks){
+// Kernel experiment IDs are not output-buffer indices. Keep the mapping
+// explicit at compile time and reject any unsupported mode/slot.
+template<unsigned M,unsigned Slot>void run_batch(Work& w,uint32_t& ticks){
+    static_assert(Slot<3);
+    static_assert((M==0&&Slot==0)||(M==3&&Slot==1)||(M==4&&Slot==2));
     auto t=sat_time_frc();
     for(unsigned i=0;i<N;++i){
-        auto& result=w.out[M][i];
+        auto& result=w.out[Slot][i];
         result.status=r::clip_world_quad_near<M>(&w.input[i],&w.eye,&w.forward,w.near,result.quads+1,&result.count);
     }
     ticks+=uint16_t(sat_time_frc()-t);
@@ -120,9 +124,9 @@ void scenario(Work& w,Row& row,unsigned sc,unsigned k){
     seed_case(w,sc,k);
     sat_quad3_t guard{};for(auto& v:guard.v)v={123456789,-123456789,987654321};
     for(auto& batch:w.out)for(auto& o:batch){o.count=0xa5;o.status=SAT_ERR_INVALID_ARG;for(auto& q:o.quads)q=guard;}
-    auto a=[&]{run_batch<0>(w,row.control_ticks);};
-    auto b=[&]{run_batch<3>(w,row.divu_ticks);};
-    auto c=[&]{run_batch<4>(w,row.axial_ticks);};
+    auto a=[&]{run_batch<0,0>(w,row.control_ticks);};
+    auto b=[&]{run_batch<3,1>(w,row.divu_ticks);};
+    auto c=[&]{run_batch<4,2>(w,row.axial_ticks);};
     switch(k%6){case 0:a();b();c();break;case 1:c();b();a();break;case 2:b();c();a();break;case 3:a();c();b();break;case 4:c();a();b();break;default:b();a();c();}
     bool ok=true;
     for(unsigned i=0;i<N;++i){

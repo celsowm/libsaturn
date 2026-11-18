@@ -46,3 +46,33 @@ remain required. No production activation or full game performance claim.
 
 Run `python3 harness/scripts/run_near_clip_v2.py`. Return
 `harness/build/near_clip_v2-qualification-return.zip`.
+
+## First V2 execution — invalid benchmark, corrected before retry
+
+Checkout `fb328c5b0cc292a70e13a0cfd0b0ff2c36f82e8f`.
+All three returned ZIPs passed integrity checks; the nested synthetic
+archive matched the standalone archive byte for byte, and standalone
+Mednafen members matched their combined counterparts. Clean checkout.
+The 2432-byte raw reports agree with JSON scenario words. The wrapper
+correctly stopped after the synthetic stage failed; no renderer ran.
+
+Both serial master lanes completed 1536 batches but failed 1472
+(all 23 valid-argument scenarios, all 64 repetitions). Invalid
+arguments alone passed. Each parallel lane recorded just one failed
+batch and never completed. Parallel status was nonzero in both
+emulators (1 Ymir, 4294772122 Mednafen); these corrupted status values
+are not interpretable as a diagnosis of the parallel runtime.
+Ymir reports no misaligned accesses, which does not rule out aligned
+out-of-bounds stores.
+
+**Root cause:** the V2 synthetic harness reused the kernel ID as
+the output buffer index. `Work::out[3][32]` was accessed as
+`w.out[M][i]` for M=3 and M=4, outside the valid buffers 0..2.
+The returned build log explicitly emits GCC -Warray-bounds for both
+instantiations. This is an error in the experiment harness, not
+evidence of a clipping arithmetic defect. All timings and output
+equivalence data from this execution are invalid and must not be
+used as qualification evidence. Fix the mode-to-slot mapping
+explicitly with compile-time assertions: 0->0, 3->1, 4->2.
+No candidate algorithm changes. Re-run the complete qualification
+from scratch; do not bypass the synthetic gate.
