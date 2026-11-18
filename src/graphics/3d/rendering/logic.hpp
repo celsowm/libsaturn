@@ -422,6 +422,33 @@ inline sat_vec3_t near_intersection(
             (static_cast<int64_t>(b.z)-a.z)*numerator/denominator)
     };
 }
+// V2: choose an exact unit axis once per face. Pointer-to-member keeps
+// the two signed loops shared across X/Y/Z without indexing across fields.
+inline int near_axial_depths(const sat_quad3_t& quad,const sat_vec3_t& eye,
+                             const sat_vec3_t& forward,sat_fx16_t near_depth,
+                             int64_t (&depths)[4]) {
+    sat_fx16_t sat_vec3_t::* axis=nullptr;
+    int32_t direction=0;
+    if(!forward.x&&!forward.y){axis=&sat_vec3_t::z;direction=forward.z;}
+    else if(!forward.x&&!forward.z){axis=&sat_vec3_t::y;direction=forward.y;}
+    else if(!forward.y&&!forward.z){axis=&sat_vec3_t::x;direction=forward.x;}
+    if(direction!=SAT_FX16_ONE&&direction!=-SAT_FX16_ONE)return -1;
+    const int32_t origin=eye.*axis;
+    int count=0;
+    if(direction>0) {
+        for(unsigned i=0;i<4;++i){
+            depths[i]=int64_t(quad.v[i].*axis)-origin;
+            count+=depths[i]>=near_depth;
+        }
+    } else {
+        for(unsigned i=0;i<4;++i){
+            depths[i]=int64_t(origin)-(quad.v[i].*axis);
+            count+=depths[i]>=near_depth;
+        }
+    }
+    return count;
+}
+
 template<unsigned Experiment=0>
 inline sat_result_t clip_world_quad_near(
     const sat_quad3_t* quad,const sat_vec3_t* eye,
@@ -432,9 +459,17 @@ inline sat_result_t clip_world_quad_near(
         return SAT_ERR_INVALID_ARG;
     int64_t depths[4];
     uint8_t in_count=0;
-    for(uint8_t i=0;i<4u;++i) {
-        depths[i]=world_view_depth<Experiment>(quad->v[i],*eye,*forward);
-        if(depths[i]>=near_depth)++in_count;
+    int axial=-1;
+    if constexpr(Experiment==4)
+        axial=near_axial_depths(*quad,*eye,*forward,near_depth,depths);
+    if(axial>=0) {
+        in_count=static_cast<uint8_t>(axial);
+    } else {
+        for(uint8_t i=0;i<4u;++i) {
+            // Modes 3 and 4 use the exact original general depth path.
+            depths[i]=world_view_depth<(Experiment<=2?Experiment:0)>(quad->v[i],*eye,*forward);
+            if(depths[i]>=near_depth)++in_count;
+        }
     }
     if(in_count==4u) {
         out[0]=*quad; *out_count=1u; return SAT_OK;

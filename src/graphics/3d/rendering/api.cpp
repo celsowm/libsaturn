@@ -61,7 +61,7 @@ extern "C" sat_result_t sat_clip_quad_near(
     sat_quad3_t out_triangles[4],uint8_t* out_count) {
 #if defined(SAT_NEAR_CLIP_EXPERIMENT) && SAT_NEAR_CLIP_EXPERIMENT
     const uint16_t t=sat_time_frc();
-    const sat_result_t st=saturn::core::render3d::clip_world_quad_near<(SAT_NEAR_CLIP_EXPERIMENT==2?2:0)>(
+    const sat_result_t st=saturn::core::render3d::clip_world_quad_near<(SAT_NEAR_CLIP_EXPERIMENT>=2?SAT_NEAR_CLIP_EXPERIMENT:0)>(
         quad,eye,forward,near_depth,out_triangles,out_count);
     g_near_clip_ticks+=uint16_t(sat_time_frc()-t);
     ++g_near_clip_calls;
