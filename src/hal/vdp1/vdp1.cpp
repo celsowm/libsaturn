@@ -1546,6 +1546,40 @@ void submit() {
     }
 }
 
+#if defined(SAT_VDP1_POSE_CAPTURE) && SAT_VDP1_POSE_CAPTURE
+// Qualification only: read the just-submitted bank before begin_frame.
+// Full last-list snapshot in WRAM-L; no production or performance hook.
+extern "C" {
+uint16_t g_vdp1_pose_capture[4u + kCommandAreaBytes/2u + kGouraudAreaBytes/2u]
+    __attribute__((section(".wram_l")));
+}
+extern "C" uint32_t sat_vdp1_test_capture_pose(uint32_t final) {
+    const uint32_t commands=static_cast<uint32_t>(g_cmd_count)*16u;
+    const uint32_t gouraud=static_cast<uint32_t>(g_gouraud_count)*4u;
+    const volatile uint16_t* cmd=reinterpret_cast<const volatile uint16_t*>(g_cmd_buffer);
+    const volatile uint16_t* shade=gouraud_words();
+    uint32_t hash=2166136261u;
+    const auto add=[&hash](uint16_t word) {
+        hash=(hash^static_cast<uint8_t>(word>>8u))*16777619u;
+        hash=(hash^static_cast<uint8_t>(word))*16777619u;
+    };
+    add(g_cmd_count);add(g_gouraud_count);
+    if(final) {
+        g_vdp1_pose_capture[0]=0x5644u;g_vdp1_pose_capture[1]=0x5031u;
+        g_vdp1_pose_capture[2]=g_cmd_count;g_vdp1_pose_capture[3]=g_gouraud_count;
+    }
+    for(uint32_t i=0;i<commands;++i) {
+        const uint16_t word=cmd[i];add(word);
+        if(final)g_vdp1_pose_capture[4u+i]=word;
+    }
+    for(uint32_t i=0;i<gouraud;++i) {
+        const uint16_t word=shade[i];add(word);
+        if(final)g_vdp1_pose_capture[4u+kCommandAreaBytes/2u+i]=word;
+    }
+    return hash;
+}
+#endif
+
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {
     if (palette_rgb555 == nullptr) {
         return SAT_ERR_INVALID_ARG;

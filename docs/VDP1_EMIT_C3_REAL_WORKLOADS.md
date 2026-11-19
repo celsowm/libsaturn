@@ -70,3 +70,28 @@ pixel differences are review evidence, not a regression or a pass.
 
 Run the same entry point and return
 harness/build/vdp1_emit_real_workloads_v3_1-return.zip.
+
+## V3.2 — mixed-mode boot and fixed-pose qualification
+
+Dino V3.1 links but panics at init_music. Retain CDDA: Ymir LoadDisc accepts
+CUE so open the retained mixed-mode CUE/BIN, not the data-only ISO. This
+addresses a probable missing audio track, not a proven cause until execution.
+No music bypass or production changes. Preserve full Ymir stress diff and
+report a second diff excluding only the EMIT US number at x248..279,
+y136..143 on the verified 320x224 raster. No Mednafen mask.
+
+Separate opt-in Robot Police fixed-pose build uses existing 48-pose sequence
+and hierarchy control for both VDP1 modes. All 48 post-submit lists (including
+END and Gouraud words) are hashed; final measured list is also copied literally
+into WRAM-L (80 KiB + header). Compare same-emulator A/B pose hashes, matrices,
+vertices, literal list and Gouraud SHA256, and stable frozen screen pixels.
+No cross-emulator raw-bank-address equivalence is assumed. Low RAM savestate
+extraction validates a byte-order sentinel. Instrumented pose builds are not
+used for performance conclusions; production and dynamic performance builds
+leave the capture flag off. Existing V2 remains the isolated literal-list gate.
+
+Run the same entry point; it includes the fixed-pose qualification by default
+when Robot Police is selected. --pose-only runs just the separate pose test;
+--skip-pose runs only dynamic workloads. --ymir-only still supported.
+Return harness/build/vdp1_emit_real_workloads_v3_2-return.zip. Link fit and
+Mednafen low-RAM layout need target verification. Hardware still outstanding.

@@ -3,7 +3,7 @@
 import hashlib,json,os,shutil,signal,statistics,struct,subprocess,sys,tempfile,traceback,zipfile
 from pathlib import Path
 from cube_pipeline import ROOT,symbols,validate_panic
-from sh2_kernel_verify_mednafen import elf_text,normalize,work_ram,sha
+from sh2_kernel_verify_mednafen import elf_text,normalize,work_ram,work_ram_bank,sha
 from renderer_visual import require_ffmpeg,extract_frames,load_rgb,diff,write_rgb
 
 EXAMPLE="skeletal_animation_3d"
@@ -136,9 +136,15 @@ def mednafen(case,mode,env,bios,visual=False):
         if len(states)!=1:raise ValueError("Missing Mednafen autosave")
         order,high=normalize(work_ram(states[0]),*elf_text(elf))
         for name,target in DUMPS:
-            address,size=syms[name];offset=address-0x06000000
-            if not 0<=offset<=len(high)-size:raise ValueError("WRAM symbol out of range: "+name)
-            (sub/target).write_bytes(high[offset:offset+size])
+            address,size=syms[name]
+            if 0x00200000<=address<0x00300000:
+                # Raw low RAM: its caller validates byte order using a sentinel.
+                memory=work_ram_bank(states[0],"WorkRAML")
+                offset=address-0x00200000
+            else:
+                memory=high;offset=address-0x06000000
+            if not 0<=offset<=len(memory)-size:raise ValueError("WRAM symbol out of range: "+name)
+            (sub/target).write_bytes(memory[offset:offset+size])
         report=parse_capture(case,sub,mode,syms)
         report.update(elf_sha256=sha(elf),bios_sha256=sha(bios),mednafen_sha256=sha(Path(exe)),wram_order=order)
         if visual:report["frames"]=extract_frames(movie,sub,VISUAL_FRAMES)

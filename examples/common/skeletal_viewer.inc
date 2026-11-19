@@ -95,6 +95,11 @@ volatile struct {
     uint32_t magic,version,mode,frequency,count,done,joints,vertices;
     hierarchy_row_t rows[HIERARCHY_ROWS];
 } g_hierarchy_character;
+#if defined(SAT_VDP1_POSE_CAPTURE) && SAT_VDP1_POSE_CAPTURE
+extern const uint32_t g_vdp1_emit_mode;
+extern uint32_t sat_vdp1_test_capture_pose(uint32_t final);
+uint32_t g_vdp1_pose_hashes[HIERARCHY_ROWS];
+#endif
 static uint32_t bench_now(void){return (uint32_t)sat_time_ticks();}
 static uint32_t bench_hash(const void* ptr,uint32_t size){
     const unsigned char* p=(const unsigned char*)ptr;
@@ -346,6 +351,9 @@ int main(void) {
 #else
     g_hierarchy_character.mode=g_hierarchy_experiment_mode;
 #endif
+#if defined(SAT_VDP1_POSE_CAPTURE) && SAT_VDP1_POSE_CAPTURE
+    sat_example_must((g_vdp1_emit_mode==1u||g_vdp1_emit_mode==3u)?SAT_OK:SAT_ERR_VERIFY_FAILED);
+#endif
     g_hierarchy_character.frequency=sat_time_frequency_hz();
     g_hierarchy_character.joints=VIEWER_SKELETON.joint_count;
     g_hierarchy_character.vertices=g_mesh.vertex_count;
@@ -392,8 +400,15 @@ int main(void) {
         sat_vdp1_command_stats_t commands={0};sat_vdp1_frame_stats_t frame={0};
         sat_example_must(sat_vdp1_command_stats(&commands));
         row.commands=commands.used;row.faces=g_scene.flushed_faces;
+#if defined(SAT_VDP1_POSE_CAPTURE) && SAT_VDP1_POSE_CAPTURE
+        const uint32_t serial=sat_vdp1_list_serial();
+#endif
         sat_example_must(sat_end_frame());
         row.work=bench_now()-start;
+#if defined(SAT_VDP1_POSE_CAPTURE) && SAT_VDP1_POSE_CAPTURE
+        sat_example_must(sat_vdp1_list_serial()==serial+1u?SAT_OK:SAT_ERR_VERIFY_FAILED);
+        if(active)g_vdp1_pose_hashes[index]=sat_vdp1_test_capture_pose(index+1u==HIERARCHY_ROWS);
+#endif
         sat_example_must(sat_vdp1_frame_stats(&frame));
         row.draw_timeouts=frame.draw_timeouts;
         if(active){

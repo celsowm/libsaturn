@@ -66,18 +66,22 @@ def swap16(raw):
     return bytes(result)
 
 
-def work_ram(state):
+def work_ram_bank(state, key):
     data = state.read_bytes()
     if data[:2] == bytes.fromhex("1f8b"):
         data = gzip.decompress(data)
     for name, body in sections(data):
         if name == "MAIN":
             ram = dict(entries(body))
-            high = ram["WorkRAMH"]
-            if len(high) != RAM_SIZE:
-                raise ValueError("Wrong WRAM-H size")
-            return high
+            data = ram[key]
+            if len(data) != RAM_SIZE:
+                raise ValueError("Wrong "+key+" size")
+            return data
     raise ValueError("Missing MAIN section")
+
+
+def work_ram(state):
+    return work_ram_bank(state, "WorkRAMH")
 
 
 def elf_text(elf):
