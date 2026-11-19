@@ -90,3 +90,22 @@ boundaries in segmented or independent correctness checks.
 Compare real scene command order and visual output before enabling
 anything. Pass-bit scenario in V1 is global spread, not grouped policy.
 No physical hardware or IRQ/ABI stress qualification.
+
+## Tekken fight: where the grouped painter spends (2026-11-19)
+
+The Tekken 3 fight profile (Ymir, cache on, Lei vs King, the tick-replay
+combat tape, fields 2000-2047) lists `paint_order_grouped_buckets` at about
+2.7% of the Master. Its per-instruction costs settle what that is:
+
+- About 97% (10,465 of about 10,800 cycles per field) is the stable scatter
+  (`place_reference`): about 500 live faces per field at about 21 cycles each.
+- The group scan and the group-mapped count pass cost about 0. The fight's keys
+  usually hold one live group, so the call takes the single-span path, whose
+  range and spread are already assembly.
+
+A rewrite of the group scan and count loops (current group in registers,
+membership by one unsigned compare) gave identical output on the host and
+changed the window by 0.1% (517,508 to 516,876 cycles). It was reverted.
+With V1 above showing a native scatter no faster than GCC's, this stage has no
+kernel left to write. A gain would need fewer passes, for example a
+per-bucket chain built in the count pass and walked by the emitter.
