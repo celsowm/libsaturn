@@ -25,6 +25,32 @@ def tool(toolchain, name):
     return str(Path(toolchain) / "bin" / ("sh2eb-elf-" + name))
 
 
+def members(toolchain, archive):
+    """SHA-256 of every archive member, keyed by name (with an index for duplicates)."""
+    # GNU ar format, parsed directly: `ar p` cannot select duplicate member names.
+    data = archive.read_bytes()
+    if not data.startswith(b"!<arch>\n"):
+        raise ValueError("not an ar archive: " + str(archive))
+    pos, longnames, result, seen = 8, b"", {}, {}
+    while pos + 60 <= len(data):
+        header = data[pos:pos + 60]
+        name, size = header[:16].decode().rstrip(), int(header[48:58])
+        body = data[pos + 60:pos + 60 + size]
+        pos += 60 + size + (size & 1)
+        if name == "//":
+            longnames = body
+            continue
+        if name in ("/", "/SYM64/"):
+            continue
+        if name.startswith("/"):
+            start = int(name[1:])
+            name = longnames[start:longnames.index(b"/\n", start)].decode()
+        name = name.rstrip("/")
+        seen[name] = seen.get(name, 0) + 1
+        result[f"{name}#{seen[name]}"] = hashlib.sha256(body).hexdigest()
+    return result
+
+
 def inspect(mode_dir, toolchain, game_map):
     archive = next((mode_dir / "sdk").rglob("libsaturn.a"))
     ninja = (mode_dir / "sdk-build" / "build.ninja").read_text()
@@ -53,6 +79,7 @@ def inspect(mode_dir, toolchain, game_map):
         hits = sorted(set(re.findall(r"(\S*libsaturn\.a)\((?:[^)]*/)?vdp1\.cpp\.obj\)", text)))
         linked = dict(archives=hits, matches_sdk=bool(hits) and all(Path(h).resolve() == archive.resolve() for h in hits))
     return dict(archive=str(archive), archive_sha256=sha(archive), object_sha256=sha(obj),
+                members=members(toolchain, archive),
                 compile_define=define, emitter_symbols=symbols, emitters=functions, linked_from=linked)
 
 
@@ -69,7 +96,11 @@ def main():
         result[mode] = inspect(run / mode, a.toolchain, game / "tekken3_saturn.elf.map")
     gcc = subprocess.check_output([tool(a.toolchain, "gcc"), "--version"], text=True).splitlines()[0]
     result["compiler"] = gcc
+    ctl, hyb = result["control"].pop("members"), result["hybrid"].pop("members")
+    result["archive_members"] = dict(count=len(ctl), same_names=sorted(ctl) == sorted(hyb),
+                                     differing=sorted(k for k in ctl if ctl[k] != hyb.get(k)))
     result["checks"] = dict(
+        only_vdp1_object_differs=[k.split("#")[0] for k in result["archive_members"]["differing"]] == ["vdp1.cpp.obj"],
         control_define_absent=not result["control"]["compile_define"],
         hybrid_define_3=result["hybrid"]["compile_define"] == ["-DSAT_VDP1_EMIT_EXPERIMENT=3"],
         archives_differ=result["control"]["archive_sha256"] != result["hybrid"]["archive_sha256"],
