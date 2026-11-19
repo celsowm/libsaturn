@@ -95,3 +95,41 @@ when Robot Police is selected. --pose-only runs just the separate pose test;
 --skip-pose runs only dynamic workloads. --ymir-only still supported.
 Return harness/build/vdp1_emit_real_workloads_v3_2-return.zip. Link fit and
 Mednafen low-RAM layout need target verification. Hardware still outstanding.
+
+## C3 V4 — SDK candidate, not default promotion
+
+V3.2 clean checkout 9511145: 5/5 dynamic applications; unchanged nominal
+submission cadence (15, 12, 15, 29.9, 30/s); exclusive selected-emitter
+cycles reduced 3.43%, 3.53%, 3.45%, 2.85% in Robot, Stress, Fighter and
+World respectively. Dino had no attributed target cycles and 150 waits
+per 150 submissions in both modes. Robot fixed-pose qualification passed
+in Ymir and Mednafen, 48 list hashes and final literal 858 commands,
+27,456 bytes; no Gouraud tables in that scene. V2 qualified Gouraud.
+No physical hardware result; dynamic Mednafen poses not universally matched.
+
+Remove mode 2 from active HAL and runner. Only the three selected emitters
+retain packed paths; mode 0 shipping scalar, 1 explicit scalar control,
+3 candidate. Old V1/V2 artifacts are reproducible via historical commits.
+CMake installed runtime supports LIBSATURN_VDP1_HYBRID_EMIT=ON (default OFF);
+Make examples use SAT_VDP1_EMIT_EXPERIMENT=3. No public header/API change.
+No runtime switch. SDK options are compile-time and require a fresh build.
+
+Run host focused A/B: python3 harness/scripts/run_vdp1_emit_host_v4.py
+(2048 literal 32-byte records and clipping/capacity/rollback/bank tests in
+both modes); then gmake test for full host suite; then
+python3 harness/scripts/run_vdp1_emit_renderer.py for SH-2 A/B and
+python3 harness/scripts/run_vdp1_emit_real_workloads.py for dynamic/fixed pose.
+Return *v4-return.zip archives. Historical zip names are not overwritten.
+
+Tekken 3 uses installed CMake SDKs. Build separate clean scalar and hybrid
+prefixes from the SAME revision, use an existing Release game cache with
+original assets and identical T3 options, change only LibSaturn_DIR.
+Use scripts/saturn_probe.py with each build's disc/music.cue when present,
+identical input tape, 3000/8000/30000 fields. Compare actual simulation
+ticks, frame serial, draw waits/timeouts, rejected faces, health/combat
+counters and screenshots at matched state (not merely equal fields).
+Do not use raw pointer/padding hashes as logical-state equality. A/B SDK
+archives must be distinct and hashes retained. No neutral boot or frozen
+diagnostic is a combat qualification. Test physical Saturn stock RAM,
+both 224-line fight and 448-line menu, repeated combat/round restart,
+LUT4 textures and audio; no promotion until accepted. The SDK remains OFF.

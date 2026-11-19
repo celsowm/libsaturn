@@ -49,6 +49,8 @@ option(LIBSATURN_BUILD_HOST_TOOLS
     "Reserved: host asset tools are not part of the runtime package" OFF)
 option(LIBSATURN_ENABLE_PROFILE_METRICS
     "Compile frame/parallel profiling counters into the runtime" OFF)
+option(LIBSATURN_VDP1_HYBRID_EMIT
+    "Opt in to C3 V4 hybrid VDP1 emitter candidate (hardware qualification pending)" OFF)
 set(LIBSATURN_PARALLEL_TEST_FAULT "0" CACHE STRING
     "Parallel executor fault injection mode (0 = off, test builds only)")
 option(LIBSATURN_INSTALL "Generate install rules" ${_libsaturn_is_top_level})
@@ -153,6 +155,10 @@ if(LIBSATURN_BUILD_RUNTIME)
         SAT_LEGACY_EARLY_SCU=0
         SAT_PROFILE_METRICS=${_libsaturn_profile}
         SAT_PARALLEL_TEST_FAULT=${LIBSATURN_PARALLEL_TEST_FAULT})
+
+    if(LIBSATURN_VDP1_HYBRID_EMIT)
+        target_compile_definitions(libsaturn_core PRIVATE SAT_VDP1_EMIT_EXPERIMENT=3)
+    endif()
 
     # -- LibSaturn::Startup ---------------------------------------------
     add_library(libsaturn_startup STATIC ${LIBSATURN_PREFIXED_STARTUP})

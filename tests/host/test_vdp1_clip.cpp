@@ -11,7 +11,9 @@
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
-int main() {
+int main(int argc,char** argv) {
+    std::FILE* capture=argc==2?std::fopen(argv[1],"wb"):nullptr;
+    OK(argc==1||(argc==2&&capture));
     use_test_vram();
     using namespace saturn::hal::vdp1;
 
@@ -46,6 +48,8 @@ int main() {
         OK(push_projected_sprite(quad,texture,flags)==SAT_OK);
         OK(std::memcmp(&paired[2],&paired[3],sizeof(Command))==0);
         const Command expected=paired[2];
+        // Serialize all 16 host-native halfwords from both modes on the same host.
+        if(capture)OK(std::fwrite(&expected,sizeof(expected),1,capture)==1);
         uint16_t prefix[6];std::memcpy(prefix,&expected,sizeof(prefix));
         Command before[5];std::memcpy(before,paired,5*sizeof(Command));
         OK(push_projected_sprite(quad,texture,flags)==SAT_ERR_CAPACITY);
@@ -204,6 +208,7 @@ int main() {
     OK(push_distorted_sprite_gouraud(lut_quad,corners)==SAT_OK);
     OK(lut_commands[3].grda==(32u + 65536u)/8u+1u);
 
+    if(capture)OK(std::fclose(capture)==0);
     std::puts("vdp1 clip: OK");
     return 0;
 }

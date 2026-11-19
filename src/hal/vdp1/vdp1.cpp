@@ -665,6 +665,11 @@ inline constexpr uint32_t pair(uint32_t first, uint32_t second) {
 // The VDP1 command ABI guarantees four-byte alignment. Both VRAM
 // banks start on a 32-byte boundary. Use the existing endian-aware pair
 // convention; do not touch the publication fence, links or list counts.
+// 0: shipping scalar, 1: explicit regression control, 3: qualified candidate.
+// Mode 2 was the rejected full-packed experiment; historical commits retain it.
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT!=0 && SAT_VDP1_EMIT_EXPERIMENT!=1 && SAT_VDP1_EMIT_EXPERIMENT!=3
+#error "VDP1 emitter mode must be 0, 1 or 3"
+#endif
 #if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT
 extern "C" { extern const uint32_t g_vdp1_emit_mode=SAT_VDP1_EMIT_EXPERIMENT; }
 #endif
@@ -690,19 +695,6 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(saturn::core::compose_sprite_dir(req.flags)), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip)), static_cast<uint16_t>(saturn::core::compose_sprite_colr(req.palette, req.format)));
-    words[2] = pair(static_cast<uint16_t>(req.srca), static_cast<uint16_t>(static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height)));
-    words[3] = pair(static_cast<uint16_t>(req.x), static_cast<uint16_t>(req.y));
-    words[4] = pair(static_cast<uint16_t>(static_cast<int16_t>(req.x + req.width)), static_cast<uint16_t>(req.y));
-    words[5] = pair(static_cast<uint16_t>(static_cast<int16_t>(req.x + req.width)), static_cast<uint16_t>(static_cast<int16_t>(req.y + req.height)));
-    words[6] = pair(static_cast<uint16_t>(req.x), static_cast<uint16_t>(static_cast<int16_t>(req.y + req.height)));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl = saturn::core::compose_sprite_dir(req.flags);
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
@@ -721,7 +713,6 @@ sat_result_t push_sprite(const SpriteRequest& req) {
     cmd.yd = static_cast<int16_t>(req.y + req.height);
     cmd.grda = 0;
     cmd.pad = 0;
-#endif
     return SAT_OK;
 }
 
@@ -931,21 +922,6 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(
-        saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false) |
-        saturn::core::compose_sprite_dir(req.flags))), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip)), static_cast<uint16_t>(saturn::core::compose_sprite_colr(req.palette, req.format)));
-    words[2] = pair(static_cast<uint16_t>(req.srca), static_cast<uint16_t>(static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height)));
-    words[3] = pair(static_cast<uint16_t>(req.x0), static_cast<uint16_t>(req.y0));
-    words[4] = pair(static_cast<uint16_t>(req.x1), static_cast<uint16_t>(req.y0));
-    words[5] = pair(static_cast<uint16_t>(req.x1), static_cast<uint16_t>(req.y1));
-    words[6] = pair(static_cast<uint16_t>(req.x0), static_cast<uint16_t>(req.y1));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl = static_cast<uint16_t>(
         saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdScaledSprite, false) |
         saturn::core::compose_sprite_dir(req.flags));
@@ -967,7 +943,6 @@ sat_result_t push_scaled_sprite(const ScaledSpriteRequest& req) {
     cmd.yd = req.y1;
     cmd.grda = 0;
     cmd.pad = 0;
-#endif
     return SAT_OK;
 }
 
@@ -979,7 +954,7 @@ sat_result_t push_projected_program(const sat_quad2_t& quad,
     if (!prefix || !texture.valid) return SAT_ERR_INVALID_ARG;
     if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
     Command& cmd=g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && (SAT_VDP1_EMIT_EXPERIMENT==2 || SAT_VDP1_EMIT_EXPERIMENT==3)
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==3
     static_assert(sizeof(Command)==32 && alignof(Command)>=4);
     volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
     words[0] = pair(static_cast<uint16_t>(prefix[0]), static_cast<uint16_t>(0));
@@ -1026,7 +1001,7 @@ sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && (SAT_VDP1_EMIT_EXPERIMENT==2 || SAT_VDP1_EMIT_EXPERIMENT==3)
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==3
     static_assert(sizeof(Command)==32 && alignof(Command)>=4);
     volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
     words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(
@@ -1080,7 +1055,7 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && (SAT_VDP1_EMIT_EXPERIMENT==2 || SAT_VDP1_EMIT_EXPERIMENT==3)
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==3
     static_assert(sizeof(Command)==32 && alignof(Command)>=4);
     volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
     words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(
@@ -1130,19 +1105,6 @@ inline sat_result_t push_polygon_like(uint16_t command_select, const PolygonRequ
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(saturn::core::compose_polygon_ctrl(command_select, false)), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_polygon_pmod(req.flags), req.user_clip)), static_cast<uint16_t>(req.color));
-    words[2] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-    words[3] = pair(static_cast<uint16_t>(req.xa), static_cast<uint16_t>(req.ya));
-    words[4] = pair(static_cast<uint16_t>(req.xb), static_cast<uint16_t>(req.yb));
-    words[5] = pair(static_cast<uint16_t>(req.xc), static_cast<uint16_t>(req.yc));
-    words[6] = pair(static_cast<uint16_t>(req.xd), static_cast<uint16_t>(req.yd));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl = saturn::core::compose_polygon_ctrl(command_select, false);
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
@@ -1160,7 +1122,6 @@ inline sat_result_t push_polygon_like(uint16_t command_select, const PolygonRequ
     cmd.yd = req.yd;
     cmd.grda = 0;
     cmd.pad = 0;
-#endif
     return SAT_OK;
 }
 
@@ -1184,19 +1145,6 @@ sat_result_t push_line(const LineRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdLine, false)), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_polygon_pmod(req.flags), req.user_clip)), static_cast<uint16_t>(req.color));
-    words[2] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-    words[3] = pair(static_cast<uint16_t>(req.x0), static_cast<uint16_t>(req.y0));
-    words[4] = pair(static_cast<uint16_t>(req.x1), static_cast<uint16_t>(req.y1));
-    words[5] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-    words[6] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl = saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdLine, false);
     cmd.link = 0;
     cmd.pmod = saturn::core::compose_inside_user_clip_pmod(
@@ -1214,7 +1162,6 @@ sat_result_t push_line(const LineRequest& req) {
     cmd.yd = 0;
     cmd.grda = 0;
     cmd.pad = 0;
-#endif
     return SAT_OK;
 }
 

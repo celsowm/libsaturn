@@ -284,7 +284,7 @@ def main():
     if args.pose_only and args.skip_pose:p.error("incompatible pose options")
     out=ROOT/"harness/build/vdp1_emit_real_workloads";out.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix="run-",dir=out))
-    archive=out.parent/"vdp1_emit_real_workloads_v3_2-return.zip"
+    archive=out.parent/"vdp1_emit_real_workloads_v4-return.zip"
     snapshot=capture(ROOT)
     env=dict(os.environ)
     tools=Path(env.get("LIBSATURN_TOOLCHAIN_ROOT",str(Path.home()/"dev/saturn-tools")))

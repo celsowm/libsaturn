@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C3 V2 VDP1 emission renderer A/B/C, exact bytes plus lossless images."""
+"""C3 V4 VDP1 emission renderer A/B, exact bytes plus lossless images."""
 import json,hashlib,os,shutil,statistics,struct,subprocess,sys,tempfile,traceback,zipfile
 from pathlib import Path
 import run_hierarchy_character as shared
@@ -15,7 +15,7 @@ GCAP=32
 FIELDS=("step","phase","pose","emit_ticks","calls","setup","capacity_reject","invalid_reject","commands","gouraud","end_ticks","draw_timeouts","serial")
 DUMPS=(("g_vdp1_emit_renderer","telemetry.bin"),("g_sat_last_panic","panic.bin"),
        ("g_vdp1_emit_commands","commands.bin"),("g_vdp1_emit_gouraud","gouraud.bin"))
-MODES={"control":1,"packed":2,"hybrid":3}
+MODES={"control":1,"hybrid":3}
 
 def dump(path,data):
     shared.dump_json(path,data)
@@ -109,10 +109,10 @@ def main():
     shared.EXAMPLE=EXAMPLE
     shared.DUMPS=DUMPS
     shared.parse_capture=parse_capture
-    out=ROOT/"harness/build/vdp1_emit_renderer_v2"
+    out=ROOT/"harness/build/vdp1_emit_renderer_v4"
     out.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix="run-",dir=out))
-    archive=out.parent/"vdp1_emit_renderer_v2-return.zip"
+    archive=out.parent/"vdp1_emit_renderer_v4-return.zip"
     snapshot=capture(ROOT)
     env=dict(os.environ)
     tools=Path(env.get("LIBSATURN_TOOLCHAIN_ROOT",str(Path.home()/"dev/saturn-tools")))
@@ -135,7 +135,7 @@ def main():
                               "mednafen-visual":shared.mednafen(case,mode,env,bios,True)}
             compare(reports[variant]["mednafen"],reports[variant]["mednafen-visual"])
             compare(reports[variant]["ymir"],reports[variant]["mednafen"])
-        for variant in ("packed","hybrid"):
+        for variant in ("hybrid",):
             summary["comparisons"][variant]={emulator:compare(reports["control"][emulator],reports[variant][emulator])
                                               for emulator in ("ymir","mednafen","mednafen-visual")}
         visual={}
@@ -144,7 +144,7 @@ def main():
                 folder=run/variant/emulator
                 visual[f"{emulator}/{variant}/stable"]=shared.pixels(folder/f"frame-{frames[0]}.png",
                     folder/f"frame-{frames[1]}.png",run/"visual"/emulator/variant/"stable-diff.png")
-            for variant in ("packed","hybrid"):
+            for variant in ("hybrid",):
                 for frame in frames:
                     visual[f"{emulator}/{variant}/{frame}"]=shared.pixels(run/"control"/emulator/f"frame-{frame}.png",
                         run/variant/emulator/f"frame-{frame}.png",run/"visual"/emulator/variant/f"diff-{frame}.png")
