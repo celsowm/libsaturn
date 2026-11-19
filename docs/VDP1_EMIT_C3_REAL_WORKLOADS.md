@@ -133,3 +133,22 @@ archives must be distinct and hashes retained. No neutral boot or frozen
 diagnostic is a combat qualification. Test physical Saturn stock RAM,
 both 224-line fight and 448-line menu, repeated combat/round restart,
 LUT4 textures and audio; no promotion until accepted. The SDK remains OFF.
+
+### Automated Tekken SDK A/B
+
+Use clean committed checkouts of both projects and a previously working
+optimized Tekken Release build (private assets still local). Supply a real
+combat device tape accepted by Tekken's saturn_probe.py; the script does not
+invent inputs or alter the game repository. It reuses the game's cache
+options, installs two independent SDKs, runs the same checkpoints with each,
+checks SDK and workload hashes, and returns a report with sampled state and
+full-screen diff images. Results are diagnostic by default; explicitly choose
+--workload paul-law-release or two-paul-release only for a matching build.
+
+    python3 harness/scripts/run_vdp1_emit_tekken_v4.py --tekken ../tekken3-saturn \\
+      --baseline /path/to/working/release-build --bios bios/firmware/mpr-17933.bin \\
+      --device-script /path/to/combat.devices
+
+Return harness/build/vdp1_emit_tekken_v4-return.zip. A completed run is not a
+promotion gate: review combat activity, state and frame cadence; a mismatch
+at equal fields may need matched tick captures. Physical test still required.
