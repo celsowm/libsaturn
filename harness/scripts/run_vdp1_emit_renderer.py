@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Matched VDP1 emission renderer A/B, exact VDP1 bytes plus lossless images."""
+"""C3 V2 VDP1 emission renderer A/B/C, exact bytes plus lossless images."""
 import json,hashlib,os,shutil,statistics,struct,subprocess,sys,tempfile,traceback,zipfile
 from pathlib import Path
 import run_hierarchy_character as shared
@@ -9,18 +9,18 @@ from local_changes import capture,add_to_zip
 from renderer_visual import require_ffmpeg
 
 EXAMPLE="vdp1_emit_renderer"
-STEPS=24
+STEPS=28
 CAP=128
 GCAP=32
 FIELDS=("step","phase","pose","emit_ticks","calls","setup","capacity_reject","invalid_reject","commands","gouraud","end_ticks","draw_timeouts","serial")
 DUMPS=(("g_vdp1_emit_renderer","telemetry.bin"),("g_sat_last_panic","panic.bin"),
        ("g_vdp1_emit_commands","commands.bin"),("g_vdp1_emit_gouraud","gouraud.bin"))
-MODES={"control":1,"packed":2}
+MODES={"control":1,"packed":2,"hybrid":3}
 
 def dump(path,data):
     shared.dump_json(path,data)
 
-PHASES=("normal","scaled","distorted","projected","program","polygon_line_gouraud")
+PHASES=("normal","scaled","distorted","projected","program","polygon_line_gouraud","mixed_3d")
 
 def medians(rows,hz):
     costs={key:statistics.median(r[key] for r in rows)*1e6/hz
@@ -33,7 +33,7 @@ def parse_capture(case,sub,mode,syms):
     raw=(sub/"telemetry.bin").read_bytes()
     if len(raw)!=32+STEPS*52:raise ValueError("Wrong scene telemetry size")
     magic,ver,actual,hz,count,done,cap,gcap=struct.unpack_from(">8I",raw)
-    if (magic,ver,actual,count,done,cap,gcap)!=(0x56455231,1,mode,STEPS,1,CAP,GCAP) or not hz:
+    if (magic,ver,actual,count,done,cap,gcap)!=(0x56455231,2,mode,STEPS,1,CAP,GCAP) or not hz:
         raise ValueError("Incomplete or unexpected VDP1 emission scene report")
     commands=(sub/"commands.bin").read_bytes()
     gouraud=(sub/"gouraud.bin").read_bytes()
@@ -46,7 +46,7 @@ def parse_capture(case,sub,mode,syms):
             raise ValueError("Invalid scene step")
         if (row["calls"],row["capacity_reject"],row["invalid_reject"])!=(96,1,1):
             raise ValueError("Incomplete emission/capacity test")
-        if not 3<=row["setup"]<=4 or row["commands"]!=row["setup"]+98 or row["commands"]>CAP or row["gouraud"]!=(25 if i//4==5 else 1):
+        if not 3<=row["setup"]<=4 or row["commands"]!=row["setup"]+98 or row["commands"]>CAP or row["gouraud"]!=(25 if i//4==5 else 7 if i//4==6 else 1):
             raise ValueError("Wrong command or Gouraud count")
         row["phase"]=PHASES[i//4]
         if i and row["serial"]!=rows[-1]["serial"]+1:
@@ -83,6 +83,7 @@ def compare(a,b):
                      reduction_percent=100*(v-y[key])/v if v else None)
                 for key,v in x.items()}
     return dict(all=timing(a["median_us"],b["median_us"]),
+        isolated=timing(medians(a["rows"][2:24],a["frequency"]),medians(b["rows"][2:24],b["frequency"])),
         phases={phase:timing(a["phase_median_us"][phase],b["phase_median_us"][phase])
                 for phase in PHASES})
 
@@ -108,10 +109,10 @@ def main():
     shared.EXAMPLE=EXAMPLE
     shared.DUMPS=DUMPS
     shared.parse_capture=parse_capture
-    out=ROOT/"harness/build/vdp1_emit_renderer"
+    out=ROOT/"harness/build/vdp1_emit_renderer_v2"
     out.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix="run-",dir=out))
-    archive=out.parent/"vdp1_emit_renderer-return.zip"
+    archive=out.parent/"vdp1_emit_renderer_v2-return.zip"
     snapshot=capture(ROOT)
     env=dict(os.environ)
     tools=Path(env.get("LIBSATURN_TOOLCHAIN_ROOT",str(Path.home()/"dev/saturn-tools")))
@@ -134,7 +135,7 @@ def main():
                               "mednafen-visual":shared.mednafen(case,mode,env,bios,True)}
             compare(reports[variant]["mednafen"],reports[variant]["mednafen-visual"])
             compare(reports[variant]["ymir"],reports[variant]["mednafen"])
-        for variant in ("packed",):
+        for variant in ("packed","hybrid"):
             summary["comparisons"][variant]={emulator:compare(reports["control"][emulator],reports[variant][emulator])
                                               for emulator in ("ymir","mednafen","mednafen-visual")}
         visual={}
@@ -143,7 +144,7 @@ def main():
                 folder=run/variant/emulator
                 visual[f"{emulator}/{variant}/stable"]=shared.pixels(folder/f"frame-{frames[0]}.png",
                     folder/f"frame-{frames[1]}.png",run/"visual"/emulator/variant/"stable-diff.png")
-            for variant in ("packed",):
+            for variant in ("packed","hybrid"):
                 for frame in frames:
                     visual[f"{emulator}/{variant}/{frame}"]=shared.pixels(run/"control"/emulator/f"frame-{frame}.png",
                         run/variant/emulator/f"frame-{frame}.png",run/"visual"/emulator/variant/f"diff-{frame}.png")

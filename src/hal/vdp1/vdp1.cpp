@@ -979,7 +979,7 @@ sat_result_t push_projected_program(const sat_quad2_t& quad,
     if (!prefix || !texture.valid) return SAT_ERR_INVALID_ARG;
     if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
     Command& cmd=g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && (SAT_VDP1_EMIT_EXPERIMENT==2 || SAT_VDP1_EMIT_EXPERIMENT==3)
     static_assert(sizeof(Command)==32 && alignof(Command)>=4);
     volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
     words[0] = pair(static_cast<uint16_t>(prefix[0]), static_cast<uint16_t>(0));
@@ -1026,7 +1026,7 @@ sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && (SAT_VDP1_EMIT_EXPERIMENT==2 || SAT_VDP1_EMIT_EXPERIMENT==3)
     static_assert(sizeof(Command)==32 && alignof(Command)>=4);
     volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
     words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(
@@ -1080,7 +1080,7 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==2
+#if defined(SAT_VDP1_EMIT_EXPERIMENT) && (SAT_VDP1_EMIT_EXPERIMENT==2 || SAT_VDP1_EMIT_EXPERIMENT==3)
     static_assert(sizeof(Command)==32 && alignof(Command)>=4);
     volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
     words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(

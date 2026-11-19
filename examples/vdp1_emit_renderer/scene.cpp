@@ -11,7 +11,7 @@ extern "C" {extern const uint32_t g_vdp1_emit_mode;}
 namespace {
 namespace v=saturn::hal::vdp1;
 namespace c=saturn::core;
-constexpr unsigned Steps=24,Cap=128,GCap=32,N=96;
+constexpr unsigned Steps=28,Cap=128,GCap=32,N=96;
 struct Row {
     uint32_t step,phase,pose,emit_ticks,calls,setup,capacity_reject,invalid_reject,
         commands,gouraud,end_ticks,draw_timeouts,serial;
@@ -20,7 +20,7 @@ struct Report {
     uint32_t magic,version,mode,frequency,count,done,command_cap,gouraud_cap;
     Row rows[Steps];
 };
-static_assert(sizeof(Report)==1280);
+static_assert(sizeof(Report)==1488);
 static_assert(sizeof(v::Command)==32);
 struct Input {
     v::SpriteRequest sprite;
@@ -65,7 +65,14 @@ void seed(unsigned pose){
         a.prefix[4]=tex.srca;a.prefix[5]=uint16_t(((tex.width/8u)<<8u)|tex.height);
     }
 }
+// Mixed workload: 1 normal, 1 scaled, 2 distorted, 4 projected,
+// 4 program, then one each polygon/polyline/line/Gouraud per 16 calls.
+// The last four indices preserve the primitive selector i % 4.
 sat_result_t emit(unsigned phase,unsigned i){
+    if(phase==6){
+        constexpr unsigned mix[16]={0,1,2,2,3,3,3,3,4,4,4,4,5,5,5,5};
+        phase=mix[i%16];
+    }
     const auto& a=inputs[i];
     switch(phase){
         case 0:return v::push_sprite(a.sprite);
@@ -96,7 +103,7 @@ extern "C" void vdp1_emit_renderer(void){
     palette[1]=SAT_RGB555(8,22,25);palette[2]=SAT_RGB555(25,12,8);
     sat_example_must(sat_tex_upload_indexed8(&tex,pixels,16,16,palette,3));
     auto& report=g_vdp1_emit_renderer;
-    report.magic=0x56455231u;report.version=1;report.mode=g_vdp1_emit_mode;
+    report.magic=0x56455231u;report.version=2;report.mode=g_vdp1_emit_mode;
     report.frequency=sat_time_frequency_hz();report.command_cap=Cap;report.gouraud_cap=GCap;
     for(;;){
         const unsigned step=report.count,index=step<Steps?step:Steps-1;
@@ -114,7 +121,7 @@ extern "C" void vdp1_emit_renderer(void){
         row.emit_ticks=now()-stamp;row.calls=N;
         sat_vdp1_command_checkpoint_t full{};
         sat_example_must(v::command_checkpoint(&full));
-        require(full.used==used+N&&full.gouraud_tables==(phase==5?N/4:0));
+        require(full.used==used+N&&full.gouraud_tables==(phase==5?N/4:phase==6?N/16:0));
         auto* words=reinterpret_cast<volatile uint16_t*>(v::frame_commands());
         auto* tables=words+32768;
         // Reserved overlay slot remains untouched by both failing calls.
