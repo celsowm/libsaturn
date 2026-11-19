@@ -45,3 +45,28 @@ Optional first-pass subset:
 
 Return harness/build/vdp1_emit_real_workloads-return.zip, including partial
 results on failures. The runner attempts remaining examples after each failure.
+
+## V3.1 — recovery
+
+The first V3 archive showed a Dino link failure (Master stack reserve) and
+SAT_ERR_UNSUPPORTED at demo.c:220 in both original-character controls.
+The renderer itself is not implicated by those failures. The file/asset API
+explicitly supports direct uncached reads: only submit prefetch when cache
+stats report nonzero capacity. Keep full decode/load error checking; do not
+reserve 64 KiB solely for a sequential startup copy. This repairs the shared
+character example, not the library API.
+
+Dino A/B moves only g_model_textures to WRAM-L with the existing build flag;
+g_material_program_storage remains in WRAM-H. Same placement in both modes;
+linker stack guard remains intact. Link fit and target execution still need
+confirmation. Stress starts at four requested actors using an opt-in preset,
+with checkpoint count verification. Default interactive preset remains one.
+World LOD Ymir uses the existing route, followed by the warmed endpoint;
+Mednafen is still neutral input. Not a cross-emulator synchronized route.
+Report exclusive cycles per observed call edge where available, null otherwise;
+this proxy is not inclusive call latency, and boundary effects may matter.
+Robot Police Mednafen matched-pose qualification remains outstanding; dynamic
+pixel differences are review evidence, not a regression or a pass.
+
+Run the same entry point and return
+harness/build/vdp1_emit_real_workloads_v3_1-return.zip.

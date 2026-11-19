@@ -55,6 +55,11 @@ enum { ARENA_CAMERA_DISTANCE_Q16=SAT_FX16_ONE*7/2,
        ARENA_HEALTH_WIDTH=120, ARENA_HEALTH_HEIGHT=8,
        ARENA_HEALTH_LEFT_X=8, ARENA_HEALTH_RIGHT_X=192, ARENA_HEALTH_Y=24,
        ARENA_DEFAULT_LOD=CHARACTER_LOD_MEDIUM };
+#ifndef CHARACTER_DEMO_STRESS_INITIAL_PRESET
+#define CHARACTER_DEMO_STRESS_INITIAL_PRESET 0
+#endif
+_Static_assert(CHARACTER_DEMO_STRESS_INITIAL_PRESET >= 0 &&
+    CHARACTER_DEMO_STRESS_INITIAL_PRESET < STRESS_PRESET_COUNT, "Invalid initial stress preset");
 static const unsigned kStressCounts[STRESS_PRESET_COUNT]={1,2,4,8};
 static const char* const kPolicyNames[POLICY_COUNT]={"MASTER","SLAVE","AUTO"};
 static const char* const kLodNames[LOD_COUNT]={"HIGH","MEDIUM","LOW"};
@@ -216,16 +221,22 @@ static void load_assets(unsigned slot) {
     sat_asset_desc_t desc={0}; desc.logical_path=path; desc.source_path=source;
     desc.kind=SAT_ASSET_DATA; desc.size=FIGHTER_ARCHIVE_BYTES;
     sat_example_must(sat_asset_register(&desc,&asset->source));
-    sat_asset_prefetch_t prefetch;
-    sat_example_must(sat_asset_prefetch_submit(path,0,FIGHTER_ARCHIVE_BYTES,&prefetch));
-    sat_asset_prefetch_state_t state=SAT_ASSET_PREFETCH_PENDING;
-    while(state==SAT_ASSET_PREFETCH_PENDING) {
-        sat_result_t result=SAT_OK;uint32_t cached=0;
-        sat_example_must(sat_asset_prefetch_update());
-        sat_example_must(sat_asset_prefetch_status(prefetch,&state,&result,&cached));
-        sat_example_must(result);
+    // Prefetch is optional; sat_init leaves the caller-owned cache disabled.
+    // Direct reads still validate and decode the entire archive below.
+    sat_asset_cache_stats_t cache={0};
+    sat_example_must(sat_asset_cache_stats(&cache));
+    if(cache.capacity!=0u) {
+        sat_asset_prefetch_t prefetch;
+        sat_example_must(sat_asset_prefetch_submit(path,0,FIGHTER_ARCHIVE_BYTES,&prefetch));
+        sat_asset_prefetch_state_t state=SAT_ASSET_PREFETCH_PENDING;
+        while(state==SAT_ASSET_PREFETCH_PENDING) {
+            sat_result_t result=SAT_OK;uint32_t cached=0;
+            sat_example_must(sat_asset_prefetch_update());
+            sat_example_must(sat_asset_prefetch_status(prefetch,&state,&result,&cached));
+            sat_example_must(result);
+        }
+        sat_example_must(sat_asset_prefetch_cancel(prefetch));
     }
-    sat_example_must(sat_asset_prefetch_cancel(prefetch));
     sat_example_must(sat_character_asset_load(path,asset->data,sizeof(asset->data),asset->clips,
         FIGHTER_CLIP_COUNT,asset->textures,FIGHTER_TEXTURE_COUNT,&asset->view));
     if(slot)asset->view.model.palettes_rgb555=fighter_red_palette;
@@ -703,7 +714,8 @@ static void hud(void) {
     text("D-PAD CAMERA  C LIGHT  Y BONES  START",8,208);
 }
 int character_demo_run(character_demo_mode_t mode) {
-    g_mode=mode;g_actor_count=combat_mode()?2:1;
+    g_mode=mode;g_stress_preset=CHARACTER_DEMO_STRESS_INITIAL_PRESET;
+    g_actor_count=mode==CHARACTER_DEMO_STRESS?kStressCounts[g_stress_preset]:combat_mode()?2:1;
     g_quality=combat_mode()?ARENA_DEFAULT_LOD:CHARACTER_LOD_HIGH;
 #if CHARACTER_DEMO_VDP2_STAGE
     if(mode==CHARACTER_DEMO_STAGE)g_quality=CHARACTER_LOD_MEDIUM;

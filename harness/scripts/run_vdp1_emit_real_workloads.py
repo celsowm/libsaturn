@@ -62,6 +62,12 @@ def build(case,example,mode,env):
     flags["SAT_VDP1_EMIT_EXPERIMENT"]=str(mode)
     if example=="skeletal_animation_3d":
         flags["SKELETAL_ROBOT_DEMO"]="1"
+    if example=="dino_demo":
+        # 1822 upload descriptors; move only that table, retain hot programs.
+        flags.update(DINO_HIGH_TEXTURE_DESCRIPTORS="0",DINO_HIGH_MATERIAL_PROGRAMS="1")
+    if example in ("skinning_stress_3d","fighter_arena_3d"):
+        flags["CHARACTER_DEMO_DISC_ASSETS"]="0"
+        flags["CHARACTER_DEMO_STRESS_INITIAL_PRESET"]="2" if example=="skinning_stress_3d" else "0"
     local=dict(env,**flags)
     with build_lock(example):
         shared.command_run(["sh","build-example.sh",example],case/"build.log",local)
@@ -90,7 +96,9 @@ def profile_summary(report):
         cycles=sum(f["execution_cycles"] for f in emit)
         cpus[cpu]=dict(execution_cycles=data["totals"]["execution_cycles"],
              instructions=data["totals"]["instructions"],target_emitter_cycles=cycles,
-             observed_call_edges=calls,emit_functions=emit)
+             observed_call_edges=calls,
+             cycles_per_observed_call_edge=cycles/calls if calls else None,
+             emit_functions=emit)
     return dict(cpus=cpus,frame_observations=fields,
          scope="Exclusive interpreter PC cost and observed call edges; not inclusive emitter time.")
 
@@ -106,16 +114,28 @@ def run_ymir(case,example,elf,probe,bios,env):
         for name,(address,size) in counter_syms.items():
             target="panic.bin" if name=="g_sat_last_panic" else name+".bin"
             cmd+=["--dump-mem",f"{address:#x}:{size}:{folder/target}"]
+        if example=="world_lod3d_demo":
+            cmd+=["--pad-script",str(ROOT/"harness/scripts/world_lod3d_demo_route.pad")]
+        if example=="skinning_stress_3d":
+            hits=[v for k,v in syms.items() if k=="g_actor_count" or re.search(r"\d+g_actor_countE(?:\..*)?$",k)]
+            if len(hits)!=1 or hits[0][1]!=4:raise ValueError("Missing actor count")
+            address,size=hits[0]
+            cmd+=["--dump-mem",f"{address:#x}:{size}:{folder/'actors.bin'}"]
         if end==CHECKPOINTS[-1]:
             cmd+=["--debug-profile",str(folder/"debug"),"--trace-from",str(end-40),
                   "--trace-frames",str(PROFILE_FIELDS),"--trace-capacity","1048576"]
         shared.command_run(cmd,folder/"run.log",env,timeout=900)
         row=dict(fields=end,counters=read_counters(folder,counter_syms),screen_sha256=sha(folder/"screen.png"))
+        if example=="skinning_stress_3d":
+            row["requested_actors"]=struct.unpack(">I",(folder/"actors.bin").read_bytes())[0]
+            if row["requested_actors"]!=4:raise ValueError("Stress preset did not retain four actors")
         if end==CHECKPOINTS[-1]:
             profile=study(folder/"debug",elf,"sh2eb-elf-nm")
             dump(folder/"profile.json",profile)
             row["profile"]=profile_summary(profile)
         rows.append(row)
+    if example=="world_lod3d_demo":
+        shutil.copyfile(ROOT/"harness/scripts/world_lod3d_demo_route.pad",case/"ymir"/"route.txt")
     first,last=rows
     delta={name:last["counters"][name]-first["counters"][name] for name in COUNTERS}
     if min(delta.values())<0 or not delta["g_list_serial"]:
@@ -174,7 +194,7 @@ def main():
     if len(set(args.examples))!=len(args.examples):p.error("duplicate examples")
     out=ROOT/"harness/build/vdp1_emit_real_workloads";out.mkdir(parents=True,exist_ok=True)
     run=Path(tempfile.mkdtemp(prefix="run-",dir=out))
-    archive=out.parent/"vdp1_emit_real_workloads-return.zip"
+    archive=out.parent/"vdp1_emit_real_workloads_v3_1-return.zip"
     snapshot=capture(ROOT)
     env=dict(os.environ)
     tools=Path(env.get("LIBSATURN_TOOLCHAIN_ROOT",str(Path.home()/"dev/saturn-tools")))
@@ -223,7 +243,7 @@ def main():
             add_to_zip(z,snapshot)
             for path in run.rglob("*"):
                 if path.is_file() and (path.suffix in (".json",".png",".log",".csv",".txt") or
-                    path.name in ("panic.bin",*(name+".bin" for name in COUNTERS))):
+                    path.name in ("panic.bin","actors.bin",*(name+".bin" for name in COUNTERS))):
                     z.write(path,path.relative_to(run))
         tmp.replace(archive)
         print("Return:",archive,flush=True)
