@@ -186,7 +186,7 @@ def main():
                 disc=configure(game,0)
                 summary["modes"][mode]["elf_sha256"]=sha(game/"tekken3_saturn.elf")
                 # Keep textual map for auditing RAM, not the private binary/disc.
-                maps=list(game.glob("tekken3_saturn.map"))
+                maps=list(game.glob("tekken3_saturn.elf.map"))
                 if maps:shutil.copyfile(maps[0],case/"game.map.txt")
                 for count in a.frames:
                     for r in range(a.repeats):
