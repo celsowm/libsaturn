@@ -152,3 +152,29 @@ full-screen diff images. Results are diagnostic by default; explicitly choose
 Return harness/build/vdp1_emit_tekken_v4-return.zip. A completed run is not a
 promotion gate: review combat activity, state and frame cadence; a mismatch
 at equal fields may need matched tick captures. Physical test still required.
+
+### Tekken result (2026-11-19): correct, no coverage, stays opt-in
+
+Full report: tekken3-saturn `docs/C3_HYBRID_EMIT_TEKKEN_QUALIFICATION.md`.
+The run used a simulation-tick input fixture, frozen-tick captures
+(`--freeze-ticks`), a separate profile window (`--profile-frames`) and
+`inspect_vdp1_emit_sdk.py` provenance.
+
+- **Provenance.** The SDKs differ only in `vdp1.cpp.obj` (1 of 183 archive
+  members). Each game links its own SDK. The hybrid emitters drop from 7–8
+  `mov.w` stores to 1–2.
+- **Correctness.** Two fighter pairs, frozen at ticks 900, 1800, 2700 and
+  3600 (and 1800 for the second pair), show identical logical state,
+  bank-normalised command lists, framebuffer and screenshot. Repeats are
+  bit-identical. Live state is identical to 60,000 fields, with no timeouts
+  or rejected faces. Memory and stack are unchanged.
+- **Coverage.** Tekken's fighter, stage and Force faces use
+  `sat_scene3d_program_run_sh2`. Its Force floor uses
+  `sat_sprite_batch_emit_distorted`. Profile windows show 0 emitter cycles
+  in fight and Force. Only hit-spark flipbooks reach `push_distorted_sprite`:
+  267 sprites in 3,600 ticks, about 0.08 per image.
+- **Cadence.** Image counts move by 1–2 per 4,800 fields. That matches the
+  8-byte `.text` layout shift, not the emitters.
+
+Promotion needs a consumer that issues many generic distorted or projected
+sprites per frame. Tekken is not one.
