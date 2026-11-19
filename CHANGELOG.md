@@ -9,6 +9,12 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- `sat_sound_ram_borrow_stream_rings(rings)` lends the lowest `rings` streaming rings (16 KB each, up to 4) to the
+  resident sample area, for a program that opens fewer streams: sounds, reservations and the effect ring may use them,
+  `sound_ram_capacity` grows to match (512,000 bytes with all four), and `sat_audio_stream_open` skips them. It is
+  refused (`SAT_ERR_BUSY`) while a stream is open on a ring being lent or anything lies in a ring being given back;
+  `sat_audio_init`/`sat_audio_shutdown` give every ring back. Covered by `test_sound_ram_borrow` and
+  `test_audio_stream_api`. A Tekken 3 port's Tekken Ball program needed 16 KB more than the 446,464 resident bytes.
 - `sat_sound_play` at pitch 1.0 no longer divides in 64 bits: `sat_sound_create` stores the sound's PITCH word and
   its length in display frames (`unit_pitch`, `unit_frames`, 4 more bytes per sound), and `SlotConfig` carries a
   ready PITCH word (`pitch_ready`, `pitch_word`). Mednafen, 31 plays of a Tekken Force fight: 527 FRT ticks

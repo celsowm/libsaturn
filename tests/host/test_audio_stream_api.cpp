@@ -7,6 +7,10 @@
 #include "src/audio/streaming/runtime.hpp"
 #include "src/hal/scsp/scsp.hpp"
 
+namespace saturn::core {
+bool audio_stream_ring_open(uint16_t ring); /* declared weak where it is used (src/audio/playback/sound.cpp) */
+}
+
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
 extern "C" uint8_t sat_audio_is_initialized(void) {
@@ -108,6 +112,13 @@ int main() {
     OK(sat_audio_stream_open(&streams[0], &spec, storage, sizeof(storage)) == SAT_OK && streams[0].slot == 1u);
     OK(sat_audio_stream_close(streams[0]) == SAT_OK);
     claim::g_claim = {};
+    claim::g_lent_rings = 4u; /* every ring lent to resident sounds (sat_sound_ram_borrow_stream_rings) */
+    OK(sat_audio_stream_open(&streams[0], &spec, storage, sizeof(storage)) == SAT_ERR_BUSY);
+    claim::g_lent_rings = 1u;
+    OK(sat_audio_stream_open(&streams[0], &spec, storage, sizeof(storage)) == SAT_OK && streams[0].slot == 1u);
+    OK(saturn::core::audio_stream_ring_open(1u) && !saturn::core::audio_stream_ring_open(0u));
+    OK(sat_audio_stream_close(streams[0]) == SAT_OK);
+    claim::g_lent_rings = 0u;
 
     for (uint16_t i = 0u; i < 4u; ++i) {
         OK(sat_audio_stream_open(&streams[i], &spec, storage, sizeof(storage)) == SAT_OK);

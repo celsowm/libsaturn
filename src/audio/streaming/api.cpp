@@ -384,6 +384,10 @@ void audio_stream_service(
 
 void audio_streams_reset() { audio_stream_registry_reset(g_audio_streams); }
 
+bool audio_stream_ring_open(uint16_t ring) {
+    return ring < kAudioStreamCapacity && g_audio_streams.slots[ring].used != 0u;
+}
+
 void audio_streams_service(uint32_t frame_now, uint32_t display_rate) {
     audio_stream_service(g_audio_streams, frame_now, display_rate);
 }
@@ -408,8 +412,8 @@ extern "C" sat_result_t sat_audio_stream_open(
         if (slot.used != 0u) continue;
         const uint32_t ram = kAudioStreamRamBase + static_cast<uint32_t>(i) * 2u * kAudioStreamChunkBytes;
         if (audio::claim::slot_claimed(kAudioStreamScspSlotBase + i) ||
-            audio::claim::ram_claimed(ram, ram + 2u * kAudioStreamChunkBytes)) {
-            claimed = true; /* the sampler's (sat_sampler_init) */
+            audio::claim::ram_claimed(ram, ram + 2u * kAudioStreamChunkBytes) || audio::claim::ring_lent(i)) {
+            claimed = true; /* the sampler's (sat_sampler_init), or lent to resident sounds */
             continue;
         }
         if (slot.generation == 0u) slot.generation = 1u;

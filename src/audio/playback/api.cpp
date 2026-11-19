@@ -81,7 +81,7 @@ extern "C" sat_result_t sat_audio_get_stats(sat_audio_stats_t* out_stats) {
     voices=g_voice_registry.active_count(kResidentVoiceCapacity);
 
     out_stats->sound_ram_used = g_ram.used;
-    out_stats->sound_ram_capacity = kResidentSoundRamEnd - kSoundRamBase;
+    out_stats->sound_ram_capacity = resident_ram_end() - kSoundRamBase;
     out_stats->sound_ram_high_water = g_ram.high_water;
     out_stats->voice_steals = g_voice_steals;
     out_stats->failed_play_requests = g_failed_play_requests;

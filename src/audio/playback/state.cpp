@@ -46,6 +46,7 @@ void reset_runtime_state() {
     g_start_serial = 0u;
     g_audio_clock.reset();
     saturn::core::audio::claim::g_claim = {};
+    saturn::core::audio::claim::g_lent_rings = 0u;
 }
 
 }  // namespace saturn::core::audio::playback

@@ -38,7 +38,7 @@ sat_result_t launch(uint8_t kind, const uint16_t (*steps)[4], uint32_t step_coun
     (void)sat_effect_stop();
     uint16_t allocation = 0u;
     uint32_t offset = 0u;
-    if (!g_ram.allocate(kSoundRamBase, kResidentSoundRamEnd, logic::ring_bytes(ring_length),
+    if (!g_ram.allocate(kSoundRamBase, resident_ram_end(), logic::ring_bytes(ring_length),
                         logic::kRingUnitBytes, &allocation, &offset)) {
         return SAT_ERR_CAPACITY;
     }

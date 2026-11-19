@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "saturn/audio.h"
 #include "src/audio/streaming/runtime.hpp"
+#include "src/audio/playback/claim.hpp"
 #include "src/audio/playback/ram_allocator.hpp"
 #include "src/audio/playback/voice_policy.hpp"
 #include "src/audio/playback/clock.hpp"
@@ -24,6 +25,12 @@ constexpr uint16_t kResidentVoiceCapacity=
 constexpr uint16_t kAllocationCapacity=64u;
 constexpr uint32_t kSoundRamBase=saturn::hal::scsp::kSystemReservedBytes;
 constexpr uint32_t kResidentSoundRamEnd=saturn::core::kAudioStreamRamBase;
+constexpr uint32_t kStreamRingBytes=2u*saturn::core::kAudioStreamChunkBytes;
+
+/* The resident area ends where the streaming rings start, past the rings lent to it. */
+inline uint32_t resident_ram_end() {
+    return kResidentSoundRamEnd+saturn::core::audio::claim::g_lent_rings*kStreamRingBytes;
+}
 
 using SoundEntry=saturn::core::audio::sound::Entry;
 using VoiceEntry=saturn::core::audio::voice::Entry;

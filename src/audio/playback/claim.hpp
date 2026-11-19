@@ -24,6 +24,14 @@ inline bool ram_claimed(uint32_t begin, uint32_t end) {
     return g_claim.ram_begin < g_claim.ram_end && begin < g_claim.ram_end && end > g_claim.ram_begin;
 }
 
+/* Streaming rings [0, g_lent_rings) lent to the resident sample area (sat_sound_ram_borrow_stream_rings):
+ * resident sounds may lie there, so no stream opens on them. */
+inline uint8_t g_lent_rings = 0u;
+
+inline bool ring_lent(uint32_t ring) {
+    return ring < g_lent_rings;
+}
+
 }  // namespace saturn::core::audio::claim
 
 #endif

@@ -3,6 +3,11 @@
 
 using namespace saturn::core::audio::playback;
 
+namespace saturn::core {
+/* Weak, defined with the stream API: a program that never opens a stream does not link it, and has none open. */
+bool audio_stream_ring_open(uint16_t ring) __attribute__((weak));
+}
+
 extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound_desc_t* desc) {
     if (out_sound == nullptr || desc == nullptr || desc->samples == nullptr) return SAT_ERR_INVALID_ARG;
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
@@ -16,7 +21,7 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
     const uint32_t byte_count = desc->sample_count * bytes_per_sample;
     uint16_t allocation_slot = 0u;
     uint32_t offset = 0u;
-    if (!g_ram.allocate(kSoundRamBase,kResidentSoundRamEnd,byte_count,
+    if (!g_ram.allocate(kSoundRamBase,resident_ram_end(),byte_count,
                         2u,&allocation_slot,&offset)) return SAT_ERR_CAPACITY;
 
     if (!saturn::hal::scsp::upload(offset, desc->samples, byte_count)) {
@@ -66,7 +71,7 @@ extern "C" sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound
 extern "C" sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, uint32_t bytes) {
     if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
     if (data == nullptr || bytes == 0u || ((offset | bytes) & 1u) != 0u || offset < kSoundRamBase ||
-        offset > kResidentSoundRamEnd || bytes > kResidentSoundRamEnd - offset) return SAT_ERR_INVALID_ARG;
+        offset > resident_ram_end() || bytes > resident_ram_end() - offset) return SAT_ERR_INVALID_ARG;
     return saturn::hal::scsp::upload(offset, data, bytes) ? SAT_OK : SAT_ERR_INVALID_ARG;
 }
 
@@ -78,9 +83,25 @@ extern "C" sat_result_t sat_sound_ram_reserve(uint32_t bytes, uint32_t* out_offs
     if (index == kReservationCapacity) return SAT_ERR_CAPACITY;
     uint16_t allocation_slot = 0u;
     uint32_t offset = 0u;
-    if (!g_ram.allocate(kSoundRamBase,kResidentSoundRamEnd,bytes,2u,&allocation_slot,&offset)) return SAT_ERR_CAPACITY;
+    if (!g_ram.allocate(kSoundRamBase,resident_ram_end(),bytes,2u,&allocation_slot,&offset)) return SAT_ERR_CAPACITY;
     g_reservations[index] = Reservation{offset, allocation_slot, 1u};
     *out_offset = offset;
+    return SAT_OK;
+}
+
+extern "C" sat_result_t sat_sound_ram_borrow_stream_rings(uint8_t rings) {
+    if (g_initialized == 0u) return SAT_ERR_NOT_INITIALIZED;
+    if (rings > saturn::core::kAudioStreamCapacity) return SAT_ERR_INVALID_ARG;
+    namespace claim = saturn::core::audio::claim;
+    for (uint16_t i = claim::g_lent_rings; i < rings; ++i)
+        if (saturn::core::audio_stream_ring_open != nullptr && saturn::core::audio_stream_ring_open(i)) return SAT_ERR_BUSY;
+    /* Rings given back must hold nothing: a sound, a reservation, the effect ring or the sampler's RAM. */
+    const uint32_t end = kResidentSoundRamEnd + rings * kStreamRingBytes;
+    for (uint16_t i = 0u; i < g_ram.live_count; ++i) {
+        const saturn::core::audio::ram::Entry& e = g_ram.entries[g_ram.order[i]];
+        if (e.offset + e.size > end && e.offset < resident_ram_end()) return SAT_ERR_BUSY;
+    }
+    claim::g_lent_rings = rings;
     return SAT_OK;
 }
 

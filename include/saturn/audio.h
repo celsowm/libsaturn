@@ -149,7 +149,7 @@ sat_result_t sat_sound_create(sat_sound_t* out_sound, const sat_sound_desc_t* de
 sat_result_t sat_sound_unload(sat_sound_t sound);
 /* Writes `bytes` (even) at the even Sound RAM `offset`, for a program that places samples itself (a bank swapped
  * in section by section while a 68000 score plays). The range must lie in the resident sample area, above the
- * driver's 0x3000 and below the streaming rings; the caller owns it, normally by having reserved it with
+ * driver's 0x3000 and below the streaming rings it has not borrowed; the caller owns it, normally by having reserved it with
  * sat_sound_create. Nothing checks that no voice is still reading the range. SAT_ERR_INVALID_ARG outside it. */
 sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, uint32_t bytes);
 /* Reserves `bytes` (even) of the resident sample area for a caller that places samples itself, without uploading or
@@ -157,6 +157,12 @@ sat_result_t sat_sound_ram_write(uint32_t offset, const void* data, uint32_t byt
  * it. Up to four reservations; SAT_ERR_CAPACITY when the pool cannot hold it. Released by its offset. */
 sat_result_t sat_sound_ram_reserve(uint32_t bytes, uint32_t* out_offset);
 sat_result_t sat_sound_ram_release(uint32_t offset);
+/* Lends the lowest `rings` (0 to 4) streaming rings, 16 KB each, to the resident sample area, for a program that
+ * opens fewer streams: sat_sound_create, sat_sound_ram_reserve and the effect ring may then use them,
+ * sound_ram_capacity grows to match, and sat_audio_stream_open no longer opens on them (SAT_ERR_BUSY when only
+ * lent rings are left). SAT_ERR_BUSY if a stream is open on a ring being lent, or anything lies in a ring being
+ * given back. sat_audio_init and sat_audio_shutdown give every ring back. */
+sat_result_t sat_sound_ram_borrow_stream_rings(uint8_t rings);
 sat_result_t sat_sound_play(sat_sound_t sound, const sat_sound_play_params_t* params, sat_voice_t* out_voice);
 sat_result_t sat_sound_stop_all_instances(sat_sound_t sound);
 
