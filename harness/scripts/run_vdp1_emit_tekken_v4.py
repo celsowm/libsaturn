@@ -48,6 +48,7 @@ def main():
     p.add_argument("--workload",choices=["diagnostic","two-paul-release","paul-law-release"],default="diagnostic")
     p.add_argument("--timeout",type=int,default=1800)
     p.add_argument("--jobs",type=int,default=4)
+    p.add_argument("--game-build-root",type=Path,help="Game build parent; Tekken asset tools only write under <tekken>/build")
     a=p.parse_args()
     if sorted(set(a.frames))!=a.frames or min(a.frames)<300 or a.jobs<1 or a.timeout<1:
         p.error("Use increasing distinct field counts >=300 and positive jobs/timeout")
@@ -73,7 +74,8 @@ def main():
     try:
         for mode in ("control","hybrid"):
             case=run/mode;case.mkdir()
-            sdk_build=case/"sdk-build";prefix=case/"sdk";game=case/"game"
+            sdk_build=case/"sdk-build";prefix=case/"sdk"
+            game=(a.game_build_root.resolve()/f"{run.name}-{mode}") if a.game_build_root else case/"game"
             commands=[
                 ["cmake","-S",str(ROOT),"-B",str(sdk_build),"-G","Ninja",
                  "-DCMAKE_BUILD_TYPE=Release","-DCMAKE_TOOLCHAIN_FILE="+str(ROOT/"cmake/toolchains/sh2eb-elf.cmake"),
