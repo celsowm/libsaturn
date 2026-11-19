@@ -49,6 +49,8 @@ def main():
     p.add_argument("--timeout",type=int,default=1800)
     p.add_argument("--jobs",type=int,default=4)
     p.add_argument("--game-build-root",type=Path,help="Game build parent; Tekken asset tools only write under <tekken>/build")
+    p.add_argument("--game-define",action="append",default=[],metavar="KEY=VALUE",
+                   help="Extra Tekken CMake cache entry, applied identically to both builds (e.g. T3_BOOT_FIGHTERS=0;1)")
     a=p.parse_args()
     if sorted(set(a.frames))!=a.frames or min(a.frames)<300 or a.jobs<1 or a.timeout<1:
         p.error("Use increasing distinct field counts >=300 and positive jobs/timeout")
@@ -62,6 +64,9 @@ def main():
     # tooling checkout is explicitly this same clean LibSaturn revision.
     options=[o for o in options if o.split(":",1)[0] not in
              ("-DLibSaturn_DIR","-DCMAKE_PREFIX_PATH","-DLIBSATURN_SOURCE_DIR")]
+    overrides=dict(d.split("=",1) for d in a.game_define)
+    options=[o for o in options if o.split(":",1)[0][2:] not in overrides]
+    options+=["-D%s=%s"%kv for kv in sorted(overrides.items())]
     env=dict(os.environ)
     env["PATH"]=str(compiler)+os.pathsep+env.get("PATH","")
     env["LIBSATURN_TOOLCHAIN_ROOT"]=str(compiler)
