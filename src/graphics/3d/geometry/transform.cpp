@@ -1,13 +1,6 @@
 #include "saturn/transform3d.h"
 #include "src/graphics/3d/geometry/hierarchy_evaluate.hpp"
-#if defined(SAT_HIERARCHY_EXPERIMENT) && SAT_HIERARCHY_EXPERIMENT
 #include "src/graphics/3d/geometry/affine_compose_sh2.hpp"
-#include "saturn/time.h"
-extern "C" {
-volatile uint32_t g_hierarchy_experiment_ticks;
-extern const uint32_t g_hierarchy_experiment_mode=SAT_HIERARCHY_EXPERIMENT;
-}
-#endif
 
 namespace {
 bool is_live(const sat_transform3d_world_t* world, uint16_t id) {
@@ -107,20 +100,8 @@ extern "C" sat_result_t sat_transform3d_set_local_matrix(
 extern "C" sat_result_t sat_transform3d_evaluate(
     sat_transform3d_world_t* world, uint16_t* scratch,
     uint16_t scratch_capacity) {
-#if defined(SAT_HIERARCHY_EXPERIMENT) && SAT_HIERARCHY_EXPERIMENT
-    const uint16_t start=sat_time_frc();
-#if SAT_HIERARCHY_EXPERIMENT == 2
-    const auto result=saturn::core::hierarchy::evaluate(world,scratch,scratch_capacity,saturn::core::hierarchy::compose_cpp);
-#elif SAT_HIERARCHY_EXPERIMENT == 3
-    const auto result=saturn::core::hierarchy::evaluate(world,scratch,scratch_capacity,saturn::core::hierarchy::compose_asm);
-#else
-    const auto result=saturn::core::hierarchy::evaluate(world,scratch,scratch_capacity,sat_mat4_multiply);
-#endif
-    g_hierarchy_experiment_ticks=uint16_t(sat_time_frc()-start);
-    return result;
-#else
-    return saturn::core::hierarchy::evaluate(world,scratch,scratch_capacity,sat_mat4_multiply);
-#endif
+    return saturn::core::hierarchy::evaluate(world,scratch,scratch_capacity,
+                                             saturn::core::hierarchy::compose_affine);
 }
 
 extern "C" sat_result_t sat_transform3d_get_world(

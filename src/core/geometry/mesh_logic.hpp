@@ -202,14 +202,6 @@ inline void cross_raw(const sat_vec3_t& a, const sat_vec3_t& b, int64_t out[3]) 
  *
  * The corners are taken by reference, so a caller holding shared vertex
  * arrays need not copy them into a sat_quad3_t first. */
-// Experiments are opt-in; use comparisons instead of multiplying by a
-// single nonzero normal component. This preserves the sign on the
-// original defined arithmetic domain (eye-centre fits signed int32).
-inline bool visible_axis(int64_t normal,int32_t eye,int32_t centre) {
-    return normal>0 ? eye>centre : eye<centre;
-}
-
-template<unsigned Experiment=0>
 [[gnu::noinline]] inline bool quad_visible_wide(
     const sat_vec3_t& a,const sat_vec3_t& b,const sat_vec3_t& c,
     const sat_vec3_t& d,const sat_vec3_t& eye) {
@@ -231,18 +223,6 @@ template<unsigned Experiment=0>
                                 vec3_sub(eye, quad_center(quad))) > 0;
         }
     }
-    if constexpr(Experiment>=1) {
-        // Do not bypass the historical scaled-normal fallback above.
-        // Retain the exact quarter of the four corners and tie-to-hidden.
-        if(!n[1]&&!n[2]) {
-            if(!n[0])return false;
-            return visible_axis(n[0],eye.x,int32_t((int64_t(a.x)+b.x+c.x+d.x)/4));
-        }
-        if(!n[0]&&!n[2])
-            return visible_axis(n[1],eye.y,int32_t((int64_t(a.y)+b.y+c.y+d.y)/4));
-        if(!n[0]&&!n[1])
-            return visible_axis(n[2],eye.z,int32_t((int64_t(a.z)+b.z+c.z+d.z)/4));
-    }
     const sat_vec3_t centre = vec3(
         static_cast<sat_fx16_t>((static_cast<int64_t>(a.x) + b.x + c.x + d.x) / 4),
         static_cast<sat_fx16_t>((static_cast<int64_t>(a.y) + b.y + c.y + d.y) / 4),
@@ -251,22 +231,6 @@ template<unsigned Experiment=0>
     const int32_t w[3] = {v.x, v.y, v.z};
     constexpr unsigned kNormalSplitBits = 24;
     constexpr int64_t kNormalLowMask = (int64_t{1} << kNormalSplitBits) - 1;
-    if constexpr(Experiment>=2) {
-        // Split exactly as the reference. The high dot fits signed 64
-        // under the same 2^50 normal bound; skip the low dot only when
-        // all three remainders are exactly zero.
-        const int32_t h0=int32_t(n[0]>>kNormalSplitBits);
-        const int32_t h1=int32_t(n[1]>>kNormalSplitBits);
-        const int32_t h2=int32_t(n[2]>>kNormalSplitBits);
-        const int32_t l0=int32_t(n[0]&kNormalLowMask);
-        const int32_t l1=int32_t(n[1]&kNormalLowMask);
-        const int32_t l2=int32_t(n[2]&kNormalLowMask);
-        int64_t high=int64_t(h0)*w[0]+int64_t(h1)*w[1]+int64_t(h2)*w[2];
-        if(!(l0|l1|l2))return high>0;
-        const int64_t low=int64_t(l0)*w[0]+int64_t(l1)*w[1]+int64_t(l2)*w[2];
-        high+=low>>kNormalSplitBits;
-        return high>0||(high==0&&(low&kNormalLowMask)!=0);
-    }
     int64_t hi = 0;
     int64_t lo = 0;
     for (int i = 0; i < 3; ++i) {
@@ -280,63 +244,6 @@ template<unsigned Experiment=0>
     return hi > 0 || (hi == 0 && (lo & kNormalLowMask) != 0);
 }
 
-// Signed16 edge proof above the callers bounds every partial dot by
-// (2^32-1)*2^31. Thus the full 64-bit accumulator never overflows.
-// Separate leaves to measure call / materialization costs rather than
-// assuming MAC.L is cheaper than the compiler's register products.
-[[gnu::noinline]] inline bool visible_dot_dmuls(
-    int32_t nx,int32_t ny,int32_t nz,int32_t vx,int32_t vy,int32_t vz) {
-#if defined(__sh__)
-    uint32_t hi,lo,ph,pl,saveh,savel;
-    asm volatile(
-        "sts mach,%[sh]\n\tsts macl,%[sl]\n\t"
-        "dmuls.l %[nx],%[vx]\n\tsts mach,%[h]\n\tsts macl,%[l]\n\t"
-        "dmuls.l %[ny],%[vy]\n\tsts mach,%[ph]\n\tsts macl,%[pl]\n\t"
-        "clrt\n\taddc %[pl],%[l]\n\taddc %[ph],%[h]\n\t"
-        "dmuls.l %[nz],%[vz]\n\tsts mach,%[ph]\n\tsts macl,%[pl]\n\t"
-        "clrt\n\taddc %[pl],%[l]\n\taddc %[ph],%[h]\n\t"
-        "lds %[sh],mach\n\tlds %[sl],macl"
-        : [h]"=&r"(hi),[l]"=&r"(lo),[ph]"=&r"(ph),[pl]"=&r"(pl),
-          [sh]"=&r"(saveh),[sl]"=&r"(savel)
-        : [nx]"r"(nx),[ny]"r"(ny),[nz]"r"(nz),
-          [vx]"r"(vx),[vy]"r"(vy),[vz]"r"(vz)
-        : "mach","macl","t");
-    return !(hi&0x80000000u)&&(hi||lo);
-#else
-    return int64_t(nx)*vx+int64_t(ny)*vy+int64_t(nz)*vz>0;
-#endif
-}
-
-[[gnu::noinline]] inline bool visible_dot_mac(
-    int32_t nx,int32_t ny,int32_t nz,int32_t vx,int32_t vy,int32_t vz) {
-#if defined(__sh__)
-    uint32_t sr;
-    asm volatile("stc sr,%0":"=r"(sr));
-    // SR.S selects saturation (48-bit for MAC.L). Do not change SR;
-    // callers with saturation enabled take the exact C++ path.
-    if(!(sr&2u)) {
-        const int32_t normals[3]={nx,ny,nz};
-        const int32_t offsets[3]={vx,vy,vz};
-        const int32_t* n=normals;
-        const int32_t* v=offsets;
-        uint32_t hi,lo,saveh,savel;
-        asm volatile(
-            "sts mach,%[sh]\n\tsts macl,%[sl]\n\tclrmac\n\t"
-            "mac.l @%[n]+,@%[v]+\n\t"
-            "mac.l @%[n]+,@%[v]+\n\t"
-            "mac.l @%[n]+,@%[v]+\n\t"
-            "sts mach,%[h]\n\tsts macl,%[l]\n\t"
-            "lds %[sh],mach\n\tlds %[sl],macl"
-            : [n]"+&r"(n),[v]"+&r"(v),[h]"=&r"(hi),[l]"=&r"(lo),
-              [sh]"=&r"(saveh),[sl]"=&r"(savel)
-            : : "mach","macl","memory");
-        return !(hi&0x80000000u)&&(hi||lo);
-    }
-#endif
-    return int64_t(nx)*vx+int64_t(ny)*vy+int64_t(nz)*vz>0;
-}
-
-template<unsigned Experiment=0>
 [[gnu::noinline]] inline bool quad_visible_general(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
@@ -369,16 +276,12 @@ template<unsigned Experiment=0>
                 static_cast<sat_fx16_t>((static_cast<int64_t>(a.y)+b.y+c.y+d.y)/4),
                 static_cast<sat_fx16_t>((static_cast<int64_t>(a.z)+b.z+c.z+d.z)/4));
             const sat_vec3_t v=vec3_sub(eye,centre);
-            if constexpr(Experiment==4)
-                return visible_dot_dmuls(nx,ny,nz,v.x,v.y,v.z);
-            if constexpr(Experiment==5)
-                return visible_dot_mac(nx,ny,nz,v.x,v.y,v.z);
             return static_cast<int64_t>(nx)*v.x+static_cast<int64_t>(ny)*v.y+
                 static_cast<int64_t>(nz)*v.z>0;
         }
     }
     // Degenerate corners and larger faces retain the general exact path.
-    return quad_visible_wide<(Experiment>=3?2:Experiment)>(a,b,c,d,eye);
+    return quad_visible_wide(a,b,c,d,eye);
 }
 
 /* The common case of quad_visible_general in 32-bit arithmetic: returns 1
@@ -387,7 +290,6 @@ template<unsigned Experiment=0>
  * sum 3a + (b-a) + (d-a) + c is below 2^31 in magnitude, so its truncating
  * quarter equals the 64-bit one; a zero normal is left to the general path,
  * which makes the same decisions in the same order. */
-template<unsigned Experiment=0>
 [[gnu::always_inline]] inline int quad_visible_small_body(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
@@ -421,45 +323,31 @@ template<unsigned Experiment=0>
             (static_cast<uint32_t>(az)+(1u<<28)))>>29)|
            (((static_cast<uint32_t>(cx)+(1u<<29))|(static_cast<uint32_t>(cy)+(1u<<29))|
             (static_cast<uint32_t>(cz)+(1u<<29)))>>30)) return -1;
-        if constexpr(Experiment==1||Experiment==2) {
-            // The preceding range proof applies to each sum, so no
-            // narrowing or different rounding is introduced.
-            if(!ny&&!nz)return visible_axis(nx,eye.x,(ax+pb->x+pd->x+cx)/4);
-            if(!nx&&!nz)return visible_axis(ny,eye.y,(ay+pb->y+pd->y+cy)/4);
-            if(!nx&&!ny)return visible_axis(nz,eye.z,(az+pb->z+pd->z+cz)/4);
-        }
         vx=eye.x-(ax+pb->x+pd->x+cx)/4;
         vy=eye.y-(ay+pb->y+pd->y+cy)/4;
         vz=eye.z-(az+pb->z+pd->z+cz)/4;
     }
-    if constexpr(Experiment==4)
-        return visible_dot_dmuls(nx,ny,nz,vx,vy,vz);
-    if constexpr(Experiment==5)
-        return visible_dot_mac(nx,ny,nz,vx,vy,vz);
     return static_cast<int64_t>(nx)*vx+static_cast<int64_t>(ny)*vy+
         static_cast<int64_t>(nz)*vz>0;
 }
 
-template<unsigned Experiment=0>
 [[gnu::noinline]] inline int quad_visible_small(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
-    return quad_visible_small_body<Experiment>(a,b,c,d,eye);
+    return quad_visible_small_body(a,b,c,d,eye);
 }
 
 /* Keep the kernels out of large scene loops: forcing them inline inflates
  * their code and live register set on the 4 KiB-cache SH-2. */
-template<unsigned Experiment=0>
 inline bool quad_visible(const sat_vec3_t& a,const sat_vec3_t& b,
                          const sat_vec3_t& c,const sat_vec3_t& d,
                          const sat_vec3_t& eye) {
-    const int small=quad_visible_small<(Experiment==3?0:Experiment)>(a,b,c,d,eye);
-    return small>=0 ? small!=0 : quad_visible_general<Experiment>(a,b,c,d,eye);
+    const int small=quad_visible_small(a,b,c,d,eye);
+    return small>=0 ? small!=0 : quad_visible_general(a,b,c,d,eye);
 }
 
-template<unsigned Experiment=0>
 inline bool quad_visible(const sat_quad3_t& quad, const sat_vec3_t& eye) {
-    return quad_visible<Experiment>(quad.v[0], quad.v[1], quad.v[2], quad.v[3], eye);
+    return quad_visible(quad.v[0], quad.v[1], quad.v[2], quad.v[3], eye);
 }
 
 inline bool face_visible(const sat_mesh_t* mesh, uint16_t face, const sat_vec3_t& eye) {

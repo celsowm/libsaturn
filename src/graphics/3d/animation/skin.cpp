@@ -144,7 +144,7 @@ inline void deform_rigid(const sat_skin_asset_t& s, const sat_mat4_t* mats, int3
     store(out, p[0], p[1], p[2]);
 }
 
-template<bool q15, unsigned experimental, typename Out, typename Store>
+template<bool q15, typename Out, typename Store>
 inline void deform_blend(const sat_skin_asset_t& s, const sat_mat4_t* mats, int32_t scale,
                          uint32_t b, Out* out, const Store& store) {
     const sat_skin_blend_t& r = s.blend[b];
@@ -162,33 +162,14 @@ inline void deform_blend(const sat_skin_asset_t& s, const sat_mat4_t* mats, int3
                        (int32_t)(((int64_t)p0[2] + p1[2]) >> 1));
             return;
         }
-        const int32_t w0 = r.weight[0], w1 = kWeightOne - w0;
-        if constexpr(experimental==2) {
-            using saturn::skin3d::weighted_delta::pair_selective;
-            store(out,pair_selective(p0[0],p1[0],w0),pair_selective(p0[1],p1[1],w0),
-                  pair_selective(p0[2],p1[2],w0));
-            return;
-        }
-        if constexpr(experimental==1) {
-            using saturn::skin3d::weighted_delta::pair;
-            store(out,pair(p0[0],p1[0],w0),pair(p0[1],p1[1],w0),pair(p0[2],p1[2],w0));
-            return;
-        }
-        store(out, (int32_t)(((int64_t)w0 * p0[0] + (int64_t)w1 * p1[0] + (kWeightOne >> 1)) >> 15),
-                   (int32_t)(((int64_t)w0 * p0[1] + (int64_t)w1 * p1[1] + (kWeightOne >> 1)) >> 15),
-                   (int32_t)(((int64_t)w0 * p0[2] + (int64_t)w1 * p1[2] + (kWeightOne >> 1)) >> 15));
+        const int32_t w0 = r.weight[0];
+        using saturn::skin3d::weighted_delta::pair;
+        store(out, pair(p0[0], p1[0], w0), pair(p0[1], p1[1], w0), pair(p0[2], p1[2], w0));
         return;
     }
     int32_t p2[3];
     transform<q15>(mats[r.joint[2]].m, r.pos[2], scale, p2);
     const int32_t w0 = r.weight[0], w1 = r.weight[1], w2 = kWeightOne - w0 - w1;
-    if constexpr(experimental==1) {
-        using saturn::skin3d::weighted_delta::triple;
-        store(out,triple(p0[0],p1[0],p2[0],w0,w1),
-                  triple(p0[1],p1[1],p2[1],w0,w1),
-                  triple(p0[2],p1[2],p2[2],w0,w1));
-        return;
-    }
     store(out, (int32_t)(((int64_t)w0 * p0[0] + (int64_t)w1 * p1[0] + (int64_t)w2 * p2[0] +
                           (kWeightOne >> 1)) >> 15),
                (int32_t)(((int64_t)w0 * p0[1] + (int64_t)w1 * p1[1] + (int64_t)w2 * p2[1] +
@@ -197,7 +178,7 @@ inline void deform_blend(const sat_skin_asset_t& s, const sat_mat4_t* mats, int3
                           (kWeightOne >> 1)) >> 15));
 }
 
-template<unsigned experimental=false, typename Out, typename Store>
+template<typename Out, typename Store>
 void deform_vertices(const sat_skin_asset_t* skin, const sat_mat4_t* joint_world,
                      uint32_t v, uint32_t end, Out* out, const Store& store) {
     if (skin->pos_shift == 15) {
@@ -206,13 +187,13 @@ void deform_vertices(const sat_skin_asset_t* skin, const sat_mat4_t* joint_world
         for (; v < end && v < skin->rigid_count; ++v)
             deform_rigid<true>(*skin, joint_world, 2, v, &out[v], store);
         for (; v < end; ++v)
-            deform_blend<true,experimental>(*skin, joint_world, 2, v - skin->rigid_count, &out[v], store);
+            deform_blend<true>(*skin, joint_world, 2, v - skin->rigid_count, &out[v], store);
     } else {
         const int32_t scale = (int32_t)1 << (16 - skin->pos_shift);
         for (; v < end && v < skin->rigid_count; ++v)
             deform_rigid<false>(*skin, joint_world, scale, v, &out[v], store);
         for (; v < end; ++v)
-            deform_blend<false,experimental>(*skin, joint_world, scale, v - skin->rigid_count, &out[v], store);
+            deform_blend<false>(*skin, joint_world, scale, v - skin->rigid_count, &out[v], store);
     }
 }
 
@@ -270,43 +251,15 @@ extern "C" sat_result_t sat_skeleton_world_matrices(
     return SAT_OK;
 }
 
-#if defined(SAT_SKIN_CHARACTER_EXPERIMENT) && SAT_SKIN_CHARACTER_EXPERIMENT
-extern "C" const uint32_t g_skin_character_mode=SAT_SKIN_CHARACTER_EXPERIMENT;
-#endif
 extern "C" sat_result_t sat_skin_deform_range(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,
     uint32_t first, uint32_t count, sat_vec3_t* out, uint32_t out_capacity) {
     SAT_TRY(check_args(skin, joint_world, joint_world_count, out_capacity, out));
     const uint32_t total = sat_skin_vertex_count(skin);
     if (first > total || count > total - first) return SAT_ERR_INVALID_ARG;
-#if defined(SAT_SKIN_CHARACTER_EXPERIMENT) && SAT_SKIN_CHARACTER_EXPERIMENT == 2
-    deform_vertices<2>(skin, joint_world, first, first + count, out, PlainStore{});
-#else
     deform_vertices(skin, joint_world, first, first + count, out, PlainStore{});
-#endif
     return SAT_OK;
 }
-
-#if defined(SAT_SKIN_BLEND_BENCH) && SAT_SKIN_BLEND_BENCH
-extern "C" sat_result_t sat_skin_deform_range_weighted_delta(
-    const sat_skin_asset_t* skin,const sat_mat4_t* joint_world,uint16_t joint_world_count,
-    uint32_t first,uint32_t count,sat_vec3_t* out,uint32_t out_capacity) {
-    SAT_TRY(check_args(skin,joint_world,joint_world_count,out_capacity,out));
-    const uint32_t total=sat_skin_vertex_count(skin);
-    if(first>total||count>total-first)return SAT_ERR_INVALID_ARG;
-    deform_vertices<1>(skin,joint_world,first,first+count,out,PlainStore{});
-    return SAT_OK;
-}
-extern "C" sat_result_t sat_skin_deform_range_weighted_selective(
-    const sat_skin_asset_t* skin,const sat_mat4_t* joint_world,uint16_t joint_world_count,
-    uint32_t first,uint32_t count,sat_vec3_t* out,uint32_t out_capacity) {
-    SAT_TRY(check_args(skin,joint_world,joint_world_count,out_capacity,out));
-    const uint32_t total=sat_skin_vertex_count(skin);
-    if(first>total||count>total-first)return SAT_ERR_INVALID_ARG;
-    deform_vertices<2>(skin,joint_world,first,first+count,out,PlainStore{});
-    return SAT_OK;
-}
-#endif
 
 extern "C" sat_result_t sat_skin_deform_range_placed(
     const sat_skin_asset_t* skin, const sat_mat4_t* joint_world, uint16_t joint_world_count,

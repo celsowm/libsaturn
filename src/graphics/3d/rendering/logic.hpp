@@ -343,73 +343,17 @@ inline bool project_quad(
  * Keeping this before projection avoids folding or enormous distorted
  * sprites when the follow camera approaches a large nearby deck. The
  * un-clipped fast path retains the original face and UV corner order. */
-template<unsigned Experiment=0>
 inline int64_t world_view_depth(
     const sat_vec3_t& p,const sat_vec3_t& eye,const sat_vec3_t& forward) {
-    if constexpr(Experiment>=1) {
-        // Exact axis-aligned camera: subtract at full width. In particular
-        // the difference may exceed int32 even for valid int32 endpoints.
-        if(!forward.x && !forward.y) {
-            if(forward.z==SAT_FX16_ONE)return int64_t(p.z)-eye.z;
-            if(forward.z==-SAT_FX16_ONE)return int64_t(eye.z)-p.z;
-        }
-        if(!forward.x && !forward.z) {
-            if(forward.y==SAT_FX16_ONE)return int64_t(p.y)-eye.y;
-            if(forward.y==-SAT_FX16_ONE)return int64_t(eye.y)-p.y;
-        }
-        if(!forward.y && !forward.z) {
-            if(forward.x==SAT_FX16_ONE)return int64_t(p.x)-eye.x;
-            if(forward.x==-SAT_FX16_ONE)return int64_t(eye.x)-p.x;
-        }
-        const int64_t x=int64_t(p.x)-eye.x,y=int64_t(p.y)-eye.y,z=int64_t(p.z)-eye.z;
-        if(x>=INT32_MIN&&x<=INT32_MAX&&y>=INT32_MIN&&y<=INT32_MAX&&z>=INT32_MIN&&z<=INT32_MAX) {
-            // Narrow only the factors, not the products or their sum.
-            const int64_t dot=int64_t(int32_t(x))*forward.x+
-                              int64_t(int32_t(y))*forward.y+
-                              int64_t(int32_t(z))*forward.z;
-            return dot/SAT_FX16_ONE;
-        }
-    }
     return ((static_cast<int64_t>(p.x)-eye.x)*forward.x+
             (static_cast<int64_t>(p.y)-eye.y)*forward.y+
             (static_cast<int64_t>(p.z)-eye.z)*forward.z)/SAT_FX16_ONE;
 }
-// Same truncation as the control, not a Q16 approximation of the ratio.
-// Only used for a strict crossing (0 <= numerator/denominator <= 1).
-inline sat_fx16_t near_intersection_axis_bounded(sat_fx16_t a,sat_fx16_t b,
-                                                 int32_t numerator,int32_t denominator) {
-    const int64_t diff=int64_t(b)-a;
-    if(!diff || !numerator)return a;
-    if(numerator==denominator)return b;
-    // |quotient| <= |diff|; the strict bound excludes SH7604 divider
-    // overflow edge cases. The signed 32x32 product fits in int64.
-    if(diff>=-int64_t(INT32_MAX-1)&&diff<=INT32_MAX-1) {
-        const int64_t product=int64_t(int32_t(diff))*numerator;
-        const int32_t q=saturn::core::math3d::div_s64_s32(product,denominator);
-        return static_cast<sat_fx16_t>(int64_t(a)+q);
-    }
-    return static_cast<sat_fx16_t>(int64_t(a)+diff*numerator/denominator);
-}
-
-template<unsigned Experiment=0>
 inline sat_vec3_t near_intersection(
     const sat_vec3_t& a,const sat_vec3_t& b,
     int64_t da,int64_t db,int64_t clip_depth) {
     const int64_t numerator=clip_depth-da;
     const int64_t denominator=db-da; /* caller guarantees a strict crossing */
-    if constexpr(Experiment>=2) {
-        // Numerator lies between zero and denominator, including endpoints.
-        // Keep the old widened formula for wider denominators.
-        if(!numerator)return a;
-        if(numerator==denominator)return b;
-        if(denominator>=-int64_t(INT32_MAX)&&denominator<=INT32_MAX&&denominator!=0) {
-            const int32_t num=static_cast<int32_t>(numerator);
-            const int32_t den=static_cast<int32_t>(denominator);
-            return {near_intersection_axis_bounded(a.x,b.x,num,den),
-                    near_intersection_axis_bounded(a.y,b.y,num,den),
-                    near_intersection_axis_bounded(a.z,b.z,num,den)};
-        }
-    }
     return sat_vec3_t{
         static_cast<sat_fx16_t>(
             static_cast<int64_t>(a.x)+
@@ -422,34 +366,6 @@ inline sat_vec3_t near_intersection(
             (static_cast<int64_t>(b.z)-a.z)*numerator/denominator)
     };
 }
-// V2: choose an exact unit axis once per face. Pointer-to-member keeps
-// the two signed loops shared across X/Y/Z without indexing across fields.
-inline int near_axial_depths(const sat_quad3_t& quad,const sat_vec3_t& eye,
-                             const sat_vec3_t& forward,sat_fx16_t near_depth,
-                             int64_t (&depths)[4]) {
-    sat_fx16_t sat_vec3_t::* axis=nullptr;
-    int32_t direction=0;
-    if(!forward.x&&!forward.y){axis=&sat_vec3_t::z;direction=forward.z;}
-    else if(!forward.x&&!forward.z){axis=&sat_vec3_t::y;direction=forward.y;}
-    else if(!forward.y&&!forward.z){axis=&sat_vec3_t::x;direction=forward.x;}
-    if(direction!=SAT_FX16_ONE&&direction!=-SAT_FX16_ONE)return -1;
-    const int32_t origin=eye.*axis;
-    int count=0;
-    if(direction>0) {
-        for(unsigned i=0;i<4;++i){
-            depths[i]=int64_t(quad.v[i].*axis)-origin;
-            count+=depths[i]>=near_depth;
-        }
-    } else {
-        for(unsigned i=0;i<4;++i){
-            depths[i]=int64_t(origin)-(quad.v[i].*axis);
-            count+=depths[i]>=near_depth;
-        }
-    }
-    return count;
-}
-
-template<unsigned Experiment=0>
 inline sat_result_t clip_world_quad_near(
     const sat_quad3_t* quad,const sat_vec3_t* eye,
     const sat_vec3_t* forward,sat_fx16_t near_depth,
@@ -459,17 +375,9 @@ inline sat_result_t clip_world_quad_near(
         return SAT_ERR_INVALID_ARG;
     int64_t depths[4];
     uint8_t in_count=0;
-    int axial=-1;
-    if constexpr(Experiment==4)
-        axial=near_axial_depths(*quad,*eye,*forward,near_depth,depths);
-    if(axial>=0) {
-        in_count=static_cast<uint8_t>(axial);
-    } else {
-        for(uint8_t i=0;i<4u;++i) {
-            // Modes 3 and 4 use the exact original general depth path.
-            depths[i]=world_view_depth<(Experiment<=2?Experiment:0)>(quad->v[i],*eye,*forward);
-            if(depths[i]>=near_depth)++in_count;
-        }
+    for(uint8_t i=0;i<4u;++i) {
+        depths[i]=world_view_depth(quad->v[i],*eye,*forward);
+        if(depths[i]>=near_depth)++in_count;
     }
     if(in_count==4u) {
         out[0]=*quad; *out_count=1u; return SAT_OK;
@@ -487,7 +395,7 @@ inline sat_result_t clip_world_quad_near(
         const int64_t current_depth=depths[i];
         const bool current_inside=current_depth>=near_depth;
         if(previous_inside!=current_inside) {
-            clipped[n++]=near_intersection<Experiment>(
+            clipped[n++]=near_intersection(
                 previous,current,previous_depth,current_depth,near_depth);
         }
         if(current_inside) clipped[n++]=current;
@@ -520,27 +428,25 @@ inline bool screen_inside(ScreenPoint p,uint8_t edge,int32_t bound) {
     const int32_t value=(edge<2u)?p.x:p.y;
     return (edge&1u)?value<=bound:value>=bound;
 }
-template<unsigned Experiment=0>
 inline ScreenPoint screen_intersection(
     ScreenPoint a,ScreenPoint b,uint8_t edge,int32_t bound) {
     const int32_t av=edge<2u?a.x:a.y;
     const int32_t bv=edge<2u?b.x:b.y;
     const int32_t delta=bv-av;
     ScreenPoint out=a;
-    if constexpr(Experiment>=2) {
-        // All native VDP1 points fit this bound. The extra coordinate
-        // difference and distance to the crossing plane are each <=32767.
-        // A crossing guarantees nonzero delta and a ratio in [0,1].
-        const int32_t other_a=edge<2u?a.y:a.x;
-        const int32_t other_b=edge<2u?b.y:b.x;
-        const int32_t diff=other_b-other_a,dist=bound-av;
-        if ((uint32_t(diff)+32767u)<=65534u &&
-            (uint32_t(dist)+32767u)<=65534u) {
-            const int16_t other=static_cast<int16_t>(other_a+diff*dist/delta);
-            if(edge<2u){out.x=static_cast<int16_t>(bound);out.y=other;}
-            else{out.y=static_cast<int16_t>(bound);out.x=other;}
-            return out;
-        }
+    // All native VDP1 points fit this bound. The extra coordinate difference
+    // and distance to the crossing plane are each <=32767, so their product
+    // and quotient need no 64-bit arithmetic. A crossing guarantees nonzero
+    // delta and a ratio in [0,1].
+    const int32_t other_a=edge<2u?a.y:a.x;
+    const int32_t other_b=edge<2u?b.y:b.x;
+    const int32_t diff=other_b-other_a,dist=bound-av;
+    if ((uint32_t(diff)+32767u)<=65534u &&
+        (uint32_t(dist)+32767u)<=65534u) {
+        const int16_t other=static_cast<int16_t>(other_a+diff*dist/delta);
+        if(edge<2u){out.x=static_cast<int16_t>(bound);out.y=other;}
+        else{out.y=static_cast<int16_t>(bound);out.x=other;}
+        return out;
     }
     if(edge<2u) {
         out.x=static_cast<int16_t>(bound);
@@ -558,7 +464,6 @@ inline ScreenPoint screen_intersection(
 inline bool screen_equal(ScreenPoint a,ScreenPoint b) {
     return a.x==b.x && a.y==b.y;
 }
-template<unsigned Experiment=0>
 inline sat_result_t clip_quad_screen(
     const sat_quad2_t* quad,uint16_t width,uint16_t height,
     sat_quad2_t out[6],uint8_t* out_count) {
@@ -571,7 +476,6 @@ inline sat_result_t clip_quad_screen(
         -static_cast<int32_t>(height)/2,
         static_cast<int32_t>(height+1u)/2-1
     };
-    bool fully_inside=true;
     uint8_t outside_edges=0;
     ScreenPoint previous[12],next[12];
     uint8_t n=0u;
@@ -579,18 +483,12 @@ inline sat_result_t clip_quad_screen(
         const ScreenPoint point={quad->x[i],quad->y[i]};
         if(n==0u || !screen_equal(point,previous[n-1u]))
             previous[n++]=point;
-        if constexpr(Experiment>=1) {
-            outside_edges |= (point.x<bounds[0]?1u:0u) |
-                             (point.x>bounds[1]?2u:0u) |
-                             (point.y<bounds[2]?4u:0u) |
-                             (point.y>bounds[3]?8u:0u);
-        } else {
-            for(uint8_t edge=0u;edge<4u;++edge)
-                if(!screen_inside(point,edge,bounds[edge]))fully_inside=false;
-        }
+        outside_edges |= (point.x<bounds[0]?1u:0u) |
+                         (point.x>bounds[1]?2u:0u) |
+                         (point.y<bounds[2]?4u:0u) |
+                         (point.y>bounds[3]?8u:0u);
     }
-    if constexpr(Experiment>=1)fully_inside=outside_edges==0;
-    if(fully_inside) {
+    if(!outside_edges) {
         out[0]=*quad;
         *out_count=1u;
         return SAT_OK;
@@ -600,7 +498,7 @@ inline sat_result_t clip_quad_screen(
         // Intersections are coordinate-wise between their endpoints even
         // under truncation. A plane containing all original vertices also
         // contains all later vertices. Adjacent duplicates already removed.
-        if constexpr(Experiment>=1)if(!(outside_edges&(1u<<edge)))continue;
+        if(!(outside_edges&(1u<<edge)))continue;
         uint8_t produced=0u;
         ScreenPoint last=previous[n-1u];
         bool was_inside=screen_inside(last,edge,bounds[edge]);
@@ -609,7 +507,7 @@ inline sat_result_t clip_quad_screen(
             const bool inside=screen_inside(current,edge,bounds[edge]);
             if(inside!=was_inside) {
                 if(produced>=12u)return SAT_ERR_UNSUPPORTED;
-                next[produced++]=screen_intersection<Experiment>(
+                next[produced++]=screen_intersection(
                     last,current,edge,bounds[edge]);
             }
             if(inside) {
@@ -634,13 +532,8 @@ inline sat_result_t clip_quad_screen(
                           p2=previous[i+1u];
         // All surviving points are inside a viewport <=2048 per axis.
         // Each product <=2047^2 and their difference fits int32.
-        int64_t area;
-        if constexpr(Experiment>=2)
-            area=(int32_t(p1.x)-p0.x)*(int32_t(p2.y)-p0.y)-
-                 (int32_t(p1.y)-p0.y)*(int32_t(p2.x)-p0.x);
-        else
-            area=static_cast<int64_t>(p1.x-p0.x)*(p2.y-p0.y)-
-                 static_cast<int64_t>(p1.y-p0.y)*(p2.x-p0.x);
+        const int32_t area=(int32_t(p1.x)-p0.x)*(int32_t(p2.y)-p0.y)-
+                           (int32_t(p1.y)-p0.y)*(int32_t(p2.x)-p0.x);
         if(!area)continue;
         sat_quad2_t& result=out[triangles++];
         result.x[0]=p0.x;result.y[0]=p0.y;
@@ -860,7 +753,7 @@ inline void place_reference(const uint32_t* keys, uint32_t face_count, Index* ou
  * key below kPaintBuckets, higher buckets paint first, and faces keep
  * ascending index inside a bucket. keys[] is overwritten with buckets. No live
  * key maps above top_bucket, so only the counters up to it are touched. */
-template <typename Index, unsigned Experiment=0, typename CountPass>
+template <typename Index, typename CountPass>
 inline void distribute_counted(uint32_t* keys, uint32_t face_count, Index* out,
                                uint32_t top_bucket, CountPass count_pass) {
     /* face_count fits uint16_t, so every running position does too. The
@@ -878,18 +771,13 @@ inline void distribute_counted(uint32_t* keys, uint32_t face_count, Index* out,
     /* keys[] become buckets and start[] their face counts. */
     count_pass(start);
     prefix_reference(counters.words, word_count);
-#if defined(__sh__)
-    if constexpr (Experiment != 0 && sizeof(Index)==1)
-        paint_keys::sat_paint_place8_sh2(keys,face_count,out,start);
-    else
-#endif
-        place_reference(keys, face_count, out, start);
+    place_reference(keys, face_count, out, start);
 }
 
-template <typename Index, unsigned Experiment=0, typename BucketOf>
+template <typename Index, typename BucketOf>
 inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
                        uint32_t top_bucket, BucketOf bucket_of) {
-    distribute_counted<Index,Experiment>(keys, face_count, out, top_bucket,
+    distribute_counted<Index>(keys, face_count, out, top_bucket,
         [keys, face_count, &bucket_of](uint16_t* start) {
             for (uint32_t f = 0; f < face_count; ++f) {
                 if (keys[f] == kPaintSkip) {
@@ -903,24 +791,11 @@ inline void distribute(uint32_t* keys, uint32_t face_count, Index* out,
 }
 
 /* distribute for one depth span: bucket = shift(key - lo). */
-template <typename Index, unsigned Experiment=0>
+template <typename Index>
 inline void distribute_spread(uint32_t* keys, uint32_t face_count, Index* out,
                               uint32_t lo, uint32_t hi) {
-    // When all live keys are identical, the exact mapping is bucket zero.
-    // The fused pass preserves the skip sentinel and ascending index.
-    if constexpr (Experiment >= 2) {
-        if (lo==hi) {
-            uint32_t written=0;
-            for(uint32_t f=0;f<face_count;++f) {
-                if(keys[f]==kPaintSkip)continue;
-                keys[f]=0;
-                out[written++]=static_cast<Index>(f);
-            }
-            return;
-        }
-    }
     const RightShift shift(range_shift(hi - lo, kPaintBuckets));
-    distribute_counted<Index,Experiment>(keys, face_count, out, shift(hi - lo),
+    distribute_counted<Index>(keys, face_count, out, shift(hi - lo),
         [keys, face_count, lo, shift](uint16_t* start) {
             paint_keys::spread(paint_keys::Spread{keys, face_count, start, lo, shift.multiplier});
         });
@@ -928,14 +803,14 @@ inline void distribute_spread(uint32_t* keys, uint32_t face_count, Index* out,
 
 } // namespace paint_detail
 
-template <typename Index, unsigned Experiment=0>
+template <typename Index>
 inline uint32_t paint_order_buckets(uint32_t* depth, uint32_t face_count, Index* out) {
     paint_keys::Range range;
     const uint32_t live = paint_keys::range(depth, face_count, &range);
     if (live == 0u) {
         return 0u;
     }
-    paint_detail::distribute_spread<Index,Experiment>(depth, face_count, out, range.lo, range.hi);
+    paint_detail::distribute_spread<Index>(depth, face_count, out, range.lo, range.hi);
     return live;
 }
 
@@ -949,7 +824,7 @@ constexpr uint32_t kPaintMaxGroups = 8u;
  * spread instead gives every bucket at least 2^group_shift / 1024 of depth as
  * soon as two groups are live. One group is exactly paint_order_buckets;
  * more than kPaintMaxGroups fall back to it (coarser, still in order). */
-template <typename Index, unsigned Experiment=0>
+template <typename Index>
 inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
                                             Index* out, uint32_t group_shift) {
     struct Group {
@@ -962,12 +837,6 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         return 0u;
     }
     const uint32_t lo = range.lo, hi = range.hi;
-    if constexpr (Experiment>=2) {
-        if(lo==hi) {
-            paint_detail::distribute_spread<Index,Experiment>(keys,face_count,out,lo,hi);
-            return live;
-        }
-    }
     /* One group -- nearly every scene -- costs exactly paint_order_buckets;
      * only a scene with several live groups pays the second scan. */
     Group groups[kPaintMaxGroups];
@@ -1005,7 +874,7 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
         ++group.count;
     }
     if (global_spread) {
-        paint_detail::distribute_spread<Index,Experiment>(keys, face_count, out, lo, hi);
+        paint_detail::distribute_spread<Index>(keys, face_count, out, lo, hi);
         return live;
     }
     /* Ascending id; the highest (farthest) group takes the highest buckets. */
@@ -1021,24 +890,15 @@ inline uint32_t paint_order_grouped_buckets(uint32_t* keys, uint32_t face_count,
     /* Shares sum to at most group_count + (kPaintBuckets - group_count). */
     uint32_t base = 0u;
     for (uint32_t g = 0u; g < group_count; ++g) {
-        uint32_t share;
-        if constexpr (Experiment >= 2) {
-            // count <= 65535 and bucket budget <= 1024: no 32-bit overflow.
-            share=1u+((kPaintBuckets-group_count)*groups[g].count)/live;
-        } else {
-            share=1u+static_cast<uint32_t>(
-                (static_cast<uint64_t>(kPaintBuckets-group_count)*groups[g].count)/live);
-        }
+        const uint32_t share = 1u + static_cast<uint32_t>(
+            (static_cast<uint64_t>(kPaintBuckets - group_count) * groups[g].count) / live);
         groups[g].base = base;
         groups[g].shift = paint_detail::RightShift(
             paint_detail::range_shift(groups[g].hi - groups[g].lo, share));
         base += share;
     }
     last = 0u;
-    // Unassigned buckets above base are empty; their descending prefix
-    // contributes zero. Dropping them cannot change any output index.
-    const uint32_t top_bucket=Experiment>=2?base-1u:kPaintBuckets-1u;
-    paint_detail::distribute<Index,Experiment>(keys, face_count, out, top_bucket,
+    paint_detail::distribute<Index>(keys, face_count, out, kPaintBuckets - 1u,
         [&groups, group_count, group_of, low_mask, &last](uint32_t key) {
             const uint32_t id = group_of(key);
             if (groups[last].id != id) {

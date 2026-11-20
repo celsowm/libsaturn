@@ -87,13 +87,6 @@ static_assert(offsetof(Range,lo)==0u && offsetof(Range,hi)==4u && offsetof(Sprea
 extern "C" void sat_paint_keys_quantise_sh2(const Quantise* job);
 extern "C" uint32_t sat_paint_keys_range_sh2(const uint32_t* keys, uint32_t count, Range* out);
 extern "C" void sat_paint_keys_spread_sh2(const Spread* job);
-/* Experimental final stages. Preconditions: aligned uint32_t words, valid
- * bucket indices or kSkip, sum of counts <= 65535, disjoint buffers.
- * The prefix writes descending starts; placement advances each start
- * while walking ascending face indices. Do not dispatch by default. */
-extern "C" void sat_paint_prefix_sh2(uint32_t* words, uint32_t word_count);
-extern "C" void sat_paint_place8_sh2(const uint32_t* keys,uint32_t count,uint8_t* out,uint16_t* start);
-extern "C" void sat_paint_place16_sh2(const uint32_t* keys,uint32_t count,uint16_t* out,uint16_t* start);
 /* Assembled from paint_keys_sh2.s. */
 inline uint32_t range(const uint32_t* keys, uint32_t count, Range* out) {
     return sat_paint_keys_range_sh2(keys, count, out);

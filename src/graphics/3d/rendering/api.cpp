@@ -1,24 +1,5 @@
 #include "saturn/render3d.h"
-#if defined(SAT_NEAR_CLIP_EXPERIMENT) && SAT_NEAR_CLIP_EXPERIMENT
-#include "saturn/time.h"
-extern "C" {
-    extern const uint32_t g_near_clip_mode=SAT_NEAR_CLIP_EXPERIMENT;
-    volatile uint32_t g_near_clip_ticks=0,g_near_clip_calls=0,g_near_clip_partial=0,g_near_clip_pieces=0;
-}
-#endif
-#if defined(SAT_SCREEN_CLIP_EXPERIMENT) && SAT_SCREEN_CLIP_EXPERIMENT
-#include "saturn/time.h"
-extern "C" {
-    extern const uint32_t g_screen_clip_mode=SAT_SCREEN_CLIP_EXPERIMENT;
-    volatile uint32_t g_screen_clip_ticks=0,g_screen_clip_calls=0,g_screen_clip_partial=0,g_screen_clip_pieces=0;
-}
-#endif
-
-
 #include "src/graphics/3d/rendering/logic.hpp"
-#if defined(__sh__) && defined(SAT_STATIC_PROJECT_EXPERIMENT) && SAT_STATIC_PROJECT_EXPERIMENT
-#include "src/graphics/3d/rendering/static_project_sh2.hpp"
-#endif
 #include "src/core/runtime/state.hpp"
 #include "src/hal/vdp1/vdp1.hpp"
 
@@ -59,40 +40,14 @@ extern "C" sat_result_t sat_clip_quad_near(
     const sat_quad3_t* quad,const sat_vec3_t* eye,
     const sat_vec3_t* forward,sat_fx16_t near_depth,
     sat_quad3_t out_triangles[4],uint8_t* out_count) {
-#if defined(SAT_NEAR_CLIP_EXPERIMENT) && SAT_NEAR_CLIP_EXPERIMENT
-    const uint16_t t=sat_time_frc();
-    const sat_result_t st=saturn::core::render3d::clip_world_quad_near<(SAT_NEAR_CLIP_EXPERIMENT>=2?SAT_NEAR_CLIP_EXPERIMENT:0)>(
-        quad,eye,forward,near_depth,out_triangles,out_count);
-    g_near_clip_ticks+=uint16_t(sat_time_frc()-t);
-    ++g_near_clip_calls;
-    if(st==SAT_OK && out_count) {
-        g_near_clip_pieces+=*out_count;
-        if(*out_count>1)++g_near_clip_partial;
-    }
-    return st;
-#else
     return saturn::core::render3d::clip_world_quad_near(
         quad,eye,forward,near_depth,out_triangles,out_count);
-#endif
 }
 extern "C" sat_result_t sat_clip_quad_screen(
     const sat_quad2_t* quad,uint16_t width,uint16_t height,
     sat_quad2_t out_triangles[6],uint8_t* out_count) {
-#if defined(SAT_SCREEN_CLIP_EXPERIMENT) && SAT_SCREEN_CLIP_EXPERIMENT
-    const uint16_t t=sat_time_frc();
-    const sat_result_t st=saturn::core::render3d::clip_quad_screen<(SAT_SCREEN_CLIP_EXPERIMENT==2?2:0)>(
-        quad,width,height,out_triangles,out_count);
-    g_screen_clip_ticks+=uint16_t(sat_time_frc()-t);
-    ++g_screen_clip_calls;
-    if(st==SAT_OK && out_count) {
-        g_screen_clip_pieces+=*out_count;
-        if(*out_count>1)++g_screen_clip_partial;
-    }
-    return st;
-#else
     return saturn::core::render3d::clip_quad_screen(
         quad,width,height,out_triangles,out_count);
-#endif
 }
 
 
@@ -193,13 +148,6 @@ extern "C" sat_result_t sat_project_vertices(const sat_mat4_t* view_proj, const 
     const sat_video_config_t& cfg = saturn::core::g_state.config;
     const int16_t screen_w = static_cast<int16_t>(cfg.width);
     const int16_t screen_h = static_cast<int16_t>(cfg.height);
-#if defined(__sh__) && defined(SAT_STATIC_PROJECT_EXPERIMENT) && SAT_STATIC_PROJECT_EXPERIMENT
-    // Bypass before the extra wrapper call; default library is unchanged.
-    if (count >= static_project::kGuardedMinCount &&
-        (view_proj->m[1] || view_proj->m[2] || view_proj->m[4] || view_proj->m[12])) {
-        static_project::candidate_guarded(view_proj->m, points, count, screen_w, screen_h, out);
-    } else
-#endif
     project_vertices(view_proj->m, points, count, screen_w, screen_h, out);
     return SAT_OK;
 }

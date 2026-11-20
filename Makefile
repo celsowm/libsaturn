@@ -147,13 +147,6 @@ ASFLAGS     := -m2 -mb
 # defines never enter generic translation units, and profile changes select
 # different object/archive paths instead of touching every .o on each build.
 LIB_PROFILE_METRICS := 0
-ifeq ($(EXAMPLE),world_cull_renderer)
-LIB_PROFILE_METRICS := 1
-SAT_WORLD_CULL_EXPERIMENT ?= 1
-ifeq ($(SAT_WORLD_CULL_EXPERIMENT),0)
-$(error world_cull_renderer requires SAT_WORLD_CULL_EXPERIMENT=1, 2 or 3)
-endif
-endif
 ifneq ($(filter skeletal_animation_3d fighter_arena_3d skinning_stress_3d killer_clown_demo,$(EXAMPLE)),)
 LIB_PROFILE_METRICS := 1
 endif
@@ -175,50 +168,8 @@ LIB_PROFILE_METRICS := 1
 endif
 LIB_FAULT_MODE := $(if $(strip $(SAT_PARALLEL_TEST_FAULT)),$(SAT_PARALLEL_TEST_FAULT),0)
 SAT_LEGACY_EARLY_SCU ?= 0
-# Internal opt-in for matched renderer experiments; absent from release builds.
-SAT_STATIC_PROJECT_EXPERIMENT ?= 0
-# 0 default, 1 instrumented control, 2 C++, 3 SH-2. Internal only.
-SAT_HIERARCHY_EXPERIMENT ?= 0
-SAT_SKIN_BLEND_BENCH ?= 0
-SAT_SKIN_CHARACTER_EXPERIMENT ?= 0
-SAT_SCREEN_CLIP_EXPERIMENT ?= 0
-SAT_NEAR_CLIP_EXPERIMENT ?= 0
-SAT_WORLD_CULL_EXPERIMENT ?= 0
-# 0 shipping scalar, 1 diagnostic control, 3 C3 V4 candidate (2 retired).
-SAT_VDP1_EMIT_EXPERIMENT ?= 0
-ifeq ($(filter $(SAT_VDP1_EMIT_EXPERIMENT),0 1 3),)
-$(error SAT_VDP1_EMIT_EXPERIMENT must be 0, 1 or 3)
-endif
-SAT_VDP1_POSE_CAPTURE ?= 0
 LIB_CFLAGS := $(BASE_CFLAGS) -DSAT_LEGACY_EARLY_SCU=$(SAT_LEGACY_EARLY_SCU) -DSAT_PROFILE_METRICS=$(LIB_PROFILE_METRICS) \
               -DSAT_PARALLEL_TEST_FAULT=$(LIB_FAULT_MODE)
-ifeq ($(SAT_STATIC_PROJECT_EXPERIMENT),1)
-LIB_CFLAGS += -DSAT_STATIC_PROJECT_EXPERIMENT=1
-endif
-ifneq ($(SAT_HIERARCHY_EXPERIMENT),0)
-LIB_CFLAGS += -DSAT_HIERARCHY_EXPERIMENT=$(SAT_HIERARCHY_EXPERIMENT)
-endif
-ifeq ($(SAT_SKIN_BLEND_BENCH),1)
-LIB_CFLAGS += -DSAT_SKIN_BLEND_BENCH=1
-endif
-ifneq ($(SAT_SKIN_CHARACTER_EXPERIMENT),0)
-LIB_CFLAGS += -DSAT_SKIN_CHARACTER_EXPERIMENT=$(SAT_SKIN_CHARACTER_EXPERIMENT)
-endif
-ifneq ($(SAT_SCREEN_CLIP_EXPERIMENT),0)
-LIB_CFLAGS += -DSAT_SCREEN_CLIP_EXPERIMENT=$(SAT_SCREEN_CLIP_EXPERIMENT)
-endif
-ifneq ($(SAT_NEAR_CLIP_EXPERIMENT),0)
-LIB_CFLAGS += -DSAT_NEAR_CLIP_EXPERIMENT=$(SAT_NEAR_CLIP_EXPERIMENT)
-endif
-ifneq ($(SAT_WORLD_CULL_EXPERIMENT),0)
-LIB_CFLAGS += -DSAT_WORLD_CULL_EXPERIMENT=$(SAT_WORLD_CULL_EXPERIMENT)
-endif
-ifneq ($(SAT_VDP1_EMIT_EXPERIMENT),0)
-LIB_CFLAGS += -DSAT_VDP1_EMIT_EXPERIMENT=$(SAT_VDP1_EMIT_EXPERIMENT)
-endif
-ifeq ($(SAT_VDP1_POSE_CAPTURE),1)
-LIB_CFLAGS += -DSAT_VDP1_POSE_CAPTURE=1
-endif
 LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
                 -fno-threadsafe-statics -fno-use-cxa-atexit
 # Keep these paced control/streaming translation units compact in both the

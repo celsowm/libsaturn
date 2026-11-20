@@ -662,18 +662,6 @@ inline constexpr uint32_t pair(uint32_t first, uint32_t second) {
 #endif
 }
 
-// The VDP1 command ABI guarantees four-byte alignment. Both VRAM
-// banks start on a 32-byte boundary. Use the existing endian-aware pair
-// convention; do not touch the publication fence, links or list counts.
-// 0: shipping scalar, 1: explicit regression control, 3: qualified candidate.
-// Mode 2 was the rejected full-packed experiment; historical commits retain it.
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT!=0 && SAT_VDP1_EMIT_EXPERIMENT!=1 && SAT_VDP1_EMIT_EXPERIMENT!=3
-#error "VDP1 emitter mode must be 0, 1 or 3"
-#endif
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT
-extern "C" { extern const uint32_t g_vdp1_emit_mode=SAT_VDP1_EMIT_EXPERIMENT; }
-#endif
-
 sat_result_t push_sprite(const SpriteRequest& req) {
     if (g_cmd_buffer == nullptr) {
         return SAT_ERR_NOT_INITIALIZED;
@@ -954,18 +942,6 @@ sat_result_t push_projected_program(const sat_quad2_t& quad,
     if (!prefix || !texture.valid) return SAT_ERR_INVALID_ARG;
     if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
     Command& cmd=g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==3
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(prefix[0]), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(prefix[2]), static_cast<uint16_t>(prefix[3]));
-    words[2] = pair(static_cast<uint16_t>(prefix[4]), static_cast<uint16_t>(prefix[5]));
-    words[3] = pair(static_cast<uint16_t>(quad.x[0]), static_cast<uint16_t>(quad.y[0]));
-    words[4] = pair(static_cast<uint16_t>(quad.x[1]), static_cast<uint16_t>(quad.y[1]));
-    words[5] = pair(static_cast<uint16_t>(quad.x[2]), static_cast<uint16_t>(quad.y[2]));
-    words[6] = pair(static_cast<uint16_t>(quad.x[3]), static_cast<uint16_t>(quad.y[3]));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl=prefix[0];cmd.link=0;
     cmd.pmod=prefix[2];cmd.colr=prefix[3];
     cmd.srca=prefix[4];cmd.size=prefix[5];
@@ -974,7 +950,6 @@ sat_result_t push_projected_program(const sat_quad2_t& quad,
     cmd.xc=quad.x[2];cmd.yc=quad.y[2];
     cmd.xd=quad.x[3];cmd.yd=quad.y[3];
     cmd.grda=0;cmd.pad=0;
-#endif
     return SAT_OK;
 }
 
@@ -1001,22 +976,6 @@ sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     if (command_slot_unavailable()) return SAT_ERR_CAPACITY;
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==3
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(
-        saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false) |
-        saturn::core::compose_sprite_dir(flags))), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(flags, texture.format),
-        (flags & SAT_SPRITE_FLAG_USER_CLIP) != 0u)), static_cast<uint16_t>(saturn::core::compose_sprite_colr(texture.palette, texture.format)));
-    words[2] = pair(static_cast<uint16_t>(texture.srca), static_cast<uint16_t>(static_cast<uint16_t>(((texture.width / 8u) << 8u) | texture.height)));
-    words[3] = pair(static_cast<uint16_t>(quad.x[0]), static_cast<uint16_t>(quad.y[0]));
-    words[4] = pair(static_cast<uint16_t>(quad.x[1]), static_cast<uint16_t>(quad.y[1]));
-    words[5] = pair(static_cast<uint16_t>(quad.x[2]), static_cast<uint16_t>(quad.y[2]));
-    words[6] = pair(static_cast<uint16_t>(quad.x[3]), static_cast<uint16_t>(quad.y[3]));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl = static_cast<uint16_t>(
         saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false) |
         saturn::core::compose_sprite_dir(flags));
@@ -1033,7 +992,6 @@ sat_result_t push_projected_sprite(const sat_quad2_t& quad,
     cmd.xd = quad.x[3]; cmd.yd = quad.y[3];
     cmd.grda = 0;
     cmd.pad = 0;
-#endif
     return SAT_OK;
 }
 
@@ -1055,21 +1013,6 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     }
 
     Command& cmd = g_cmd_buffer[g_cmd_count++];
-#if defined(SAT_VDP1_EMIT_EXPERIMENT) && SAT_VDP1_EMIT_EXPERIMENT==3
-    static_assert(sizeof(Command)==32 && alignof(Command)>=4);
-    volatile word_t* const words=reinterpret_cast<volatile word_t*>(&cmd);
-    words[0] = pair(static_cast<uint16_t>(static_cast<uint16_t>(
-        saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false) |
-        saturn::core::compose_sprite_dir(req.flags))), static_cast<uint16_t>(0));
-    words[1] = pair(static_cast<uint16_t>(saturn::core::compose_inside_user_clip_pmod(
-        saturn::core::compose_sprite_pmod(req.flags, req.format), req.user_clip)), static_cast<uint16_t>(saturn::core::compose_sprite_colr(req.palette, req.format)));
-    words[2] = pair(static_cast<uint16_t>(req.srca), static_cast<uint16_t>(static_cast<uint16_t>(((req.width / 8u) << 8u) | req.height)));
-    words[3] = pair(static_cast<uint16_t>(req.x[0]), static_cast<uint16_t>(req.y[0]));
-    words[4] = pair(static_cast<uint16_t>(req.x[1]), static_cast<uint16_t>(req.y[1]));
-    words[5] = pair(static_cast<uint16_t>(req.x[2]), static_cast<uint16_t>(req.y[2]));
-    words[6] = pair(static_cast<uint16_t>(req.x[3]), static_cast<uint16_t>(req.y[3]));
-    words[7] = pair(static_cast<uint16_t>(0), static_cast<uint16_t>(0));
-#else
     cmd.ctrl = static_cast<uint16_t>(
         saturn::core::compose_polygon_ctrl(saturn::core::kVdp1CmdDistortedSprite, false) |
         saturn::core::compose_sprite_dir(req.flags));
@@ -1089,7 +1032,6 @@ sat_result_t push_distorted_sprite(const DistortedSpriteRequest& req) {
     cmd.yd = req.y[3];
     cmd.grda = 0;
     cmd.pad = 0;
-#endif
     return SAT_OK;
 }
 
@@ -1493,39 +1435,6 @@ void submit() {
     }
 }
 
-#if defined(SAT_VDP1_POSE_CAPTURE) && SAT_VDP1_POSE_CAPTURE
-// Qualification only: read the just-submitted bank before begin_frame.
-// Full last-list snapshot in WRAM-L; no production or performance hook.
-extern "C" {
-uint16_t g_vdp1_pose_capture[4u + kCommandAreaBytes/2u + kGouraudAreaBytes/2u]
-    __attribute__((section(".wram_l")));
-}
-extern "C" uint32_t sat_vdp1_test_capture_pose(uint32_t final) {
-    const uint32_t commands=static_cast<uint32_t>(g_cmd_count)*16u;
-    const uint32_t gouraud=static_cast<uint32_t>(g_gouraud_count)*4u;
-    const volatile uint16_t* cmd=reinterpret_cast<const volatile uint16_t*>(g_cmd_buffer);
-    const volatile uint16_t* shade=gouraud_words();
-    uint32_t hash=2166136261u;
-    const auto add=[&hash](uint16_t word) {
-        hash=(hash^static_cast<uint8_t>(word>>8u))*16777619u;
-        hash=(hash^static_cast<uint8_t>(word))*16777619u;
-    };
-    add(g_cmd_count);add(g_gouraud_count);
-    if(final) {
-        g_vdp1_pose_capture[0]=0x5644u;g_vdp1_pose_capture[1]=0x5031u;
-        g_vdp1_pose_capture[2]=g_cmd_count;g_vdp1_pose_capture[3]=g_gouraud_count;
-    }
-    for(uint32_t i=0;i<commands;++i) {
-        const uint16_t word=cmd[i];add(word);
-        if(final)g_vdp1_pose_capture[4u+i]=word;
-    }
-    for(uint32_t i=0;i<gouraud;++i) {
-        const uint16_t word=shade[i];add(word);
-        if(final)g_vdp1_pose_capture[4u+kCommandAreaBytes/2u+i]=word;
-    }
-    return hash;
-}
-#endif
 
 sat_result_t upload_palette(const uint16_t* palette_rgb555, uint16_t palette_index) {
     if (palette_rgb555 == nullptr) {

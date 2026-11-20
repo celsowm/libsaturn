@@ -219,3 +219,24 @@ Proposed study directory: `harness/studies/sh2-assembly/` with a manifest, compa
 - Physical-hardware acceptance is explicitly tracked, never fabricated.
 
 This document is a roadmap. Its thresholds, priorities and proposed artifact names are planning choices; all new performance claims require fresh evidence. No implementation or benchmark was performed as part of writing this plan.
+
+## 12. Disposition of the B/C candidates (2026-11-19)
+
+The opt-in switches (`SAT_*_EXPERIMENT`, `SAT_SKIN_BLEND_BENCH`,
+`SAT_VDP1_POSE_CAPTURE`, `LIBSATURN_VDP1_HYBRID_EMIT`), their bench and
+renderer examples, harness runners and schemas were removed. Every winner
+below is exact, so it is now the only path; the reports stay as the record.
+
+| Package | Candidate | Outcome | Evidence |
+|---|---|---|---|
+| B1 | static projection SH-2 kernel | removed: slower on empty/singleton sets, no unconditional win | `STATIC_PROJECTION_SH2_EXPERIMENT.md` |
+| B2 | affine hierarchy compose (SH-2 leaf, `sat_mat4_multiply` fallback) | **default** | `HIERARCHY_CHARACTER_AB.md`: hierarchy -31.7% Mednafen |
+| B3 | weighted pair as b + w(a-b) (V2, `subv` guard) | **default** for every deform store | `WEIGHTED_CHARACTER_AB.md`: skin -4.0% Mednafen; the triple form (V1) regressed and is gone |
+| C1 | SH-2 prefix/placement, V2 equal-key and top-bucket shortcuts | removed: no gain in the Tekken fight | `PAINTER_ORDER_V2_EXPERIMENT.md`, `PAINTER_DISTRIBUTION_SH2_EXPERIMENT.md` |
+| C2 | screen clip mode 2 (edge mask, 32-bit intersection) | **default** | `SCREEN_CLIP_RENDERER_AB.md`: clip -36.8%, submit -5.5% Mednafen |
+| C2 | near clip V2-A/B | removed: wins axial cameras, regresses oblique ones (the game case) | `NEAR_CLIP_V2_QUALIFICATION.md` |
+| C2 | world cull wide/dot leaves | removed: matched Sonic renderer regressed 1.4-1.7% | `WORLD_CULL_RENDERER_AB.md` |
+| C3 | hybrid longword emitter | removed: correct, but no Tekken coverage or gain | `VDP1_EMIT_C3_EXPERIMENT.md`, `VDP1_EMIT_C3_REAL_WORKLOADS.md` |
+
+The isolated MAC studies (`MATRIX_MAC_BENCH.md`, `SKINNING_MAC_BENCH.md`)
+lost their examples and runners too; history keeps them.

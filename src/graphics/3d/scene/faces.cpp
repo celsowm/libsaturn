@@ -17,20 +17,6 @@
 
 #include <stdint.h>
 
-#ifndef SAT_WORLD_CULL_EXPERIMENT
-#define SAT_WORLD_CULL_EXPERIMENT 0
-#endif
-#if SAT_WORLD_CULL_EXPERIMENT
-extern "C" {
-extern const uint32_t g_world_cull_mode=SAT_WORLD_CULL_EXPERIMENT;
-uint32_t g_world_cull_census[12];
-}
-#endif
-#if SAT_WORLD_CULL_EXPERIMENT==3
-#define WC_COUNT(index,amount) (g_world_cull_census[index]+=(amount))
-#else
-#define WC_COUNT(index,amount) ((void)0)
-#endif
 
 #ifndef SAT_PROFILE_METRICS
 #define SAT_PROFILE_METRICS 0
@@ -43,32 +29,6 @@ static_assert(sizeof(sat_scene3d_material_program_t)==16u,"compact material prog
 #endif
 
 namespace {
-constexpr unsigned kWorldCullMode=SAT_WORLD_CULL_EXPERIMENT==2?3:0;
-#if SAT_WORLD_CULL_EXPERIMENT==3
-// Census-only control build. Classify the same small/general/wide route,
-// with extra work outside timing comparisons. Single-Master diagnostic.
-void world_cull_census(const sat_vec3_t& a,const sat_vec3_t& b,const sat_vec3_t& c,
-                       const sat_vec3_t& d,int small,bool visible) {
-    WC_COUNT(5,1);
-    if(!visible)WC_COUNT(10,1);
-    if(small>=0){WC_COUNT(6,1);return;}
-    using namespace saturn::core::mesh3d;
-    const auto da=vec3_sub(d,a),ba=vec3_sub(b,a);
-    int64_t n[3];cross_raw(da,ba,n);
-    const bool zero=!(n[0]|n[1]|n[2]);
-    const uint32_t edge=(uint32_t(da.x)+0x8000u)|(uint32_t(da.y)+0x8000u)|
-        (uint32_t(da.z)+0x8000u)|(uint32_t(ba.x)+0x8000u)|
-        (uint32_t(ba.y)+0x8000u)|(uint32_t(ba.z)+0x8000u);
-    if(!zero&&edge<65536u){WC_COUNT(7,1);return;}
-    WC_COUNT(8,1);
-    if(zero){
-        WC_COUNT(9,1);
-        cross_raw(da,vec3_sub(c,a),n);
-        if(!(n[0]|n[1]|n[2]))cross_raw(vec3_sub(c,a),ba,n);
-        if(!(n[0]|n[1]|n[2]))WC_COUNT(11,1);
-    }
-}
-#endif
 /* The scene direct draws queue into, if any (sat_scene3d_capture_begin). */
 struct Capture {
     sat_scene3d_faces_t* scene;
@@ -1430,8 +1390,6 @@ static sat_result_t submit_instance(
     if (instance->pre_projected && (!fast ||
             (instance->cull_backfaces && instance->cull_backfaces!=SAT_SCENE3D_CULL_SCREEN)))
         return SAT_ERR_UNSUPPORTED;
-    WC_COUNT(0,mesh->face_count);
-    WC_COUNT(fast?1:2,1);
     if (fast) {
         if (instance->cull_backfaces==SAT_SCENE3D_CULL_SCREEN) {
             /* The projected area is the only visibility test in this mode.
@@ -1510,7 +1468,6 @@ static sat_result_t submit_instance(
             uint16_t kept=0u,culled=0u;
             for (uint16_t f=first;f<last;++f) {
                 if (!cull || (double_sided && double_sided[f])) {
-                    WC_COUNT(3,1);
                     survivors[kept++]=f;
                     continue;
                 }
@@ -1521,7 +1478,6 @@ static sat_result_t submit_instance(
                 const sat_projected_vertex_t& d=screen_scratch[idx[3]];
                 if (saturn::core::render3d::corner_area2(
                         a.x,a.y,b.x,b.y,c.x,c.y,d.x,d.y)<=0) {
-                    WC_COUNT(4,1);
                     ++culled;
                     continue;
                 }
@@ -1535,12 +1491,9 @@ static sat_result_t submit_instance(
                     const sat_vec3_t& b=world[idx[1]];
                     const sat_vec3_t& c=world[idx[2]];
                     const sat_vec3_t& d=world[idx[3]];
-                    const int small=saturn::core::mesh3d::quad_visible_small_body<0>(a,b,c,d,scene->eye);
+                    const int small=saturn::core::mesh3d::quad_visible_small_body(a,b,c,d,scene->eye);
                     const bool visible=small>=0?small!=0:
-                        saturn::core::mesh3d::quad_visible_general<kWorldCullMode>(a,b,c,d,scene->eye);
-#if SAT_WORLD_CULL_EXPERIMENT==3
-                    world_cull_census(a,b,c,d,small,visible);
-#endif
+                        saturn::core::mesh3d::quad_visible_general(a,b,c,d,scene->eye);
                     if (!visible) {
                         ++culled;
                         continue;
@@ -1563,13 +1516,11 @@ static sat_result_t submit_instance(
         const uint16_t* idx=&mesh->indices[static_cast<uint32_t>(f)*4u];
         const bool cull_face=instance->cull_backfaces &&
             (!instance->double_sided_faces || !instance->double_sided_faces[f]);
-        if(!cull_face)WC_COUNT(3,1);
         const bool screen_test=cull_face &&
             (all_positive || (screen_scratch[idx[0]].w>0 && screen_scratch[idx[1]].w>0 &&
             screen_scratch[idx[2]].w>0 && screen_scratch[idx[3]].w>0));
         if (screen_test && saturn::core::render3d::projected_area2(screen_scratch,idx)<=0)
         {
-            WC_COUNT(4,1);
             ++scene->culled_faces;
             continue;
         }
@@ -1582,17 +1533,8 @@ static sat_result_t submit_instance(
          * that disagrees with their actual outward normal. */
         if (cull_face &&
             !(screen_test && instance->cull_backfaces==SAT_SCENE3D_CULL_SCREEN)) {
-#if SAT_WORLD_CULL_EXPERIMENT==3
-            const auto& a=*corners[0];const auto& b=*corners[1];
-            const auto& c=*corners[2];const auto& d=*corners[3];
-            const int small=saturn::core::mesh3d::quad_visible_small<0>(a,b,c,d,scene->eye);
-            const bool visible=small>=0?small!=0:
-                saturn::core::mesh3d::quad_visible_general<0>(a,b,c,d,scene->eye);
-            world_cull_census(a,b,c,d,small,visible);
-#else
-            const bool visible=saturn::core::mesh3d::quad_visible<kWorldCullMode>(
+            const bool visible=saturn::core::mesh3d::quad_visible(
                 *corners[0],*corners[1],*corners[2],*corners[3],scene->eye);
-#endif
             if(!visible){++scene->culled_faces;continue;}
         }
         if (compiled_instance) {

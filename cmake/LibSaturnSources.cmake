@@ -73,7 +73,6 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/materials/pool.cpp
     src/graphics/3d/rendering/api.cpp
     src/graphics/3d/rendering/paint_keys_sh2.s
-    src/graphics/3d/rendering/static_project_sh2.s
     src/graphics/3d/rendering/fade.cpp
     src/graphics/3d/rendering/indexed.cpp
     src/graphics/3d/rendering/surface.cpp
