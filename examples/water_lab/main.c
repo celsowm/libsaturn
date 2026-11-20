@@ -14,7 +14,7 @@ static uint16_t order[FACE_CAPACITY];
 static sat_fx_compositor_t compositor;
 
 int main(void) {
-    static const uint16_t workloads[] = {128, 256, 512};
+    static const uint16_t workloads[] = {128, 256, LAB_MAX_WORKLOAD};
     const sat_video_config_t video = {LAB_WIDTH, LAB_HEIGHT, SAT_VIDEO_AUTO, 0};
     sat_camera3d_t camera;
     lab_player_t player;
@@ -38,19 +38,20 @@ int main(void) {
 
     sat_example_must(sat_init(&video));
     sat_example_must(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
+    sat_example_must(sat_vdp2_back_color_set(SAT_RGB555(3, 5, 8)));
+    sat_example_must(sat_set_clear_color(SAT_RGB555(3, 5, 8)));
     sat_example_must(sat_scene_init(&scene, faces, keys, order, FACE_CAPACITY));
+    lab_surface_init();
     lab_scene_init();
     lab_benchmark_init();
     lab_player_reset(&player);
 
     for (;;) {
         sat_pad_state_t pad = {0};
-        if (compositor.visible) {
-            sat_example_must(sat_begin_frame());
-            sat_example_must(sat_pad_poll(&pad));
-        } else {
-            sat_example_must(sat_app_frame_begin(SAT_RGB555(3, 5, 8), SAT_RGB555(3, 5, 8), &pad));
-        }
+        /* Build in the free command bank while the previous draw or swap
+         * finishes. ON_SUBMIT waits before publishing this bank. */
+        sat_example_must(sat_begin_frame());
+        sat_example_must(sat_pad_poll(&pad));
         if (pad.pressed & SAT_PAD_START) {
             lab_player_reset(&player);
             tick = 0;

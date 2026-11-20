@@ -25,6 +25,7 @@ probe=$(symbol water_lab_probe _water_lab_probe)
 ./harness/run-harness.sh water_lab --frames 170 --out "$out/hud.json" -- \
     --pad-button Z --pad-press-at 38 --pad-release-at 52 \
     --screenshot "16:$out/rippling-water.png" --screenshot "150:$out/compact-hud.png" \
+    --video-observations "$out/hud-fields.csv" --video-crop 80:95:160:65 \
     --dump-mem "0x05c00000:164000:$out/hud-commands.bin" \
     --dump-mem "$native:80:$out/hud-telemetry.bin"
 

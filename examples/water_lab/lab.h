@@ -24,7 +24,7 @@ sat_fx16_t lab_floor_height(sat_fx16_t x, sat_fx16_t z);
 void lab_camera_update(sat_camera3d_t* camera, const lab_player_t* player,
                        uint32_t tick, int32_t orbit, uint8_t automatic);
 
-enum { LAB_MAX_SUBDIVISIONS = 16 };
+enum { LAB_MAX_SUBDIVISIONS = 16, LAB_MAX_WORKLOAD = 512 };
 
 typedef enum lab_mode {
     LAB_DRY, LAB_OPAQUE, LAB_MESH, LAB_HALF, LAB_UNDERWATER, LAB_MULTIPASS, LAB_POOL,
@@ -38,6 +38,8 @@ typedef struct lab_water {
     uint8_t waves;
 } lab_water_t;
 
+void lab_surface_init(void);
+sat_fx16_t lab_sin_degrees(int degrees);
 void lab_surface_draw(sat_scene_t* scene, const lab_water_t* water, uint32_t tick);
 
 void lab_scene_init(void);

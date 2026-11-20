@@ -32,6 +32,27 @@ table. Its VDP2 allocations cover two
 128 KiB indexed bitmaps, one 128 KiB scratch reservation, and one CRAM
 palette bank. The backdrop uses the final VRAM word.
 
+## Rippling Water frame rate
+
+Ymir ran the default 128-face dry workload and 8×8 rippling grid for 540
+fields. The rates count changed fields in the 160×65 water crop over
+fields 99–539. The HUD run toggled diagnostics at startup.
+
+| Mode | Before | After |
+| --- | ---: | ---: |
+| NTSC | 20.0 FPS | 29.5 FPS |
+| NTSC with diagnostics | 17.1 FPS | 27.5 FPS |
+| PAL | 16.7 FPS | 29.3 FPS |
+
+The grid, ripple ribbons and mosaic rows share projected vertices through the
+indexed scene instance API. Whole-degree sine samples reuse the SDK's
+fixed-point results. Native frames build in the free VDP1 command bank while
+the previous draw and swap finish. At the end of the NTSC run, preparation
+fell from 41.2 ms to 27.8 ms. The common sequence of 180 water-crop hashes
+matched before and after the change. The updated runs had no VDP1 draw
+timeouts. The later NTSC submission phase caused 31 swaps to wait an extra
+field in the run without diagnostics.
+
 ## Native modes
 
 | Ymir sample | World commands | Preparation / flush |

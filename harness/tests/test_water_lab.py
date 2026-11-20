@@ -61,6 +61,15 @@ class WaterLab(unittest.TestCase):
         self.assertGreaterEqual(command_modes("hud").count(0x00C7), 64)
         self.assertGreater(data[8] - data[4], 200)
 
+    def test_rippling_water_presentation_rate(self):
+        with (EVIDENCE / "hud-fields.csv").open(newline="") as source:
+            fields = [row for row in csv.DictReader(source) if 60 <= int(row["frame"]) < 170]
+        self.assertEqual(len(fields), 110)
+        changed = sum(int(row["changed_pixels"]) > 0 for row in fields)
+        refresh = json.loads((EVIDENCE / "hud.json").read_text())["boot"]["nominal_refresh_hz"]
+        self.assertGreaterEqual(changed * refresh / len(fields), 24)
+        self.assertEqual(words("hud", 20)[7], 0)
+
     def test_native(self):
         for name in ("matched-dry", "opaque", "mesh", "half", "underwater", "underwater-low-camera"):
             self.assertEqual(shot(name).size, (320, 224))

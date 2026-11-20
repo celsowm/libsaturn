@@ -10,7 +10,7 @@
 #define SHADE SAT_RGB555(11, 10, 11)
 #define BRONZE SAT_RGB555(25, 17, 8)
 
-enum { FLOOR_ROWS = 8, TILE_SIZE = 8 };
+enum { FLOOR_ROWS = 8, FLOOR_MAX_COLUMNS = LAB_MAX_WORKLOAD / FLOOR_ROWS, TILE_SIZE = 8 };
 
 static sat_vdp1_texture_t mosaic;
 static sat_vdp1_texture_t submerged_mosaic;
@@ -30,6 +30,19 @@ static uint16_t unsupported_crossings;
 
 uint16_t lab_unsupported_crossings(void) { return unsupported_crossings; }
 
+static uint16_t underwater_light(const sat_vec3_t* v, sat_fx16_t depth, int phase) {
+    const sat_fx16_t strength = depth > SAT_FX16_ONE ? SAT_FX16_ONE : depth;
+    const sat_fx16_t angle = 42 * (v->x + v->z);
+    const sat_fx16_t wave = angle % SAT_FX16_ONE == 0
+        ? lab_sin_degrees(angle / SAT_FX16_ONE + phase)
+        : sat_sin_deg(angle + LAB_UNIT(phase));
+    const sat_fx16_t light = wave + SAT_FX16_ONE;
+    const int caustic = (strength == SAT_FX16_ONE ? light : sat_fx16_mul(light, strength))
+        / (SAT_FX16_ONE / 3);
+    const int tint = 5 * strength / SAT_FX16_ONE;
+    return SAT_RGB555(16 - tint, 16 + caustic, 16 + tint + caustic);
+}
+
 static void underwater(lab_geometry_t* g, const sat_quad3_t* quad,
                        const sat_scene3d_material_t* material) {
     sat_water_piece_t pieces[SAT_WATER_SPLIT_PIECES_MAX];
@@ -41,17 +54,13 @@ static void underwater(lab_geometry_t* g, const sat_quad3_t* quad,
         sat_scene3d_material_t shaded = *material;
         uint16_t gouraud[4];
         if (piece->submerged) {
+            const int phase = (g->tick % 360u) * 4u;
             for (unsigned j = 0; j < 4; ++j) {
                 sat_vec3_t* v = &piece->quad.v[j];
                 const sat_fx16_t depth = surface - v->y;
-                const sat_fx16_t strength = depth > SAT_FX16_ONE ? SAT_FX16_ONE : depth;
-                const sat_fx16_t phase = 42 * (v->x + v->z) + LAB_UNIT(g->tick % 360u * 4u);
-                const sat_fx16_t light = sat_sin_deg(phase) + SAT_FX16_ONE;
-                const int caustic = sat_fx16_mul(light, strength) / (SAT_FX16_ONE / 3);
-                const int tint = 5 * strength / SAT_FX16_ONE;
-                gouraud[j] = SAT_RGB555(16 - tint, 16 + caustic, 16 + tint + caustic);
+                gouraud[j] = underwater_light(v, depth, phase);
                 /* This affine shear vanishes at the shared waterline. */
-                v->x += sat_fx16_mul(depth, g->shear);
+                if (g->shear) v->x += sat_fx16_mul(depth, g->shear);
             }
             shaded.vertex_gouraud = gouraud;
         }
@@ -246,24 +255,68 @@ static void actors(lab_geometry_t* g, const lab_player_t* player, uint32_t tick)
 }
 
 static void floor_tiles(lab_geometry_t* g, unsigned count) {
+    const lab_mode_t mode = g->water->mode;
+    const int submerged = mode == LAB_POOL || mode == LAB_UNDERWATER;
     const sat_scene3d_material_t tile = {
-        .kind = SAT_SCENE3D_INDEXED_TEXTURED, .rgb555 = SAT_RGB555(10, 14, 15),
-        .texture = &mosaic, .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE,
-        .sprite_flags = g->water->mode == LAB_MULTIPASS ? SAT_SPRITE_FLAG_OPAQUE : 0
+        .kind = SAT_SCENE3D_INDEXED_TEXTURED,
+        .rgb555 = submerged ? SAT_RGB555(6, 12, 16) : SAT_RGB555(10, 14, 15),
+        .texture = mode == LAB_POOL ? &rgb_mosaic : mode == LAB_UNDERWATER ? &submerged_mosaic : &mosaic,
+        .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE,
+        .sprite_flags = mode == LAB_MULTIPASS ? SAT_SPRITE_FLAG_OPAQUE : 0
     };
+    sat_vec3_t vertices[2 * (FLOOR_MAX_COLUMNS + 1)];
+    sat_projected_vertex_t projected[2 * (FLOOR_MAX_COLUMNS + 1)];
+    uint16_t indices[4 * FLOOR_MAX_COLUMNS];
+    uint16_t lighting[2 * (FLOOR_MAX_COLUMNS + 1)];
+    static const uint16_t face_materials[FLOOR_MAX_COLUMNS];
     const sat_scene3d_material_t stone = {
         .kind = SAT_SCENE3D_RGB, .rgb555 = SAT_RGB555(12, 16, 15),
-        .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE
+        .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE,
+        .vertex_gouraud = submerged ? lighting : 0
     };
+    const sat_fx16_t y = LAB_UNIT(-3);
+    const sat_fx16_t depth = g->water->height - y;
+    const sat_fx16_t shear = g->shear ? sat_fx16_mul(depth, g->shear) : 0;
+    const int phase = (g->tick % 360u) * 4u;
+    unsigned previous_columns = 0;
     for (unsigned row = 0; row < FLOOR_ROWS; ++row) {
         const unsigned columns = count / FLOOR_ROWS + (row < count % FLOOR_ROWS);
+        if (columns == 0) break;
+        const int bare = row % 4 == 0;
         const sat_fx16_t z = LAB_UNIT(-8) + LAB_UNIT(2) * (int)row;
-        for (unsigned column = 0; column < columns; ++column) {
-            const sat_fx16_t a = LAB_UNIT(-8) + (sat_fx16_t)(column * LAB_UNIT(16) / columns);
-            const sat_fx16_t b = LAB_UNIT(-8) + (sat_fx16_t)((column + 1u) * LAB_UNIT(16) / columns);
-            const sat_quad3_t quad = horizontal(a, b, LAB_UNIT(-3), z, z+LAB_UNIT(2));
-            submit(g, &quad, row % 4 == 0 ? &stone : &tile);
+        if (columns != previous_columns) {
+            for (unsigned i = 0; i < columns; ++i) {
+                const unsigned left = 2 * i;
+                indices[4 * i] = left;
+                indices[4 * i + 1] = left + 2;
+                indices[4 * i + 2] = left + 3;
+                indices[4 * i + 3] = left + 1;
+            }
+            previous_columns = columns;
         }
+        for (unsigned i = 0; i <= columns; ++i) {
+            const sat_fx16_t x = LAB_UNIT(-8) + (sat_fx16_t)(i * LAB_UNIT(16) / columns);
+            sat_vec3_t* pair = &vertices[2 * i];
+            pair[0] = (sat_vec3_t){x, y, z};
+            pair[1] = (sat_vec3_t){x, y, z + LAB_UNIT(2)};
+            if (bare && submerged) {
+                lighting[2 * i] = underwater_light(&pair[0], depth, phase);
+                lighting[2 * i + 1] = underwater_light(&pair[1], depth, phase);
+                pair[0].x += shear;
+                pair[1].x += shear;
+            }
+        }
+        const sat_mesh_t mesh = {
+            .vertices = vertices, .indices = indices,
+            .vertex_cap = 2 * (FLOOR_MAX_COLUMNS + 1), .vertex_count = 2 * (columns + 1),
+            .face_cap = FLOOR_MAX_COLUMNS, .face_count = columns
+        };
+        const sat_scene3d_instance_t instance = {
+            .mesh = &mesh, .materials = bare ? &stone : &tile, .material_count = 1,
+            .face_materials = face_materials
+        };
+        sat_example_must(sat_scene_submit_instance(
+            g->scene, &instance, SAT_SCENE3D_SLOT_INHERIT, projected, 0));
     }
 }
 
