@@ -135,7 +135,7 @@ inline Status validate_map(const Map& m, uint8_t name_banks, uint32_t planes_siz
         const uint32_t a = m.plane_address[p];
         if (size == 0u || a % size != 0u || a + size > nbg::kVramBytes) return Status::BadPlane;
         if ((nbg::bank_mask_of(a, size, true, true) & ~name_banks) != 0u) return Status::BadPlane;
-        const uint32_t high = nbg::map_value(a, size) >> 6u;
+        const uint32_t high = nbg::map_value(a, size/(m.pages_x*m.pages_y)) >> 6u;
         if (offset_bits == 0xFFFFFFFFu) offset_bits = high;
         else if (offset_bits != high) return Status::BadPlane;
     }
@@ -299,7 +299,7 @@ inline Registers compose(const Layer& l) {
         r.mpofr = base;
         r.mpofr_b = static_cast<uint16_t>(base << 4u);
     } else {
-        const uint32_t size = nbg::plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
+        const uint32_t size = nbg::page_bytes(l.pn_one_word, l.char_2x2);
         for (uint8_t p = 0u; p < kPlanes; p += 2u) {
             const uint32_t v0 = nbg::map_value(l.plane_address[p], size);
             const uint32_t v1 = nbg::map_value(l.plane_address[p + 1u], size);
@@ -347,9 +347,7 @@ inline Registers compose(const Layer& l) {
          * default: the B map is emitted for parameter-mode switching even
          * when RBG1 is off (where no validate pass has run over map_b), so
          * its plane size must never collapse to zero under map_value. */
-        const uint32_t b_size = nbg::plane_bytes(l.rbg1.pn_one_word, l.rbg1.char_2x2,
-                                                 l.map_b.pages_x == 0u ? 1u : l.map_b.pages_x,
-                                                 l.map_b.pages_y == 0u ? 1u : l.map_b.pages_y);
+        const uint32_t b_size = nbg::page_bytes(l.rbg1.pn_one_word, l.rbg1.char_2x2);
         for (uint8_t p = 0u; p < kPlanes; p += 2u) {
             const uint32_t v0 = nbg::map_value(l.map_b.plane_address[p], b_size);
             const uint32_t v1 = nbg::map_value(l.map_b.plane_address[p + 1u], b_size);

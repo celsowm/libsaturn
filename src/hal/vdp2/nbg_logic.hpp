@@ -109,9 +109,12 @@ inline uint8_t bank_mask_of(uint32_t address, uint32_t bytes, bool split_a, bool
     return mask;
 }
 
-/* Register number of a plane address (its address in plane-size units). */
-inline uint32_t map_value(uint32_t address, uint32_t plane_size_bytes) {
-    return address / plane_size_bytes;
+/* Register number of a plane address, in units of one page (manual table 4.8):
+ * a plane of 2 x 1 or 2 x 2 pages ignores the low one or two bits of the value
+ * (bits 5-1 of the map register times 8000H for 2-word names, 2 x 1 pages),
+ * so the value is always address / page size, not address / plane size. */
+inline uint32_t map_value(uint32_t address, uint32_t page_size_bytes) {
+    return address / page_size_bytes;
 }
 
 inline uint32_t reads_for_pattern_names(uint8_t reduction) {
@@ -162,12 +165,13 @@ inline Status validate(uint8_t index, const Layer& l, bool split_a, bool split_b
     if (l.pages_x < 1u || l.pages_x > 2u || l.pages_y < 1u || l.pages_y > 2u) return Status::BadPlane;
     if (l.reduction == 2u && l.pages_x == 2u && l.pages_y == 2u) return Status::BadReduction;
     const uint32_t size = plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
+    const uint32_t page = page_bytes(l.pn_one_word, l.char_2x2);
     uint32_t offset_bits = 0xFFFFFFFFu;
     for (uint8_t p = 0u; p < 4u; ++p) {
         const uint32_t a = l.plane_address[p];
         if (a % size != 0u || a + size > kVramBytes) return Status::BadPlane;
         /* The three map-offset bits are shared by the four planes. */
-        const uint32_t high = map_value(a, size) >> 6u;
+        const uint32_t high = map_value(a, page) >> 6u;
         if (offset_bits == 0xFFFFFFFFu) offset_bits = high;
         else if (offset_bits != high) return Status::BadPlane;
     }
@@ -196,7 +200,8 @@ inline Status retarget_plane_base(Layer& l, uint32_t base) {
     }
     const uint32_t size = plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
     if (base % size != 0u || base >= kVramBytes || base + size > kVramBytes) return Status::BadPlane;
-    if ((map_value(base, size) >> 6u) != (map_value(l.plane_address[0], size) >> 6u)) {
+    const uint32_t page = page_bytes(l.pn_one_word, l.char_2x2);
+    if ((map_value(base, page) >> 6u) != (map_value(l.plane_address[0], page) >> 6u)) {
         return Status::BadPlane;
     }
     for (uint8_t p = 0u; p < 4u; ++p) l.plane_address[p] = base;
@@ -293,7 +298,7 @@ inline Registers compose(const Layer layers[kLayerCount]) {
         r.pncn[i] = static_cast<uint16_t>(((l.pn_one_word ? 1u : 0u) << 15u) |
                                           ((l.char_number_mode1 ? 1u : 0u) << 14u) |
                                           ((l.palette_supp & 7u) << 5u) | (l.char_number_supp & 0x1Fu));
-        const uint32_t size = plane_bytes(l.pn_one_word, l.char_2x2, l.pages_x, l.pages_y);
+        const uint32_t size = page_bytes(l.pn_one_word, l.char_2x2);
         const uint16_t plsz = static_cast<uint16_t>((l.pages_x == 2u && l.pages_y == 2u) ? 3u
                                                     : (l.pages_x == 2u ? 1u : 0u));
         r.plsz = static_cast<uint16_t>(r.plsz | (plsz << (2u * i)));

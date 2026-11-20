@@ -354,6 +354,37 @@ static void line_scroll_registers_and_table_geometry() {
     assert(plan_cycles(l, true, true).status == Status::BadPlane);
 }
 
+/* Tekken 3's stage backdrop: a 2048-wide 16-colour cell picture with 2-word
+ * names in B1 (two 2x1-page planes), characters in A0/A1, and the three line
+ * scroll fields. RBG0 keeps B0, so no NBG may read it; every zoom the line
+ * table can ask for must still be fetched. */
+static void a_wide_cell_backdrop_beside_a_rotation_bank() {
+    for (uint8_t reduction = 0u; reduction <= 2u; ++reduction) {
+        Layer l[kLayerCount]{};
+        l[0] = cell(Colors::C16, 0x60000u, 0x03u);
+        l[0].pn_one_word = false;
+        l[0].pages_x = 2u;
+        l[0].plane_address[0] = l[0].plane_address[2] = 0x60000u;
+        l[0].plane_address[1] = l[0].plane_address[3] = 0x68000u;
+        l[0].ls_h = l[0].ls_v = l[0].ls_zoom = true;
+        l[0].ls_address = 0x3D000u;
+        l[0].reduction = reduction;
+        assert(validate(0u, l[0], true, true) == Status::Ok);
+        /* Table 4.8: 2 pages x 1, 2-word names, 1 x 1 cells: bits 5-1 times 8000H, so the
+         * register holds the address in 4000H units (0x60000 -> 0x18, 0x68000 -> 0x1A). */
+        const Registers regs = compose(l);
+        assert(regs.plsz == 0x0001u && regs.mpab[0] == 0x1A18u && regs.mpcd[0] == 0x1A18u && regs.mpofn == 0u);
+        const Plan plan = plan_cycles(l, true, true);
+        assert(plan.status == Status::Ok);
+        assert(check_pattern(l, true, true, plan.cmd));
+        /* Names are fetched from B1 only, characters from A0 and/or A1. */
+        for (uint32_t t = 0u; t < kSlots; ++t) {
+            assert(plan.cmd[kBankB0][t] != kCmdPn0 && plan.cmd[kBankB0][t] != kCmdCg0);
+            assert(plan.cmd[kBankA0][t] != kCmdPn0 && plan.cmd[kBankA1][t] != kCmdPn0);
+        }
+    }
+}
+
 int main() {
     geometry_follows_the_tables();
     banks_follow_the_vram_split();
@@ -371,6 +402,7 @@ int main() {
     vertical_cell_scroll_reads_are_ordered();
     reduction_sets_zmctl();
     line_scroll_registers_and_table_geometry();
+    a_wide_cell_backdrop_beside_a_rotation_bank();
     std::printf("PASS: test_vdp2_nbg_logic.cpp\n");
     return 0;
 }
