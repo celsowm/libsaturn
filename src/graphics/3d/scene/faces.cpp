@@ -658,13 +658,9 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
     /* Textured UVs cannot be arbitrarily clipped on VDP1. A face the sprite
      * path cannot draw whole falls back to its solid colour, clipped, when
      * the material names one, instead of leaving a hole at the camera. */
-    uint8_t drawn=0u;
-    const sat_result_t textured=face.gouraud_valid?
-        sat_draw_indexed_textured_quad3_gouraud(&face.world,&p,face.material.texture,face.gouraud,&drawn):
-        sat_draw_indexed_textured_quad3(&face.world,&p,face.material.texture,&drawn);
-    if (textured==SAT_OK && !drawn && face.material.rgb555!=0u)
-        return sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
-    return textured;
+    return saturn::graphics::scene3d::draw_textured_quad_or_solid(
+        face.world,p,face.material.texture,face.gouraud_valid?face.gouraud:nullptr,
+        face.material.rgb555);
 }
 template<bool HasPrograms>
 sat_result_t emit_ordered(sat_scene3d_faces_t* scene,uint32_t ordered) {

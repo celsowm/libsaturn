@@ -298,6 +298,16 @@ int main() {
 
 extern "C" sat_result_t sat_draw_sprite_distorted_gouraud(const sat_distorted_sprite_cmd_t* cmd,const uint16_t*) { return sat_draw_sprite_distorted(cmd); }
 extern "C" sat_result_t sat_draw_indexed_textured_quad3_gouraud(const sat_quad3_t* q,const sat_indexed_solid_render3d_t* p,const sat_vdp1_texture_t* t,const uint16_t*,uint8_t* out) { return sat_draw_indexed_textured_quad3(q,p,t,out); }
+// The flush fallback composed from the spies above, as indexed.cpp draws it.
+sat_result_t saturn::graphics::scene3d::draw_textured_quad_or_solid(
+    const sat_quad3_t& q,const sat_indexed_solid_render3d_t& p,
+    const sat_vdp1_texture_t* t,const uint16_t* gouraud,uint16_t fallback) {
+    uint8_t drawn=0u;
+    const sat_result_t st=gouraud?sat_draw_indexed_textured_quad3_gouraud(&q,&p,t,gouraud,&drawn):
+                                  sat_draw_indexed_textured_quad3(&q,&p,t,&drawn);
+    if(st==SAT_OK && !drawn && fallback!=0u) return sat_draw_polygon_quad3(&q,&p,fallback);
+    return st;
+}
 
 // Preserve the scene tests' draw/failure spy for the fused opaque route.
 sat_result_t saturn::internal::draw_projected_sprite(const sat_quad2_t& quad,

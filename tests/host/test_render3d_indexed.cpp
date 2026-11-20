@@ -328,6 +328,66 @@ static void patterned_texture_draws_only_with_original_four_corners() {
     EQ(g_last_slot,4u);
 }
 
+/* The scene flush fallback draws what the textured attempt followed by
+ * sat_draw_polygon_quad3 draws, but projects only once when every corner
+ * clears the near plane. */
+static void textured_fallback_shares_projection() {
+    using saturn::graphics::scene3d::draw_textured_quad_or_solid;
+    sat_quad3_t q=quad(3,12);
+    sat_indexed_solid_render3d_t p=render();
+    reset();
+    EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],nullptr,0x8123u),SAT_OK);
+    EQ(g_opaque,1);
+    EQ(g_polygons,0);
+
+    q.v[1].x=FX(400);
+    reset();
+    g_screen_mode=2;
+    EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],nullptr,0x8123u),SAT_OK);
+    EQ(g_opaque,0);
+    EQ(g_polygons,2);
+    EQ(g_polygon_color,0x8123u);
+    EQ(g_project_calls,1);
+    EQ(g_near_calls,0);
+    EQ(g_screen_calls,1);
+
+    /* The two-step reference: same pieces, repeated near clip and projection. */
+    reset();
+    g_screen_mode=2;
+    uint8_t drawn=99u;
+    EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&drawn),SAT_OK);
+    EQ(drawn,0u);
+    EQ(sat_draw_polygon_quad3(&q,&p,0x8123u),SAT_OK);
+    EQ(g_polygons,2);
+    EQ(g_project_calls,2);
+    EQ(g_near_calls,1);
+
+    reset();
+    EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],nullptr,0u),SAT_OK);
+    EQ(g_polygons,0);
+    EQ(g_screen_calls,0);
+
+    reset();
+    g_polygon_status=SAT_ERR_CAPACITY;
+    EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],nullptr,0x8123u),SAT_ERR_CAPACITY);
+    q.v[1].x=FX(5);
+
+    /* A corner behind the near plane takes the general near-clipped polygon. */
+    reset();
+    q.v[0].z=FX(7);
+    EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],nullptr,0x8123u),SAT_OK);
+    EQ(g_opaque,0);
+    EQ(g_near_calls,1);
+    EQ(g_polygons,1);
+
+    /* Gouraud keeps the public entry's opaque-LUT4 contract. */
+    reset();
+    const uint16_t gouraud[4]={};
+    p.color_calc_slot=4u;
+    EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],gouraud,0x8123u),SAT_ERR_INVALID_ARG);
+    EQ(g_polygons,0);
+}
+
 static void patterned_texture_invalid_input_and_command_failure() {
     reset();
     sat_quad3_t q=quad(0,12);
@@ -839,6 +899,7 @@ int main() {
     rgb_polygon_clips_like_solid_quads();
     gouraud_survives_clipping();
     patterned_texture_draws_only_with_original_four_corners();
+    textured_fallback_shares_projection();
     patterned_texture_invalid_input_and_command_failure();
     quadrant_upload_owns_correct_source_rows_and_palette();
     quadrant_upload_rejects_bad_source_and_short_scratch_atomically();

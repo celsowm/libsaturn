@@ -330,9 +330,35 @@ extern "C" sat_result_t sat_draw_indexed_box3(
     return SAT_OK;
 }
 
+/* The near-clipped solid fallback of a textured face whose corners all clear
+ * the near plane. The near clip returns such a quad unchanged, so its single
+ * piece is the sprite's own projection: screen clip and draw that directly,
+ * exactly as sat_draw_polygon_quad3 would after repeating both steps. */
+static sat_result_t draw_projected_fallback(
+    const sat_quad2_t& projected, const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555
+) {
+    sat_result_t st=saturn::core::validate_polygon_effects(rgb555,0u);
+    if(st!=SAT_OK) return st;
+    sat_quad2_t visible[6];
+    uint8_t visible_count=0u;
+    st=sat_clip_quad_screen(&projected,p->width,p->height,visible,&visible_count);
+    if(st==SAT_ERR_UNSUPPORTED) return SAT_OK;
+    if(st!=SAT_OK) return st;
+    for(uint8_t i=0u;i<visible_count;++i) {
+        st=sat_draw_quad2_polygon_effects(&visible[i],rgb555,0u);
+        if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
+    }
+    return SAT_OK;
+}
+
+/* fallback_rgb555 != 0 draws that solid colour, near clipped, whenever the
+ * sprite cannot be drawn whole; it shares the sprite's depth test and
+ * projection instead of recomputing them in sat_draw_polygon_quad3. */
 static sat_result_t draw_textured_quad(
     const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
-    const sat_vdp1_texture_t* texture, uint8_t* out_drawn,const uint16_t* gouraud
+    const sat_vdp1_texture_t* texture, uint8_t* out_drawn,const uint16_t* gouraud,
+    uint16_t fallback_rgb555=0u
 ) {
     if(out_drawn!=nullptr) *out_drawn=0u;
     if(quad==nullptr || texture==nullptr || !valid_render(p) ||
@@ -355,12 +381,14 @@ static sat_result_t draw_textured_quad(
         const int64_t dz=static_cast<int64_t>(v.z)-p->eye.z;
         const int64_t depth=(dx*p->forward.x+dy*p->forward.y+
                              dz*p->forward.z)/SAT_FX16_ONE;
-        if(depth < p->near_depth) return SAT_OK;
+        if(depth < p->near_depth)
+            return fallback_rgb555 ? sat_draw_polygon_quad3(quad,p,fallback_rgb555) : SAT_OK;
     }
 
     sat_quad2_t projected;
     const sat_result_t proj=sat_project_quad(p->view_proj,quad,&projected);
-    if(proj==SAT_ERR_UNSUPPORTED) return SAT_OK;
+    if(proj==SAT_ERR_UNSUPPORTED)
+        return fallback_rgb555 ? saturn::core::validate_polygon_effects(fallback_rgb555,0u) : SAT_OK;
     if(proj!=SAT_OK) return proj;
     /* Partly off-screen is fine: the VDP1 system clipping trims the sprite.
      * Only a corner so far out that projection would clamp it, or a sprite
@@ -368,7 +396,7 @@ static sat_result_t draw_textured_quad(
     for(uint8_t i=0u;i<4u;++i) {
         if(!saturn::core::render3d::coord_drawable(
                projected.x[i],projected.y[i],p->width,p->height))
-            return SAT_OK;
+            return fallback_rgb555 ? draw_projected_fallback(projected,p,fallback_rgb555) : SAT_OK;
     }
 
     sat_distorted_sprite_cmd_t cmd={};
@@ -395,6 +423,16 @@ extern "C" sat_result_t sat_draw_indexed_textured_quad3_gouraud(const sat_quad3_
     if(!gouraud || !texture || texture->format!=SAT_VDP1_TEXTURE_LUT4 ||
        !p || p->color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE)return SAT_ERR_INVALID_ARG;
     return draw_textured_quad(quad,p,texture,out_drawn,gouraud);
+}
+
+sat_result_t saturn::graphics::scene3d::draw_textured_quad_or_solid(
+    const sat_quad3_t& quad, const sat_indexed_solid_render3d_t& p,
+    const sat_vdp1_texture_t* texture, const uint16_t* gouraud, uint16_t fallback_rgb555) {
+    uint8_t drawn=0u;
+    if(gouraud && (!texture || texture->format!=SAT_VDP1_TEXTURE_LUT4 ||
+                   p.color_calc_slot!=SAT_INDEXED_SOLID_OPAQUE))
+        return SAT_ERR_INVALID_ARG;
+    return draw_textured_quad(&quad,&p,texture,&drawn,gouraud,fallback_rgb555);
 }
 
 namespace {
