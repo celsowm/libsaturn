@@ -32,17 +32,21 @@ constexpr int32_t kCoordLimit = 2047;
  * never be clipped in software without resampling it: it is submitted whole
  * and the VDP1's own system clipping discards whatever falls outside the
  * screen. Off-screen corners are therefore legal, but two bounds still apply.
- * A corner beyond kCoordLimit would be clamped by project_axis, which folds
- * the quad's shape and skews the texture across it; and a sprite stretched
- * far past the screen spends VDP1 cycles on pixels nobody sees. Accept a box
- * this many times the viewport and leave anything larger to the caller's
- * subdivision fallback. */
-constexpr int32_t kOffscreenViewportScale = 2;
+ * A corner must stay inside the VDP1's signed command range, -1024..1023
+ * (manual 6.7), both as a center-relative command coordinate and once the
+ * local coordinate (the screen center) is added; and a sprite stretched far
+ * past the screen spends VDP1 cycles on pixels nobody sees. The fallback that
+ * handles anything larger re-projects and subdivides the face on the CPU,
+ * roughly 100 us each, while the VDP1 usually idles waiting for the CPU, so
+ * accept a box this many times the viewport, capped by the command range. */
+constexpr int32_t kOffscreenViewportScale = 6;
+constexpr int32_t kVdp1CommandMax = 1023;
 
 inline int32_t offscreen_bound(uint16_t extent) {
-    const int32_t bound =
-        (static_cast<int32_t>(extent) / 2) * kOffscreenViewportScale;
-    return bound > kCoordLimit ? kCoordLimit : bound;
+    const int32_t half = static_cast<int32_t>(extent) / 2;
+    const int32_t bound = half * kOffscreenViewportScale;
+    const int32_t range = kVdp1CommandMax - half;
+    return bound > range ? range : bound;
 }
 
 /* True when a projected corner may go straight to the VDP1 undistorted. */

@@ -308,10 +308,11 @@ static void patterned_texture_draws_only_with_original_four_corners() {
     EQ(g_project_calls,1);
     EQ(g_opaque,1);
 
-    /* Far enough out, though, projection would clamp the corner and skew the
-     * texture, so the caller's subdivision fallback takes over instead. */
+    /* Far enough out, though, the corner leaves the VDP1 command range once
+     * the screen center is added, so the caller's subdivision fallback takes
+     * over instead. */
     reset();
-    q.v[1].x=FX(400);
+    q.v[1].x=FX(900);
     emitted=99u;
     EQ(sat_draw_indexed_textured_quad3(&q,&p,&g_texture[1],&emitted),SAT_OK);
     EQ(emitted,0u);
@@ -340,7 +341,7 @@ static void textured_fallback_shares_projection() {
     EQ(g_opaque,1);
     EQ(g_polygons,0);
 
-    q.v[1].x=FX(400);
+    q.v[1].x=FX(900);
     reset();
     g_screen_mode=2;
     EQ(draw_textured_quad_or_solid(q,p,&g_texture[1],nullptr,0x8123u),SAT_OK);
@@ -509,7 +510,7 @@ static void tiled_texture_preserves_regions_at_screen_boundary() {
      * clamped, so the subregions that do fit are drawn with their OWN
      * textures. The original full texture MUST NOT be stretched over them. */
     reset();
-    q.v[1].x=FX(400);
+    q.v[1].x=FX(900);
     submitted=99u;
     EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
     EQ(submitted,3u);
