@@ -101,6 +101,14 @@ sat_result_t sat_draw_polygon_quad3(
     const sat_indexed_solid_render3d_t* params,
     uint16_t rgb555
 );
+/* Explicit VDP1 polygon effects, including through near/screen clipping. */
+sat_result_t sat_draw_polygon_quad3_effects(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* params,
+    uint16_t rgb555, uint16_t flags);
+sat_result_t sat_draw_polygon_quad3_gouraud_effects(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* params,
+    uint16_t rgb555, const uint16_t gouraud[4], uint16_t flags);
+
 /* sat_draw_polygon_quad3 keeping per-corner Gouraud: every clipped corner
  * gets the table value interpolated at its position (in the quad's plane
  * for the near clip, in screen space for the screen clip, which is how the

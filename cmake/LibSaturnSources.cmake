@@ -76,6 +76,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/rendering/fade.cpp
     src/graphics/3d/rendering/indexed.cpp
     src/graphics/3d/rendering/surface.cpp
+    src/graphics/3d/rendering/water.cpp
     src/graphics/3d/scene/api.cpp
     src/graphics/3d/scene/faces.cpp
     src/graphics/3d/scene/program_run_sh2.s
@@ -93,6 +94,7 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp1/api.cpp
     src/graphics/vdp1/color_calc.cpp
     src/graphics/vdp2/api.cpp
+    src/graphics/vdp2/fx_compositor.cpp
     src/graphics/vdp2/bitmap.cpp
     src/graphics/vdp2/color_calc.cpp
     src/graphics/vdp2/color_offset.cpp
@@ -181,6 +183,7 @@ set(LIBSATURN_PHYSICS_SOURCES
     src/physics/3d/sweep_full.cpp
     src/physics/3d/transform.cpp
     src/physics/3d/world.cpp
+    src/physics/3d/water_volume.cpp
     src/physics/spatial/2d.cpp
     src/physics/spatial/entity_stream2.cpp
     src/physics/spatial/3d.cpp

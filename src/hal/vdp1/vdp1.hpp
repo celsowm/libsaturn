@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "saturn/core.h"
+#include "saturn/fx_compositor.h"
 #include "saturn/sprite_batch.h"
 #include "saturn/vdp1.h"
 #include "saturn/render3d.h"
@@ -205,6 +206,14 @@ uint32_t list_serial();
  * last list's swap has been asked for (or none is outstanding), in a VBlank,
  * so VDP2 state committed next is shown with that list. */
 void wait_swap_requested();
+bool held_swap_pending();
+sat_result_t hold_next_swap();
+sat_result_t wait_held_draw(uint32_t serial);
+sat_result_t present_held_swap(uint32_t serial);
+sat_result_t wait_presented_swap(uint32_t serial);
+sat_result_t append_effect_pass(const sat_vdp1_command_checkpoint_t& first,
+    const sat_vdp1_command_checkpoint_t& last, const sat_fx_mask_t* masks, uint16_t mask_count,
+    uint8_t& first_row, uint8_t& end_row);
 
 /* Texture VRAM an application streams into itself (sat_vdp1_vram_*):
  * reserve takes an 8-byte aligned span from the upload arena; write copies

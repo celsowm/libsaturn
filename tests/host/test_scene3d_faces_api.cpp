@@ -18,6 +18,7 @@ static uint16_t project_fail_call=0u;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 static sat_result_t distorted_draw_status=SAT_OK;
+static uint16_t last_polygon_flags;
 static sat_result_t polygon_draw_status=SAT_OK;
 /* 0: the textured-quad stub reports the sprite as not drawable (a corner
  * behind the near plane), the case a fallback colour exists for. */
@@ -113,8 +114,14 @@ extern "C" sat_result_t sat_draw_quad2_polygon(
     emitted[emitted_count++]=color;
     return SAT_OK;
 }
-extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
-    const sat_quad2_t*, uint16_t color, const uint16_t[4]) {
+extern "C" sat_result_t sat_draw_quad2_polygon_effects(
+    const sat_quad2_t* quad, uint16_t color, uint16_t flags) {
+    last_polygon_flags=flags;
+    return sat_draw_quad2_polygon(quad,color);
+}
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud_effects(
+    const sat_quad2_t*, uint16_t color, const uint16_t[4], uint16_t flags) {
+    last_polygon_flags=flags;
     emitted[emitted_count++]=color;
     return SAT_OK;
 }
@@ -131,9 +138,16 @@ extern "C" sat_result_t sat_draw_polygon_quad3(
     emitted[emitted_count++]=rgb555;
     return SAT_OK;
 }
-extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
+extern "C" sat_result_t sat_draw_polygon_quad3_effects(
+    const sat_quad3_t* quad,const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555,uint16_t flags) {
+    last_polygon_flags=flags;
+    return sat_draw_polygon_quad3(quad,p,rgb555);
+}
+extern "C" sat_result_t sat_draw_polygon_quad3_gouraud_effects(
     const sat_quad3_t*,const sat_indexed_solid_render3d_t*,uint16_t rgb555,
-    const uint16_t*) {
+    const uint16_t*,uint16_t flags) {
+    last_polygon_flags=flags;
     ++clipped_count;
     emitted[emitted_count++]=rgb555;
     return SAT_OK;
@@ -1859,6 +1873,22 @@ int main() {
     mesh_mat.sprite_flags=SAT_SPRITE_FLAG_HALF_TRANSPARENT;
     assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
     assert(sat_scene3d_faces_submit_projected_material(&scene,&cached_quad,2*SAT_FX16_ONE,&mesh_mat,0u)==SAT_ERR_INVALID_ARG);
+    sat_scene3d_projected_face_t effected_hot[16] = {};
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(sat_scene3d_faces_use_projected_storage(&scene,effected_hot,16)==SAT_OK);
+    sat_scene3d_material_t half={};
+    half.kind=SAT_SCENE3D_RGB;
+    half.rgb555=0x83E0u;
+    half.color_calc_slot=SAT_INDEXED_SOLID_OPAQUE;
+    half.sprite_flags=SAT_SPRITE_FLAG_HALF_TRANSPARENT;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(&scene,&cached_quad,2*SAT_FX16_ONE,&half,0u)==SAT_OK);
+    assert(effected_hot[0].kind==SAT_SCENE3D_PROJECTED_COLD);
+    assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+    assert(last_polygon_flags==SAT_SPRITE_FLAG_HALF_TRANSPARENT);
+    half.rgb555=0x03E0u;
+    assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,SAT_FX16_ONE,320u,224u)==SAT_OK);
+    assert(sat_scene3d_faces_submit_projected_material(&scene,&cached_quad,2*SAT_FX16_ONE,&half,0u)==SAT_ERR_INVALID_ARG);
     std::puts("scene3d_faces api: OK");
     return 0;
 }

@@ -105,14 +105,15 @@ sat_scene3d_projected_face_t& append_projected(sat_scene3d_faces_t* scene) {
 }
 
 bool valid_material(const sat_scene3d_material_t& m) {
-    if ((m.sprite_flags & ~(SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK)) != 0u ||
-        (m.sprite_flags && m.kind==SAT_SCENE3D_RGB)) return false;
+    if (m.kind==SAT_SCENE3D_RGB)
+        return m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE &&
+            saturn::core::validate_polygon_effects(m.rgb555,m.sprite_flags)==SAT_OK;
+    if ((m.sprite_flags & ~(SAT_SPRITE_FLAG_OPAQUE|SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK))!=0u)
+        return false;
     // Indexed8 palette texels do not support the RGB Gouraud arithmetic path.
-    if (m.vertex_gouraud && m.kind!=SAT_SCENE3D_RGB &&
+    if (m.vertex_gouraud &&
         !(m.kind==SAT_SCENE3D_INDEXED_TEXTURED && m.texture &&
           m.texture->format==SAT_VDP1_TEXTURE_LUT4 && m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE)) return false;
-    if (m.kind==SAT_SCENE3D_RGB)
-        return m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE;
     if (m.kind==SAT_SCENE3D_INDEXED_TILED)
         return m.tiled && m.tiled->full && m.tiled->full->valid &&
             (m.color_calc_slot==SAT_INDEXED_SOLID_OPAQUE ||
@@ -347,7 +348,8 @@ bool store_face(sat_scene3d_faces_t* scene,const sat_scene3d_face_t& face) {
         return true;
     }
     const bool cold=!face.program_valid &&
-        !(face.projected_safe && !face.gouraud_valid && face.material.kind==SAT_SCENE3D_RGB);
+        !(face.projected_safe && !face.gouraud_valid &&
+          face.material.kind==SAT_SCENE3D_RGB && face.material.sprite_flags==0u);
     if(cold && scene->cold_count>=cold_limit(scene)) {++scene->skipped_faces;return false;}
     auto& hot=append_projected(scene);
     hot.cached_projected=face.cached_projected;
@@ -606,9 +608,10 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
      * world faces; projected_safe forbids any world-space fallback. */
     if (face.material.kind==SAT_SCENE3D_RGB && face.projected_safe) {
         if (face.gouraud_valid)
-            return sat_draw_quad2_polygon_gouraud(
-                &face.projected, face.material.rgb555, face.gouraud);
-        return sat_draw_quad2_polygon(&face.projected,face.material.rgb555);
+            return sat_draw_quad2_polygon_gouraud_effects(
+                &face.projected,face.material.rgb555,face.gouraud,face.material.sprite_flags);
+        return sat_draw_quad2_polygon_effects(
+            &face.projected,face.material.rgb555,face.material.sprite_flags);
     }
     if (face.projected_safe) {
         const sat_vdp1_texture_t* texture = face.material.kind==SAT_SCENE3D_INDEXED_TILED
@@ -642,8 +645,10 @@ sat_result_t emit(const sat_scene3d_faces_t& scene,
      * table value interpolated at its position. */
     if (face.material.kind==SAT_SCENE3D_RGB)
         return face.gouraud_valid
-            ? sat_draw_polygon_quad3_gouraud(&face.world,&p,face.material.rgb555,face.gouraud)
-            : sat_draw_polygon_quad3(&face.world,&p,face.material.rgb555);
+            ? sat_draw_polygon_quad3_gouraud_effects(
+                &face.world,&p,face.material.rgb555,face.gouraud,face.material.sprite_flags)
+            : sat_draw_polygon_quad3_effects(
+                &face.world,&p,face.material.rgb555,face.material.sprite_flags);
     if (face.material.kind==SAT_SCENE3D_INDEXED_TILED)
         return sat_draw_indexed_tiled_quad3(
             &face.world,&p,face.material.tiled,nullptr);

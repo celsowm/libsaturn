@@ -17,6 +17,7 @@ static uint16_t project_fail_call=0u;
 static uint16_t projected_vertices=0;
 static uint16_t clipped_count=0;
 static sat_result_t distorted_draw_status=SAT_OK;
+static uint16_t last_polygon_flags;
 static sat_result_t polygon_draw_status=SAT_OK;
 /* 0: the textured-quad stub reports the sprite as not drawable (a corner
  * behind the near plane), the case a fallback colour exists for. */
@@ -109,8 +110,14 @@ extern "C" sat_result_t sat_draw_quad2_polygon(
     emitted[emitted_count++]=color;
     return SAT_OK;
 }
-extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
-    const sat_quad2_t*, uint16_t color, const uint16_t[4]) {
+extern "C" sat_result_t sat_draw_quad2_polygon_effects(
+    const sat_quad2_t* quad, uint16_t color, uint16_t flags) {
+    last_polygon_flags=flags;
+    return sat_draw_quad2_polygon(quad,color);
+}
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud_effects(
+    const sat_quad2_t*, uint16_t color, const uint16_t[4], uint16_t flags) {
+    last_polygon_flags=flags;
     emitted[emitted_count++]=color;
     return SAT_OK;
 }
@@ -127,9 +134,16 @@ extern "C" sat_result_t sat_draw_polygon_quad3(
     emitted[emitted_count++]=rgb555;
     return SAT_OK;
 }
-extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
+extern "C" sat_result_t sat_draw_polygon_quad3_effects(
+    const sat_quad3_t* quad,const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555,uint16_t flags) {
+    last_polygon_flags=flags;
+    return sat_draw_polygon_quad3(quad,p,rgb555);
+}
+extern "C" sat_result_t sat_draw_polygon_quad3_gouraud_effects(
     const sat_quad3_t*,const sat_indexed_solid_render3d_t*,uint16_t rgb555,
-    const uint16_t*) {
+    const uint16_t*,uint16_t flags) {
+    last_polygon_flags=flags;
     ++clipped_count;
     emitted[emitted_count++]=rgb555;
     return SAT_OK;

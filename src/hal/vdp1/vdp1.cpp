@@ -128,6 +128,8 @@ uint32_t g_frames_dropped=0u;
  * ends. */
 enum SwapState : uint8_t { kSwapIdle, kSwapPending, kSwapRequested };
 volatile uint8_t g_swap_state = kSwapIdle;
+volatile bool g_hold_pending_swap = false;
+bool g_hold_next_swap = false;
 /* FBCR holds FCM=1 (manual change): set by the first ON_SUBMIT submit. */
 bool g_manual_mode = false;
 volatile uint32_t g_vblank_ins = 0u;
@@ -271,6 +273,8 @@ void init(uint16_t width, uint16_t height, uint16_t /* clear_color */) {
     PTMR = 0x0000;
     g_on_submit = false;  // 1-cycle below; begin_frame reapplies a pending mode
     g_swap_state = kSwapIdle;
+    g_hold_pending_swap = false;
+    g_hold_next_swap = false;
     g_manual_mode = false;
     g_erase_on = true;
     g_erase_word = 0x0000u;
@@ -362,6 +366,7 @@ void begin_frame(uint16_t capacity) {
 #if SAT_NATIVE_SCENE_COMMANDS
     if(g_command_batch)return;
 #endif
+    g_hold_next_swap = false;
     ++g_frame_serial;
     if(g_frame_serial==0u)g_frame_serial=1u;
     g_frame_submitted=false;
@@ -1189,14 +1194,18 @@ bool in_vblank() {
 /* kSwapPending: asks for the swap if the list has ended and this is a VBlank.
  * Called by the VBlank-IN handler, and polled by the waits below in case the
  * handler does not run (interrupts stopped). */
-void service_swap() {
-    if (g_swap_state != kSwapPending) return;
-    if (!saturn::core::vdp1_swap_may_request(draw_end_seen(), in_vblank())) return;
+void request_swap() {
     FBCR = saturn::core::kVdp1FbcrManualChange;
     g_swap_vblank = g_vblank_ins;
     g_swap_state = kSwapRequested;
     void (*const handler)(uint32_t, void*) = g_swap_handler;
     if (handler != nullptr) handler(g_list_serial, g_swap_user);
+}
+
+void service_swap() {
+    if (g_swap_state != kSwapPending || g_hold_pending_swap) return;
+    if (!saturn::core::vdp1_swap_may_request(draw_end_seen(), in_vblank())) return;
+    request_swap();
 }
 
 /* ON_SUBMIT: the last list's swap has happened (or none is outstanding), so
@@ -1337,7 +1346,7 @@ uint32_t list_serial() { return g_list_serial; }
  * the VBlank does; otherwise at the next VBlank-IN (by the handler, or by this
  * poll with interrupts stopped). Bounded like the other VDP1 waits. */
 void wait_swap_requested() {
-    if (!g_on_submit) return;
+    if (!g_on_submit || g_hold_pending_swap) return;
     for (uint32_t n = 0u; n < 4u && g_swap_state == kSwapPending; ++n) {
         (void)spin_until([] {
             service_swap();
@@ -1346,6 +1355,147 @@ void wait_swap_requested() {
         if (g_swap_state != kSwapPending) return;
         (void)spin_until([] { return g_swap_state != kSwapPending || in_vblank(); }, 2u);
     }
+}
+
+bool held_swap_pending() {
+    return g_hold_pending_swap;
+}
+
+sat_result_t hold_next_swap() {
+    if (!g_on_submit || g_double_interlace || framebuffer_8bpp() ||
+        g_width != 320u || g_height != 224u) return SAT_ERR_UNSUPPORTED;
+    if (!g_cmd_buffer || g_frame_submitted) return SAT_ERR_NOT_INITIALIZED;
+    if (g_hold_pending_swap) return SAT_ERR_BUSY;
+    g_hold_next_swap = true;
+    return SAT_OK;
+}
+
+sat_result_t wait_held_draw(uint32_t serial) {
+    if (!g_hold_pending_swap || serial != g_list_serial ||
+        g_swap_state != kSwapPending) return SAT_ERR_INVALID_ARG;
+    return wait_until([] { return draw_end_seen() && (vdp1_reg(0x10u) & 2u); }, 4u)
+        ? SAT_OK : SAT_ERR_TIMEOUT;
+}
+
+sat_result_t present_held_swap(uint32_t serial) {
+    if (!g_hold_pending_swap || serial != g_list_serial ||
+        g_swap_state != kSwapPending) return SAT_ERR_INVALID_ARG;
+    if (!in_vblank()) return SAT_ERR_BUSY;
+    request_swap();
+    g_hold_pending_swap = false;
+    return SAT_OK;
+}
+
+sat_result_t wait_presented_swap(uint32_t serial) {
+    if (serial != g_list_serial || g_hold_pending_swap) return SAT_ERR_INVALID_ARG;
+    return wait_until([] { return swap_settled(); }, 4u) ? SAT_OK : SAT_ERR_TIMEOUT;
+}
+
+namespace {
+constexpr uint16_t kAuxPolygon = 4u;
+constexpr uint16_t kAuxReplace = 0x04c0u;
+
+bool effect_command(const Command& command) {
+    return command.ctrl == kAuxPolygon && command.pmod == 0x00c3u &&
+        (command.colr & 0x8000u) != 0u;
+}
+
+bool mask_command(const Command& command) {
+    if (command.ctrl == kAuxPolygon)
+        return command.pmod == 0x00c0u || command.pmod == 0x00c4u;
+    // Distorted INDEX8, end codes disabled, transparent pixels disabled.
+    return (command.ctrl & 0xffcfu) == 2u && (command.pmod & 0xefffu) == 0x00e0u;
+}
+
+Command clip_command(uint16_t type, int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
+    Command command{};
+    command.ctrl = type;
+    command.xa = x0; command.ya = y0;
+    command.xc = x1; command.yc = y1;
+    return command;
+}
+
+Command erase_rect(int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
+    Command command = clip_command(kAuxPolygon, x0, y0, x1, y1);
+    command.pmod = kAuxReplace;
+    command.xb = x1; command.yb = y0;
+    command.xd = x0; command.yd = y1;
+    return command;
+}
+}
+
+sat_result_t append_effect_pass(const sat_vdp1_command_checkpoint_t& first,
+    const sat_vdp1_command_checkpoint_t& last, const sat_fx_mask_t* masks, uint16_t mask_count,
+    uint8_t& first_row, uint8_t& end_row) {
+    if (!g_cmd_buffer || g_frame_submitted || !g_on_submit ||
+        g_command_batch || first.frame_serial != g_frame_serial || last.frame_serial != g_frame_serial ||
+        first.used > last.used || last.used > g_cmd_count || (mask_count && !masks))
+        return SAT_ERR_INVALID_ARG;
+    if (g_width != 320u || g_height != 224u || g_double_interlace || framebuffer_8bpp())
+        return SAT_ERR_UNSUPPORTED;
+    for (uint16_t i = 0; i < mask_count; ++i) {
+        const auto& mask = masks[i];
+        if (!mask.width || !mask.height || mask.x + mask.width > 320 ||
+            mask.y + mask.height > 224) return SAT_ERR_INVALID_ARG;
+    }
+    uint16_t first_effect = last.used;
+    int16_t min_y = 224, max_y = -224;
+    for (uint16_t i = first.used; i < last.used; ++i) {
+        const Command command = g_cmd_buffer[i];
+        if (effect_command(command)) {
+            if (first_effect == last.used) first_effect = i;
+            const int16_t corners[] = {command.ya, command.yb, command.yc, command.yd};
+            for (const int16_t y : corners) {
+                if (y < min_y) min_y = y;
+                if (y > max_y) max_y = y;
+            }
+        } else if (!mask_command(command)) {
+            return SAT_ERR_UNSUPPORTED;
+        }
+    }
+    if (first_effect == last.used) return SAT_ERR_NOT_FOUND;
+    // Include one rasterization row past either edge of the projected bound.
+    const int start = (min_y >> 1) + 55;
+    const int end = (max_y >> 1) + 58;
+    if (start >= 112 || end <= 0) return SAT_ERR_NOT_FOUND;
+    const uint16_t overlay = g_overlay_pass ? 0 : g_overlay_reserved;
+    if (static_cast<uint32_t>(g_cmd_count) + (last.used - first_effect) + mask_count + 8u + overlay > g_cmd_capacity)
+        return SAT_ERR_CAPACITY;
+
+    Command user_clip = clip_command(8u, 0, 0, 319, 223);
+    for (uint16_t i = 0; i < g_cmd_count; ++i) {
+        if (g_cmd_buffer[i].ctrl == 8u) user_clip = g_cmd_buffer[i];
+    }
+    g_cmd_buffer[g_cmd_count++] = clip_command(9u, 0, 0, 511, 255);
+    g_cmd_buffer[g_cmd_count++] = clip_command(8u, 320, 0, 479, 111);
+    g_cmd_buffer[g_cmd_count++] = clip_command(10u, 400, 56, 0, 0);
+    g_cmd_buffer[g_cmd_count++] = erase_rect(-80, -56, 79, 55);
+    for (uint16_t i = first_effect; i < last.used; ++i) {
+        Command& original = g_cmd_buffer[i];
+        Command effect{};
+        effect.ctrl = kAuxPolygon;
+        effect.pmod = kAuxReplace;
+        if (effect_command(original)) {
+            effect.colr = original.colr;
+            original.ctrl |= 0x4000u; // Skip to the next command in the visible pass.
+        }
+        effect.xa = original.xa >> 1; effect.ya = original.ya >> 1;
+        effect.xb = original.xb >> 1; effect.yb = original.yb >> 1;
+        effect.xc = original.xc >> 1; effect.yc = original.yc >> 1;
+        effect.xd = original.xd >> 1; effect.yd = original.yd >> 1;
+        g_cmd_buffer[g_cmd_count++] = effect;
+    }
+    for (uint16_t i = 0; i < mask_count; ++i) {
+        const auto& m = masks[i];
+        g_cmd_buffer[g_cmd_count++] = erase_rect(m.x / 2 - 80, m.y / 2 - 56,
+            (m.x + m.width - 1) / 2 - 80, (m.y + m.height - 1) / 2 - 56);
+    }
+    g_cmd_buffer[g_cmd_count++] = clip_command(10u, 160, 112, 0, 0);
+    g_cmd_buffer[g_cmd_count++] = user_clip;
+    g_cmd_buffer[g_cmd_count++] = clip_command(9u, 0, 0, 319, 223);
+    first_row = static_cast<uint8_t>(start < 0 ? 0 : start);
+    end_row = static_cast<uint8_t>(end > 112 ? 112 : end);
+    return SAT_OK;
 }
 
 uint32_t draw_waits() { return g_draw_waits; }
@@ -1431,6 +1581,7 @@ void submit() {
             g_manual_mode = true;
         }
         PTMR = saturn::core::kVdp1PtmrPlotNow;
+        g_hold_pending_swap = g_hold_next_swap;
         g_swap_state = kSwapPending;
     }
 }

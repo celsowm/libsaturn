@@ -40,8 +40,10 @@ typedef struct sat_scene3d_material {
     /* Optional per-vertex Gouraud table. The pointer is read only during
      * submission and the four selected entries are copied into the face. */
     const uint16_t* vertex_gouraud; /* RGB or LUT4/RGB-CLUT; INDEX8 is rejected. */
-    /* Optional SAT_SPRITE_FLAG_MESH coverage for indexed sprite materials.
-     * Zero preserves full coverage; this is screen-door coverage, not alpha. */
+    /* MESH sets screen-door coverage on RGB and indexed materials.
+     * RGB accepts the polygon effect flags from render3d.h. RGB color
+     * calculation requires an RGB555 value with bit 15 set.
+     * Indexed sprites accept OPAQUE coverage and HIGH_SPEED_SHRINK. Zero preserves opaque RGB. */
     uint16_t sprite_flags;
 } sat_scene3d_material_t;
 

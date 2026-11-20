@@ -18,6 +18,7 @@ extern "C" sat_result_t sat_begin_frame(void) {
 #if SAT_NATIVE_SCENE_COMMANDS
     if(saturn::hal::vdp1::command_batch_pending())return SAT_ERR_BUSY;
 #endif
+    if (saturn::hal::vdp1::held_swap_pending()) return SAT_ERR_BUSY;
     saturn::hal::vdp1::begin_frame();
     saturn::hal::vdp2_color_calc::begin_frame();
     tint_cache_begin_frame(g_tint_cache);

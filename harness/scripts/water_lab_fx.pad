@@ -1,0 +1,26 @@
+# Switch between the native and composited surfaces at a fixed simulation tick.
+0 NONE
+18 X
+26 NONE
+38 Z+X
+47 NONE
+62 X
+68 NONE
+78 X
+84 NONE
+94 X
+100 NONE
+110 X
+116 NONE
+130 X
+150 NONE
+230 C
+244 NONE
+270 C
+284 NONE
+310 Z+X
+324 NONE
+360 C
+374 NONE
+540 X
+560 NONE

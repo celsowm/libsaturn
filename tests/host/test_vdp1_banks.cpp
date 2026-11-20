@@ -35,6 +35,9 @@ void auto_tests();
 void heavy_tests();
 void limit_tests();
 void interlace_tests();
+void compositor_tests();
+void begin_scenario(int latency, int duration);
+void cpu_work(uint32_t polls);
 
 }  // namespace
 
@@ -109,6 +112,7 @@ int main() {
     heavy_tests();
     limit_tests();
     interlace_tests();
+    compositor_tests();
     std::puts("VDP1 command banks: OK");
     return 0;
 }
@@ -254,6 +258,50 @@ void Model::step() {
 }
 
 void poll() { g_model.step(); }
+
+void compositor_tests() {
+    begin_scenario(2, 20);
+    vd::begin_frame(64u);
+    sat_vdp1_command_checkpoint_t first{}, last{};
+    assert(vd::command_checkpoint(&first) == SAT_OK);
+    vd::PolygonRequest effect{};
+    effect.color = 0x92c0u;
+    effect.flags = SAT_SPRITE_FLAG_HALF_TRANSPARENT;
+    assert(vd::push_polygon(effect) == SAT_OK);
+    vd::PolygonRequest occluder{};
+    occluder.color = 0x8001u;
+    occluder.flags = SAT_SPRITE_FLAG_MESH;
+    assert(vd::push_polygon(occluder) == SAT_OK);
+    assert(vd::command_checkpoint(&last) == SAT_OK);
+    uint8_t from{}, to{};
+    auto* commands = vd::frame_commands();
+    assert(vd::append_effect_pass(first, last, nullptr, 0, from, to) == SAT_ERR_UNSUPPORTED);
+    assert(commands[first.used].ctrl == 4u);
+    assert(vd::command_rollback(&first) == SAT_OK);
+    assert(vd::push_polygon(effect) == SAT_OK);
+    occluder.flags = 0;
+    assert(vd::push_polygon(occluder) == SAT_OK);
+    assert(vd::command_checkpoint(&last) == SAT_OK);
+    const sat_fx_mask_t mask = {8, 8, 20, 18};
+    assert(vd::append_effect_pass(first, last, &mask, 1, from, to) == SAT_OK);
+    assert(commands[first.used].ctrl == 0x4004u);
+    assert(commands[first.used + 1].ctrl == 4u);
+    assert(commands[last.used + 4].colr == effect.color);
+    assert(commands[last.used + 5].colr == 0u);
+    assert(from == 55u && to == 58u);
+    assert(vd::hold_next_swap() == SAT_OK);
+    vd::submit();
+    const uint32_t serial = vd::list_serial();
+    assert(vd::wait_held_draw(serial) == SAT_OK);
+    cpu_work(1000);
+    assert(vd::held_swap_pending());
+    assert(reg(0x02u) == 2u);
+    while (!g_display_vblank) cpu_work(1);
+    assert(vd::present_held_swap(serial) == SAT_OK);
+    assert(vd::wait_presented_swap(serial) == SAT_OK);
+    assert(!vd::held_swap_pending() && g_model.violations == 0);
+    vd::set_register_window(nullptr, nullptr);
+}
 
 }  // namespace
 

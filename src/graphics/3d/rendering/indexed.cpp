@@ -1,5 +1,6 @@
 #include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1_color_calc.h"
+#include "src/core/runtime/logic.hpp"
 #include "src/core/runtime/refusal.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
@@ -31,7 +32,7 @@ bool valid_camera(const sat_indexed_solid_render3d_t* p) {
 
 bool valid_render(const sat_indexed_solid_render3d_t* p) {
     return valid_camera(p) &&
-           (p->sprite_flags & ~(SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK))==0u &&
+           (p->sprite_flags & ~(SAT_SPRITE_FLAG_OPAQUE|SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HIGH_SPEED_SHRINK))==0u &&
            (p->color_calc_slot == SAT_INDEXED_SOLID_OPAQUE ||
             p->color_calc_slot < 8u || p->color_calc_slot == SAT_VDP2_SPRITE_ADD);
 }
@@ -119,15 +120,24 @@ extern "C" sat_result_t sat_draw_polygon_quad3(
     const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
     uint16_t rgb555
 ) {
+    return sat_draw_polygon_quad3_effects(quad,p,rgb555,0u);
+}
+
+extern "C" sat_result_t sat_draw_polygon_quad3_effects(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555, uint16_t flags
+) {
     if (quad==nullptr || !valid_camera(p))
         return SAT_ERR_INVALID_ARG;
+    const sat_result_t effects=saturn::core::validate_polygon_effects(rgb555,flags);
+    if (effects!=SAT_OK) return effects;
     sat_result_t queued;
     if (captured(quad,SAT_SCENE3D_RGB,rgb555,nullptr,nullptr,
-                 SAT_INDEXED_SOLID_OPAQUE,nullptr,&queued))
+                 SAT_INDEXED_SOLID_OPAQUE,nullptr,&queued,flags))
         return queued;
-    return for_each_visible_piece(quad,p,[rgb555](const sat_quad3_t&,const sat_quad2_t&,
-                                                  const sat_quad2_t& piece) {
-        return sat_draw_quad2_polygon(&piece,rgb555);
+    return for_each_visible_piece(quad,p,[rgb555,flags](
+        const sat_quad3_t&,const sat_quad2_t&,const sat_quad2_t& piece) {
+        return sat_draw_quad2_polygon_effects(&piece,rgb555,flags);
     });
 }
 
@@ -205,11 +215,20 @@ extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
     const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
     uint16_t rgb555, const uint16_t gouraud[4]
 ) {
+    return sat_draw_polygon_quad3_gouraud_effects(quad,p,rgb555,gouraud,0u);
+}
+
+extern "C" sat_result_t sat_draw_polygon_quad3_gouraud_effects(
+    const sat_quad3_t* quad, const sat_indexed_solid_render3d_t* p,
+    uint16_t rgb555, const uint16_t gouraud[4], uint16_t flags
+) {
     if (quad==nullptr || gouraud==nullptr || !valid_camera(p))
         return SAT_ERR_INVALID_ARG;
+    const sat_result_t effects=saturn::core::validate_polygon_effects(rgb555,flags);
+    if (effects!=SAT_OK) return effects;
     sat_result_t queued;
     if (captured(quad,SAT_SCENE3D_RGB,rgb555,nullptr,nullptr,
-                 SAT_INDEXED_SOLID_OPAQUE,gouraud,&queued))
+                 SAT_INDEXED_SOLID_OPAQUE,gouraud,&queued,flags))
         return queued;
     const int drop=dominant_axis(*quad);
     Point2 original[4];
@@ -228,7 +247,7 @@ extern "C" sat_result_t sat_draw_polygon_quad3_gouraud(
         uint16_t piece_g[4];
         for (int k=0;k<4;++k)
             piece_g[k]=blend_gouraud(screen,near_g,Point2{piece.x[k],piece.y[k]});
-        return sat_draw_quad2_polygon_gouraud(&piece,rgb555,piece_g);
+        return sat_draw_quad2_polygon_gouraud_effects(&piece,rgb555,piece_g,flags);
     });
 }
 

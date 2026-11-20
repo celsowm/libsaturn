@@ -105,15 +105,17 @@ static int g_gouraud_polygons;
 static uint16_t g_last_gouraud[4];
 static uint16_t g_polygon_color;
 static sat_result_t g_polygon_status=SAT_OK;
-extern "C" sat_result_t sat_draw_quad2_polygon(
-    const sat_quad2_t*,uint16_t color) {
+extern "C" sat_result_t sat_draw_quad2_polygon_effects(
+    const sat_quad2_t*,uint16_t color,uint16_t flags) {
+    g_last_sprite_flags=flags;
     ++g_polygons;
     g_polygon_color=color;
     return g_polygon_status;
 }
 
-extern "C" sat_result_t sat_draw_quad2_polygon_gouraud(
-    const sat_quad2_t*,uint16_t color,const uint16_t gouraud[4]) {
+extern "C" sat_result_t sat_draw_quad2_polygon_gouraud_effects(
+    const sat_quad2_t*,uint16_t color,const uint16_t gouraud[4],uint16_t flags) {
+    g_last_sprite_flags=flags;
     ++g_gouraud_polygons;
     g_polygon_color=color;
     for(int i=0;i<4;++i) g_last_gouraud[i]=gouraud[i];
@@ -248,7 +250,9 @@ static void gouraud_survives_clipping() {
     EQ(g_last_gouraud[0],g[0]); /* unclipped: exactly the input */
     EQ(g_last_gouraud[1],g[1]);
     g_clip_mode=3;
-    EQ(sat_draw_polygon_quad3_gouraud(&q,&p,0x801Fu,g),SAT_OK);
+    EQ(sat_draw_polygon_quad3_gouraud_effects(
+        &q,&p,0x801Fu,g,SAT_SPRITE_FLAG_HALF_TRANSPARENT),SAT_OK);
+    EQ(g_last_sprite_flags,SAT_SPRITE_FLAG_HALF_TRANSPARENT);
     EQ(g_gouraud_polygons,2);
     EQ(g_polygon_color,0x801Fu);
     EQ(g_last_gouraud[0],0x0000u);
