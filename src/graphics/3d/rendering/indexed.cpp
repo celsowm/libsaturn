@@ -330,6 +330,17 @@ extern "C" sat_result_t sat_draw_indexed_box3(
     return SAT_OK;
 }
 
+/* A solid fallback cannot carry the VDP2 ratio slot of the sprite it stands
+ * in for (RGB materials have no indexed selector), so a face drawn through a
+ * ratio slot uses the VDP1 half-transparent blend instead. A mesh sprite
+ * keeps its mesh. Without this, a translucent surface that comes too close to
+ * the camera turns into an opaque slab. */
+static uint16_t fallback_effects(const sat_indexed_solid_render3d_t* p) {
+    uint16_t flags=p->sprite_flags&(SAT_SPRITE_FLAG_MESH|SAT_SPRITE_FLAG_HALF_TRANSPARENT);
+    if(p->color_calc_slot<8u) flags|=SAT_SPRITE_FLAG_HALF_TRANSPARENT;
+    return flags;
+}
+
 /* The near-clipped solid fallback of a textured face whose corners all clear
  * the near plane. The near clip returns such a quad unchanged, so its single
  * piece is the sprite's own projection: screen clip and draw that directly,
@@ -338,7 +349,8 @@ static sat_result_t draw_projected_fallback(
     const sat_quad2_t& projected, const sat_indexed_solid_render3d_t* p,
     uint16_t rgb555
 ) {
-    sat_result_t st=saturn::core::validate_polygon_effects(rgb555,0u);
+    const uint16_t flags=fallback_effects(p);
+    sat_result_t st=saturn::core::validate_polygon_effects(rgb555,flags);
     if(st!=SAT_OK) return st;
     sat_quad2_t visible[6];
     uint8_t visible_count=0u;
@@ -346,7 +358,7 @@ static sat_result_t draw_projected_fallback(
     if(st==SAT_ERR_UNSUPPORTED) return SAT_OK;
     if(st!=SAT_OK) return st;
     for(uint8_t i=0u;i<visible_count;++i) {
-        st=sat_draw_quad2_polygon_effects(&visible[i],rgb555,0u);
+        st=sat_draw_quad2_polygon_effects(&visible[i],rgb555,flags);
         if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
     }
     return SAT_OK;
@@ -382,13 +394,13 @@ static sat_result_t draw_textured_quad(
         const int64_t depth=(dx*p->forward.x+dy*p->forward.y+
                              dz*p->forward.z)/SAT_FX16_ONE;
         if(depth < p->near_depth)
-            return fallback_rgb555 ? sat_draw_polygon_quad3(quad,p,fallback_rgb555) : SAT_OK;
+            return fallback_rgb555 ? sat_draw_polygon_quad3_effects(quad,p,fallback_rgb555,fallback_effects(p)) : SAT_OK;
     }
 
     sat_quad2_t projected;
     const sat_result_t proj=sat_project_quad(p->view_proj,quad,&projected);
     if(proj==SAT_ERR_UNSUPPORTED)
-        return fallback_rgb555 ? saturn::core::validate_polygon_effects(fallback_rgb555,0u) : SAT_OK;
+        return fallback_rgb555 ? saturn::core::validate_polygon_effects(fallback_rgb555,fallback_effects(p)) : SAT_OK;
     if(proj!=SAT_OK) return proj;
     /* Partly off-screen is fine: the VDP1 system clipping trims the sprite.
      * Only a corner so far out that projection would clamp it, or a sprite
