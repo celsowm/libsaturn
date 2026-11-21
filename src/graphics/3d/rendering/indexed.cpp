@@ -37,6 +37,89 @@ bool valid_render(const sat_indexed_solid_render3d_t* p) {
             p->color_calc_slot < 8u || p->color_calc_slot == SAT_VDP2_SPRITE_ADD);
 }
 
+/* Corners are clamped to +/-2047 when projected, which bends the edges of any
+ * face that reaches that far out and is the common case close to a wall: the
+ * clamped polygon then covers things it should not. Cutting the face against
+ * the four sides of a box a little larger than the screen first keeps every
+ * corner inside the unclamped range, so the later screen clip is exact. A
+ * piece wholly inside the box is returned unchanged. */
+constexpr int64_t kSideBound=1024;
+
+struct SideVertex {
+    sat_vec3_t p;
+    int64_t x,y,w;
+};
+
+SideVertex side_vertex(const sat_indexed_solid_render3d_t* p,const sat_vec3_t& v) {
+    const sat_vec4_t clip=saturn::core::math3d::mat4_transform_vec4(
+        p->view_proj->m,v.x,v.y,v.z,SAT_FX16_ONE);
+    return SideVertex{v,clip.x,clip.y,clip.w};
+}
+
+/* Signed distance of a vertex inside plane `k` (>= 0 inside), in w units. */
+int64_t side_distance(const sat_indexed_solid_render3d_t* p,const SideVertex& v,uint8_t k) {
+    const int64_t limit=2*kSideBound*v.w;
+    switch(k) {
+        case 0: return limit-v.x*p->width;
+        case 1: return limit+v.x*p->width;
+        case 2: return limit-v.y*p->height;
+        default: return limit+v.y*p->height;
+    }
+}
+
+/* Clips one near-clipped piece (a quad or a triangle with D==C) to the box and
+ * fans what is left into triangles. Returns the count, or 0 when nothing is
+ * visible. */
+uint8_t side_clip_piece(const sat_indexed_solid_render3d_t* p,const sat_quad3_t& piece,
+                        sat_quad3_t out[8]) {
+    SideVertex poly[12];
+    uint8_t n=0u;
+    bool outside=false;
+    for(uint8_t i=0u;i<4u;++i) {
+        const sat_vec3_t& v=piece.v[i];
+        if(i==3u && v.x==piece.v[2].x && v.y==piece.v[2].y && v.z==piece.v[2].z) break;
+        poly[n]=side_vertex(p,v);
+        if(poly[n].w<=0) { out[0]=piece; return 1u; }
+        for(uint8_t k=0u;k<4u;++k)
+            if(side_distance(p,poly[n],k)<0) outside=true;
+        ++n;
+    }
+    if(!outside) { out[0]=piece; return 1u; }
+    for(uint8_t k=0u;k<4u && n>=3u;++k) {
+        SideVertex next[12];
+        uint8_t m=0u;
+        SideVertex prev=poly[n-1u];
+        int64_t prev_d=side_distance(p,prev,k);
+        for(uint8_t i=0u;i<n;++i) {
+            const SideVertex cur=poly[i];
+            const int64_t d=side_distance(p,cur,k);
+            if((prev_d>=0)!=(d>=0)) {
+                /* 16.16 fraction: the distances are large enough that
+                 * multiplying them by a coordinate span would overflow. */
+                const int64_t t=(prev_d*SAT_FX16_ONE)/(prev_d-d);
+                sat_vec3_t q;
+                q.x=static_cast<sat_fx16_t>(prev.p.x+(((static_cast<int64_t>(cur.p.x)-prev.p.x)*t)>>16));
+                q.y=static_cast<sat_fx16_t>(prev.p.y+(((static_cast<int64_t>(cur.p.y)-prev.p.y)*t)>>16));
+                q.z=static_cast<sat_fx16_t>(prev.p.z+(((static_cast<int64_t>(cur.p.z)-prev.p.z)*t)>>16));
+                if(m<12u) next[m++]=side_vertex(p,q);
+            }
+            if(d>=0 && m<12u) next[m++]=cur;
+            prev=cur;prev_d=d;
+        }
+        for(uint8_t i=0u;i<m;++i) poly[i]=next[i];
+        n=m;
+    }
+    if(n<3u) return 0u;
+    const uint8_t count=static_cast<uint8_t>(n-2u>8u?8u:n-2u);
+    for(uint8_t i=0u;i<count;++i) {
+        out[i].v[0]=poly[0].p;
+        out[i].v[1]=poly[i+1u].p;
+        out[i].v[2]=poly[i+2u].p;
+        out[i].v[3]=poly[i+2u].p;
+    }
+    return count;
+}
+
 /* Near clip, project and screen clip one world quad, handing every visible
  * piece to draw(near_piece, projected_near_piece, visible_piece). A piece the
  * projector or a draw call reports as UNSUPPORTED is skipped; any other
@@ -50,20 +133,25 @@ sat_result_t for_each_visible_piece(const sat_quad3_t* quad,
     sat_result_t st=sat_clip_quad_near(
         quad,&p->eye,&p->forward,p->near_depth,pieces,&piece_count);
     if(st!=SAT_OK) return st;
-    for(uint8_t piece=0u;piece<piece_count;++piece) {
-        sat_quad2_t projected;
-        sat_quad2_t visible[6];
-        uint8_t visible_count=0u;
-        st=sat_project_quad(p->view_proj,&pieces[piece],&projected);
-        if(st==SAT_ERR_UNSUPPORTED) continue;
-        if(st!=SAT_OK) return st;
-        st=sat_clip_quad_screen(&projected,p->width,p->height,visible,
-                                &visible_count);
-        if(st==SAT_ERR_UNSUPPORTED) continue;
-        if(st!=SAT_OK) return st;
-        for(uint8_t i=0u;i<visible_count;++i) {
-            st=draw(pieces[piece],projected,visible[i]);
-            if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
+    for(uint8_t near_piece=0u;near_piece<piece_count;++near_piece) {
+        sat_quad3_t boxed[8];
+        const uint8_t boxed_count=side_clip_piece(p,pieces[near_piece],boxed);
+        for(uint8_t b=0u;b<boxed_count;++b) {
+            const sat_quad3_t& piece=boxed[b];
+            sat_quad2_t projected;
+            sat_quad2_t visible[6];
+            uint8_t visible_count=0u;
+            st=sat_project_quad(p->view_proj,&piece,&projected);
+            if(st==SAT_ERR_UNSUPPORTED) continue;
+            if(st!=SAT_OK) return st;
+            st=sat_clip_quad_screen(&projected,p->width,p->height,visible,
+                                    &visible_count);
+            if(st==SAT_ERR_UNSUPPORTED) continue;
+            if(st!=SAT_OK) return st;
+            for(uint8_t i=0u;i<visible_count;++i) {
+                st=draw(piece,projected,visible[i]);
+                if(st!=SAT_OK && st!=SAT_ERR_UNSUPPORTED) return st;
+            }
         }
     }
     return SAT_OK;

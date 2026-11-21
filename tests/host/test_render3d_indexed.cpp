@@ -13,6 +13,7 @@
 
 static int g_near_calls,g_project_calls,g_screen_calls,g_opaque,g_faded;
 static int g_clip_mode,g_screen_mode;
+static int32_t g_max_projected_x;
 static uint8_t g_last_slot;
 static uint16_t g_last_sprite_flags;
 static uint16_t g_srca[64];
@@ -52,6 +53,8 @@ extern "C" sat_result_t sat_project_quad(
     const sat_mat4_t*,const sat_quad3_t* q,sat_quad2_t* out) {
     ++g_project_calls;
     for(int i=0;i<4;++i) {
+        const int32_t ax=q->v[i].x<0?-q->v[i].x:q->v[i].x;
+        if(ax>g_max_projected_x) g_max_projected_x=ax;
         out->x[i]=(int16_t)(q->v[i].x/SAT_FX16_ONE);
         out->y[i]=(int16_t)(q->v[i].y/SAT_FX16_ONE);
     }
@@ -147,6 +150,7 @@ static void reset() {
     g_polygon_color=0u;
     g_polygon_status=SAT_OK;
     g_near_calls=g_project_calls=g_screen_calls=g_opaque=g_faded=0;
+    g_max_projected_x=0;
     g_clip_mode=g_screen_mode=0;
     g_last_slot=255u;
     g_submit_status=SAT_OK;
@@ -892,7 +896,33 @@ static void rgb_clut_gouraud_preserves_texture_and_corners() {
     CHECK(g_captured_material.vertex_gouraud==g);
     g_capturing=false;
 }
+static void wide_face_is_cut_to_a_box_before_projection() {
+    reset();
+    sat_mat4_t perspective={};
+    perspective.m[0]=SAT_FX16_ONE;   /* clip x = x */
+    perspective.m[5]=SAT_FX16_ONE;   /* clip y = y */
+    perspective.m[14]=SAT_FX16_ONE;  /* clip w = z */
+    sat_indexed_solid_render3d_t p=render();
+    p.view_proj=&perspective;
+    /* A wall at depth 10 that runs 5000 units to the right: its far corners
+     * would project far past the +/-2047 clamp, which bends its edges. */
+    sat_quad3_t wall={};
+    wall.v[0]=(sat_vec3_t){FX(-1),FX(1),FX(10)};
+    wall.v[1]=(sat_vec3_t){FX(5000),FX(1),FX(10)};
+    wall.v[2]=(sat_vec3_t){FX(5000),FX(-1),FX(10)};
+    wall.v[3]=(sat_vec3_t){FX(-1),FX(-1),FX(10)};
+    EQ(sat_draw_polygon_quad3(&wall,&p,0x8421u),SAT_OK);
+    /* x*320/(2*10) <= 1024 holds up to x = 64. */
+    CHECK(g_max_projected_x<=FX(64)+SAT_FX16_ONE);
+    CHECK(g_project_calls>=1);
+    /* A face already inside the box is left whole. */
+    reset();
+    sat_quad3_t small=quad(-1,10);
+    EQ(sat_draw_polygon_quad3(&small,&p,0x8421u),SAT_OK);
+    EQ(g_project_calls,1);
+}
 int main() {
+    wide_face_is_cut_to_a_box_before_projection();
     rgb_clut_gouraud_preserves_texture_and_corners();
     quad_validates_and_draws_opaque();
     faded_quad_and_multiple_screen_triangles();
