@@ -207,15 +207,28 @@ sat_result_t start_play(sat_cd_block_t* block, uint32_t lba, uint32_t sector_cou
         0u);
 }
 
-/* Moves `take` buffered sectors to `destination` and frees them in the drive. */
+/* Moves `take` buffered sectors to `destination` and frees them in the drive, one sector per
+ * Get Then Delete Sector Data (0x63) / End Data Transfer (0x06) pair.
+ *
+ * Why one: the data port gives the host no wait state and no "data ready" flag, so the host
+ * may only read what is guaranteed to be there. A real CD Block keeps up with any read rate.
+ * SAROO does not: its FPGA FIFO is 2048 words (two sectors), and its STM32 queues one sector
+ * when 0x63 is issued, and the next only from an interrupt once the host has drained the FIFO
+ * below 256 words. The host's 32-bit read loop can drain those 512 bytes faster than the MCU
+ * reacts, especially while the drive is still reading the SD card during a stream, and a read
+ * from an empty FIFO returns the last word again without advancing. The byte count stays right
+ * (0x06 deletes all the sectors it asked for), so the damage is silent: corrupt picture and
+ * sound with intact packet lengths. With one sector per 0x63 the whole sector is in the FIFO
+ * before CMOK, which is also how SAROO's own SH-2 firmware reads (Firm_Saturn/cdblock.c,
+ * cdc_read_sector). See tpunix/SAROO Firm_MCU/Saturn/saturn_cdc.c, trans_start/trans_handle. */
 sat_result_t take_sectors(sat_cd_block_t* block, uint8_t* destination, uint32_t take) {
-    SAT_TRY(execute_and_wait(
-        block,
-        {0x6300u, 0u, 0u, static_cast<uint16_t>(take)},
-        SAT_CD_BLOCK_HIRQ_DRDY));
-    SAT_TRY(transfer_words(destination, take * SAT_CD_SECTOR_BYTES));
-    block->diagnostics.bytes_transferred += take * SAT_CD_SECTOR_BYTES;
-    return execute_and_wait(block, {0x0600u, 0u, 0u, 0u}, 0u);
+    for (uint32_t i = 0u; i < take; ++i) {
+        SAT_TRY(execute_and_wait(block, {0x6300u, 0u, 0u, 1u}, SAT_CD_BLOCK_HIRQ_DRDY));
+        SAT_TRY(transfer_words(destination + i * SAT_CD_SECTOR_BYTES, SAT_CD_SECTOR_BYTES));
+        block->diagnostics.bytes_transferred += SAT_CD_SECTOR_BYTES;
+        SAT_TRY(execute_and_wait(block, {0x0600u, 0u, 0u, 0u}, 0u));
+    }
+    return SAT_OK;
 }
 
 sat_result_t read_impl(

@@ -7,6 +7,7 @@
 static uint16_t words[4], hirq;
 static uint32_t clock_value, due, latency, ready_sectors;
 static bool pending, never_complete;
+static uint32_t get_del_commands, get_del_max_count;   // every 0x63 must ask for one sector (SAROO FIFO)
 static uint16_t sat_cd_test_read(uint32_t address) {
     if(address==SAT_CD_BLOCK_HIRQ) {
         if(pending && !never_complete && int32_t(clock_value-due)>=0) {
@@ -22,7 +23,10 @@ static void sat_cd_test_write(uint32_t address,uint16_t value) {
     if(address==SAT_CD_BLOCK_HIRQ){hirq&=value;return;}
     const uint32_t regs[]={SAT_CD_BLOCK_CR1,SAT_CD_BLOCK_CR2,SAT_CD_BLOCK_CR3,SAT_CD_BLOCK_CR4};
     for(unsigned i=0;i<4;++i)if(address==regs[i])words[i]=value;
-    if(address==SAT_CD_BLOCK_CR4){pending=true;due=clock_value+latency;}
+    if(address==SAT_CD_BLOCK_CR4){
+        pending=true;due=clock_value+latency;
+        if((words[0]>>8)==0x63u){++get_del_commands;if(value>get_del_max_count)get_del_max_count=value;}
+    }
 }
 #define SAT_CD_BLOCK_TEST_BUS 1
 #include "src/hal/cd/block.cpp"
@@ -34,6 +38,7 @@ static uint32_t fake_clock(void*) {return clock_value++;}
 static void reset(uint32_t start=0) {
     clock_value=start;hirq=0xffff;latency=2;ready_sectors=0;
     pending=never_complete=false;
+    get_del_commands=get_del_max_count=0;
     for(auto& word:words)word=0;
 }
 int main() {
@@ -98,6 +103,8 @@ int main() {
     assert(sat_cd_stream_poll(&block,0,&remaining)==SAT_OK && remaining==2);     // 1 fits before the end
     assert(sat_cd_stream_poll(&block,0,&remaining)==SAT_OK && remaining==0);     // the last 2: the stream closes
     assert(!block.stream_active && block.stream_ring_end==nullptr);
+    // Ten sectors arrived in batches of up to 3, each through its own 0x63 of one sector.
+    assert(get_del_commands==10 && get_del_max_count==1);
     // Abort: closes at once, and a plain stream may begin again.
     assert(sat_cd_stream_begin_ring(&block,21,10,ring,4)==SAT_OK);
     assert(sat_cd_stream_abort(&block)==SAT_OK && !block.stream_active && sat_cd_stream_remaining(&block)==0);
