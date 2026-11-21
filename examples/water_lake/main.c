@@ -63,6 +63,7 @@ volatile struct {
      * and the largest fade reached. */
     uint32_t underwater_ticks, max_fade;
     uint32_t textured;      /* the water is drawn with a texture instead of a flat colour */
+    uint32_t water_off;     /* the water surface is not drawn: isolates its share of the cost */
     int32_t actor_x, actor_y, actor_z;
     section_record_t section[SECTIONS];
 } water_lake_telemetry;
@@ -394,12 +395,12 @@ static void draw_naive_water(uint8_t textured) {
     }
 }
 
-static void draw_naive(const sat_vec3_t* actor, uint8_t textured) {
+static void draw_naive(const sat_vec3_t* actor, uint8_t textured, uint8_t water_off) {
     uint64_t t = sat_time_ticks();
     submit_level(&level_mesh, level_indices, level_face_materials, level_mesh.face_count, level_light, 0);
     water_lake_telemetry.stage[0] = (uint32_t)(sat_time_ticks() - t);
     t = sat_time_ticks();
-    draw_naive_water(textured);
+    if (!water_off) draw_naive_water(textured);
     water_lake_telemetry.stage[1] = (uint32_t)(sat_time_ticks() - t);
     water_lake_telemetry.stage[2] = water_lake_telemetry.stage[3] = 0;
     t = sat_time_ticks();
@@ -415,7 +416,8 @@ static void draw_naive(const sat_vec3_t* actor, uint8_t textured) {
 static sat_fx16_t magnitude(sat_fx16_t v) { return v < 0 ? -v : v; }
 
 static void draw_full(const sat_vec3_t* eye, const sat_vec3_t* target, const sat_vec3_t* actor,
-                      const sat_water_view_state_t* state, uint32_t tick, uint8_t textured) {
+                      const sat_water_view_state_t* state, uint32_t tick, uint8_t textured,
+                      uint8_t water_off) {
     const sat_water_view_passes_t passes = sat_water_view_passes(state->underwater);
     uint64_t t = sat_time_ticks();
     // Each side has its own block of vertices, so an instance projects only its own.
@@ -454,7 +456,7 @@ static void draw_full(const sat_vec3_t* eye, const sat_vec3_t* target, const sat
     t = sat_time_ticks();
     const sat_scene3d_material_t* water = textured ? &water_textured_material : &water_material;
     const sat_scene3d_material_t rings[4] = {*water, *water, *water, *water};
-    sat_example_must(sat_water_plane_submit(&scene, &plane, rings, passes.water));
+    if (!water_off) sat_example_must(sat_water_plane_submit(&scene, &plane, rings, passes.water));
     water_lake_telemetry.stage[2] = (uint32_t)(sat_time_ticks() - t);
     t = sat_time_ticks();
 
@@ -495,7 +497,7 @@ int main(void) {
     const sat_video_config_t video = {WIDTH, HEIGHT, SAT_VIDEO_AUTO, 0};
     sat_camera3d_t camera;
     uint32_t tick = 0, script = 0;
-    uint8_t paused = 0, mode = MODE_FULL, textured = 0;
+    uint8_t paused = 0, mode = MODE_FULL, textured = 0, water_off = 0;
     uint32_t stop_section = 0;
     int32_t orbit = 30;
     sat_vec3_t free_actor = actor_at(-UNIT(34), UNIT(4), 0);
@@ -540,7 +542,7 @@ int main(void) {
                  * and PAL. It pauses at the start of section `stop_section`, set with
                  * C beforehand, so a capture is the same tick however fast the frames run. */
                 set_mode(&mode, (pad.pressed & SAT_PAD_X) ? MODE_NAIVE : MODE_FULL);
-                textured = 0;
+                textured = water_off = 0;
                 tick = 0;
                 script = 1;
                 paused = 0;
@@ -549,6 +551,17 @@ int main(void) {
                 /* Z + A replays in FULL mode and Z + B in NAIVE, with textured water. */
                 set_mode(&mode, (pad.pressed & SAT_PAD_B) ? MODE_NAIVE : MODE_FULL);
                 textured = 1;
+                water_off = 0;
+                tick = 0;
+                script = 1;
+                paused = 0;
+                pad.held = 0;
+            } else if ((pad.pressed & (SAT_PAD_L | SAT_PAD_R)) && (pad.held & SAT_PAD_Z)) {
+                /* Z + R replays in FULL mode and Z + L in NAIVE with the water surface
+                 * left out, so the rest of the frame can be subtracted from a run. */
+                set_mode(&mode, (pad.pressed & SAT_PAD_L) ? MODE_NAIVE : MODE_FULL);
+                textured = 0;
+                water_off = 1;
                 tick = 0;
                 script = 1;
                 paused = 0;
@@ -595,8 +608,8 @@ int main(void) {
         draw_sky();
         const uint64_t prepare = sat_time_ticks();
         sat_example_must(sat_scene_begin(&scene, &camera, SAT_FX16_ONE / 2, WIDTH, HEIGHT, OVERLAY_COMMANDS));
-        if (mode == MODE_FULL) draw_full(&eye, &target, &actor, &state, tick, textured);
-        else draw_naive(&actor, textured);
+        if (mode == MODE_FULL) draw_full(&eye, &target, &actor, &state, tick, textured, water_off);
+        else draw_naive(&actor, textured, water_off);
         const uint64_t flush = sat_time_ticks();
         sat_example_must(sat_scene_flush(&scene));
         sat_scene_stats_t stats;
@@ -610,6 +623,7 @@ int main(void) {
         water_lake_telemetry.tick = tick;
         water_lake_telemetry.mode = mode;
         water_lake_telemetry.textured = textured;
+        water_lake_telemetry.water_off = water_off;
         water_lake_telemetry.script = script;
         water_lake_telemetry.paused = paused;
         water_lake_telemetry.underwater = state.underwater;

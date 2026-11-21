@@ -9,7 +9,7 @@ from PIL import Image
 EVIDENCE = Path("build/water_lake_evidence")
 SECTIONS = 13
 MODES = ("naive", "full", "naive_tex", "full_tex")
-HEADER = struct.Struct(">23I3i")
+HEADER = struct.Struct(">24I3i")
 SECTION = struct.Struct(">8I")
 
 # Faces submitted, culled, clipped, fallback, skipped and world commands per 30-tick stretch of
@@ -105,7 +105,7 @@ def load(mode):
     data = (EVIDENCE / f"{mode}-telemetry.bin").read_bytes()
     fields = HEADER.unpack(data[:HEADER.size])
     keys = ("tick mode script paused underwater fade region fraction plane above below cut "
-            "frequency errors last s0 s1 s2 s3 s4 underwater_ticks max_fade textured ax ay az").split()
+            "frequency errors last s0 s1 s2 s3 s4 underwater_ticks max_fade textured water_off ax ay az").split()
     head = dict(zip(keys, fields))
     sections = [SECTION.unpack(data[HEADER.size + 32 * i:HEADER.size + 32 * (i + 1)])
                 for i in range(SECTIONS)]
@@ -120,6 +120,19 @@ class WaterLakeTest(unittest.TestCase):
             self.assertEqual(head["textured"], mode.endswith("_tex"), mode)
             self.assertEqual(head["tick"], 390, mode)
             self.assertEqual((head["script"], head["paused"]), (0, 1), mode)
+
+    def test_water_only_share_of_the_clipped_faces(self):
+        # The same route with the water surface not drawn; the difference is what the water
+        # itself puts through the clip path. The plane adds more, not fewer, of them.
+        share = {}
+        for mode in ("naive", "full"):
+            head, with_water = load(mode)
+            dry_head, dry = load(f"{mode}_dry")
+            self.assertEqual((dry_head["water_off"], dry_head["tick"]), (1, 390), mode)
+            self.assertEqual(head["water_off"], 0, mode)
+            share[mode] = sum(a[2] - b[2] for a, b in zip(with_water, dry))
+            self.assertEqual(sum(a[4] for a in with_water + dry), 0, mode)
+        self.assertEqual(share, {"naive": 24, "full": 122})
 
     def test_every_section_drew_and_nothing_was_skipped(self):
         for mode in MODES:

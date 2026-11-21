@@ -216,7 +216,10 @@ captures.
   behind the near plane is drawn as the flat fallback colour rather than
   dropped. The plan's acceptance criterion of "fewer fallback and dropped faces
   near the camera" is therefore **not met**, and the argument that motivated the
-  plane's near rings did not hold on this route. What the plane does give is
+  plane's near rings did not hold on this route. Rerunning the route with the
+  water not drawn isolates the water's own share of the clipped faces: 24 for
+  the naive quads and 122 for the plane (the rest of the scene clips 630 to
+  664), so the plane increases that share instead of reducing it. What the plane does give is
   finer texture detail near the camera (not measured in pixels), a wobble and
   distance tint, and the right painter passes.
 - **Arithmetic.** A first plane of 4 rings of 8×8 cells cost 13 ms to build with

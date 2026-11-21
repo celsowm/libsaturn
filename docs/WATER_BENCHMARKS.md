@@ -237,4 +237,12 @@ water, the waterline cuts the actor and the posts, wet geometry is tinted by
 depth, and the camera under the surface gets the colour-offset fade instead of
 an untreated view.
 
+Isolating the water: the same replay with the water surface not drawn
+(`naive_dry`, `full_dry`) gives the clipped faces the rest of the scene puts
+through the clip path (630 over the 13 sections for NAIVE, 664 for FULL). The
+difference is the water's own share: 24 clipped faces for the four naive quads
+and 122 for the plane. So most clipping near the camera comes from the terrain,
+bridge and actor, and the plane adds clipped faces instead of removing them,
+because its small near cells are the ones that straddle the near plane.
+
 [Water Lab](../examples/water_lab/README.md) · [Compositor probe](FX_COMPOSITOR.md) · [Implementation plan](WATER_LAB_PLAN.md)
