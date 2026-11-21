@@ -10,7 +10,6 @@ enum {
     RIPPLE_FACES = RIPPLE_CENTERS * RIPPLE_ARCS * RIPPLE_SEGMENTS
 };
 
-static sat_fx16_t sine[360];
 static sat_vec3_t vertices[GRID_VERTICES];
 static sat_projected_vertex_t projected[GRID_VERTICES];
 static uint16_t indices[4 * GRID_FACES];
@@ -18,15 +17,11 @@ static uint16_t face_materials[GRID_FACES];
 static uint16_t lighting[GRID_VERTICES];
 static unsigned grid_size;
 
-void lab_surface_init(void) {
-    for (int angle = 0; angle < 360; ++angle) {
-        sine[angle] = sat_sin_deg(LAB_UNIT(angle));
-    }
-}
+/* Fill the library's whole-degree table now rather than in the first frame. */
+void lab_surface_init(void) { (void)sat_sin_deg_whole(0); }
 
 sat_fx16_t lab_sin_degrees(int degrees) {
-    const int angle = degrees % 360;
-    return sine[angle < 0 ? angle + 360 : angle];
+    return sat_sin_deg_whole(degrees);
 }
 
 static sat_fx16_t wave_height(const lab_water_t* water, sat_fx16_t wave, sat_fx16_t cross) {

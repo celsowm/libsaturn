@@ -273,8 +273,8 @@ inline int64_t vec3_dot_raw(const sat_vec3_t& a, const sat_vec3_t& b) {
 
 inline sat_fx16_t sin_deg_fx(sat_fx16_t degrees) {
     /* Range-reduce to [0, 360) in fixed point. */
-    constexpr int64_t k360 = static_cast<int64_t>(360) << 16;
-    int64_t d = static_cast<int64_t>(degrees) % k360;
+    constexpr int32_t k360 = 360 << 16;
+    int32_t d = degrees % k360;
     if (d < 0) {
         d += k360;
     }
@@ -283,9 +283,8 @@ inline sat_fx16_t sin_deg_fx(sat_fx16_t degrees) {
     if (d > (180 << 16)) {
         d -= k360;  /* now (-180, 0] */
     }
-    int64_t sign = 1;
+    const bool negative = d < 0;
     if (d < 0) {
-        sign = -1;
         d = -d;
     }
     if (d > (90 << 16)) {
@@ -293,16 +292,21 @@ inline sat_fx16_t sin_deg_fx(sat_fx16_t degrees) {
     }
 
     /* Bhaskara I: sin(x) ~= 4x(180-x) / (40500 - x(180-x)), x in degrees. */
-    const int64_t x = d;                        /* fx16 degrees */
-    const int64_t one80 = static_cast<int64_t>(180) << 16;
-    const int64_t t = (x * (one80 - x)) >> 16;  /* fx16 */
-    const int64_t denom = (static_cast<int64_t>(40500) << 16) - t;
-    if (denom == 0) {
-        return 0;
+    const uint32_t t = (static_cast<int64_t>(d) * ((180 << 16) - d)) >> 16;
+    const uint32_t denominator = (40500u << 16) - t;
+    const uint64_t numerator = static_cast<uint64_t>(t) << 18;
+    /* Scale both operands by 2^-15. The numerator scales exactly, while
+     * rounding the denominator (at least 64800 after scaling) can move
+     * the quotient by less than one unit. Correct the 32-bit divide with
+     * the original operands to recover the exact truncated result. */
+    uint32_t result = (t << 3) / ((denominator + (1u << 14)) >> 15);
+    const uint64_t covered = static_cast<uint64_t>(result) * denominator;
+    if (covered > numerator) {
+        --result;
+    } else if (numerator - covered >= denominator) {
+        ++result;
     }
-    int64_t num = 4 * t;
-    int64_t result = (num << 16) / denom;       /* fx16 */
-    return static_cast<sat_fx16_t>(sign < 0 ? -result : result);
+    return negative ? -static_cast<int32_t>(result) : static_cast<int32_t>(result);
 }
 
 inline sat_fx16_t cos_deg_fx(sat_fx16_t degrees) {

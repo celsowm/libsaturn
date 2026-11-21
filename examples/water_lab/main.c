@@ -37,6 +37,7 @@ int main(void) {
     uint8_t fx_reserved = 0;
 
     sat_example_must(sat_init(&video));
+    const uint8_t ntsc = !sat_video_is_pal();
     sat_example_must(sat_vdp1_set_frame_mode(SAT_VDP1_FRAME_ON_SUBMIT));
     sat_example_must(sat_vdp2_back_color_set(SAT_RGB555(3, 5, 8)));
     sat_example_must(sat_set_clear_color(SAT_RGB555(3, 5, 8)));
@@ -131,6 +132,12 @@ int main(void) {
                 fx_reserved = 0;
             }
         } else {
+            /* The stock NTSC pool fits a two-field cadence. Start its draw
+             * at VBlank so it has a full field before the next swap window. */
+            if (ntsc && water.mode == LAB_POOL && !diagnostics && !stress &&
+                water.subdivisions <= default_water.subdivisions) {
+                sat_example_must(sat_wait_vblank());
+            }
             sat_example_must(sat_app_frame_end());
         }
         lab_benchmark_submitted(tick);

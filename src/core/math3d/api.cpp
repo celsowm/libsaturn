@@ -33,6 +33,30 @@ extern "C" sat_fx16_t sat_cos_deg(sat_fx16_t degrees) {
     return cos_deg_fx(degrees);
 }
 
+namespace {
+
+sat_fx16_t whole_degree_sine(int32_t degrees) {
+    static sat_fx16_t table[360];
+    static bool ready = false;
+    if (!ready) {
+        // Idempotent: a concurrent first call writes the same values.
+        for (int32_t angle = 0; angle < 360; ++angle) table[angle] = sin_deg_fx(angle << 16);
+        ready = true;
+    }
+    const int32_t wrapped = degrees % 360;
+    return table[wrapped < 0 ? wrapped + 360 : wrapped];
+}
+
+}
+
+extern "C" sat_fx16_t sat_sin_deg_whole(int32_t degrees) {
+    return whole_degree_sine(degrees);
+}
+
+extern "C" sat_fx16_t sat_cos_deg_whole(int32_t degrees) {
+    return whole_degree_sine(degrees % 360 + 90);
+}
+
 extern "C" sat_fx16_t sat_tan_deg(sat_fx16_t degrees) {
     return tan_deg_fx(degrees);
 }

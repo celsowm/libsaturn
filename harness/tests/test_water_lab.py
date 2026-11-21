@@ -70,6 +70,14 @@ class WaterLab(unittest.TestCase):
         self.assertGreaterEqual(changed * refresh / len(fields), 24)
         self.assertEqual(words("hud", 20)[7], 0)
 
+    def test_ntsc_pool_pacing(self):
+        with (EVIDENCE / "pool-fields.csv").open(newline="") as source:
+            changes = [int(row["frame"]) for row in csv.DictReader(source)
+                       if int(row["frame"]) >= 40 and int(row["changed_pixels"])]
+        self.assertGreaterEqual(len(changes), 64)
+        self.assertEqual({b - a for a, b in zip(changes, changes[1:])}, {2})
+        self.assertEqual(words("pool", 20)[6:8], (0, 0))
+
     def test_native(self):
         for name in ("matched-dry", "opaque", "mesh", "half", "underwater", "underwater-low-camera"):
             self.assertEqual(shot(name).size, (320, 224))

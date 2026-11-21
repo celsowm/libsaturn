@@ -51,6 +51,13 @@ sat_fx16_t sat_sin_deg(sat_fx16_t degrees);
 sat_fx16_t sat_cos_deg(sat_fx16_t degrees);
 sat_fx16_t sat_tan_deg(sat_fx16_t degrees);
 
+/* sat_sin_deg / sat_cos_deg of a whole number of degrees, from a 360-entry
+ * table filled on first use, so animation loops that step by whole degrees
+ * pay a lookup instead of the rational approximation. Any integer is
+ * accepted and wraps. Results equal sat_sin_deg(degrees << 16) exactly. */
+sat_fx16_t sat_sin_deg_whole(int32_t degrees);
+sat_fx16_t sat_cos_deg_whole(int32_t degrees);
+
 /* ------------------------------------------------------------------ */
 /* Vector helpers                                                      */
 /* ------------------------------------------------------------------ */

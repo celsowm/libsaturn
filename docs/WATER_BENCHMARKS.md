@@ -6,7 +6,7 @@ Use `./harness/run-water-lab.sh` and
 `python3 harness/tests/test_water_lab.py`. The script builds both disc
 images and collects screenshots, command bytes and big-endian telemetry
 in `build/water_lab_evidence/`. The scene is procedural and seedless.
-The matched-mode script pauses at tick 67 for dry, opaque, mesh, RGB half
+The matched-mode script pauses the simulation for dry, opaque, mesh, RGB half
 and underwater captures. It also exercises 256- and 512-face workloads
 and a low camera looking through the water surface.
 
@@ -38,11 +38,11 @@ Ymir ran the default 128-face dry workload and 8×8 rippling grid for 540
 fields. The rates count changed fields in the 160×65 water crop over
 fields 99–539. The HUD run toggled diagnostics at startup.
 
-| Mode | Before | After |
-| --- | ---: | ---: |
-| NTSC | 20.0 FPS | 29.5 FPS |
-| NTSC with diagnostics | 17.1 FPS | 27.5 FPS |
-| PAL | 16.7 FPS | 29.3 FPS |
+| Mode | Original | Shared vertices and pipelining | Sine and pacing follow-up |
+| --- | ---: | ---: | ---: |
+| NTSC | 20.0 FPS | 29.5 FPS | 29.9 FPS |
+| NTSC with diagnostics | 17.1 FPS | 27.5 FPS | 29.0 FPS |
+| PAL | 16.7 FPS | 29.3 FPS | 31.2 FPS |
 
 The grid, ripple ribbons and mosaic rows share projected vertices through the
 indexed scene instance API. Whole-degree sine samples reuse the SDK's
@@ -50,8 +50,27 @@ fixed-point results. Native frames build in the free VDP1 command bank while
 the previous draw and swap finish. At the end of the NTSC run, preparation
 fell from 41.2 ms to 27.8 ms. The common sequence of 180 water-crop hashes
 matched before and after the change. The updated runs had no VDP1 draw
-timeouts. The later NTSC submission phase caused 31 swaps to wait an extra
-field in the run without diagnostics.
+timeouts. The NTSC run without diagnostics logged 31 draws still pending
+at VBlank-IN. The counter samples the start of VBlank. A draw can still
+finish and request its swap before VBlank-OUT.
+
+### NTSC frame pacing
+
+The follow-up uses a 32-bit quotient and an exact remainder correction in the
+fixed-point sine calculation.
+It launches the NTSC rippling draw at VBlank for the 128-face workload with
+diagnostics off and a grid of 8×8 or smaller. This gives VDP1 a full field
+before the next swap window. The diagnostics run exceeded two fields when
+using the same wait. Diagnostics, stress workloads and PAL use the free-running
+submission path.
+
+The default NTSC run presented a new water crop every two fields through
+the measurement window, with zero late swaps or draw timeouts in 540 fields.
+The preceding build produced seven three-field gaps in the same window.
+All 266 comparable water-crop hashes matched. At the final sampled frame,
+scene preparation fell from 27.8 ms to 26.0 ms. The free-running runs
+recorded 26 late swaps with diagnostics and 31 in PAL, with zero draw
+timeouts in both.
 
 ## Native modes
 

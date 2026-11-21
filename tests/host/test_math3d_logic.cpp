@@ -1,3 +1,4 @@
+#include <cassert>
 /* test_math3d_logic.cpp — host tests for the 3D math module */
 
 #include <cstdio>
@@ -65,6 +66,18 @@ TEST(sin_cos_cardinal_values) {
 TEST(sin_45_degrees) {
     /* sin(45) = sqrt(2)/2 ~= 0.70711 => 46341 in fx16. */
     ASSERT_NEAR(sin_deg_fx(fx_from_int(45)), 46341, 512);
+}
+
+TEST(sin_matches_full_width_division) {
+    /* Every fractional angle in the first quadrant exercises the rounded
+     * divisor and correction, including the odd-divisor boundary cases. */
+    constexpr int64_t quadrant = 90 << 16;
+    for (int32_t angle = 0; angle <= quadrant; ++angle) {
+        const int64_t product = (static_cast<int64_t>(angle) * (2 * quadrant - angle)) >> 16;
+        const int64_t expected = (product << 18) / ((40500LL << 16) - product);
+        ASSERT_EQ(sin_deg_fx(angle), expected);
+        ASSERT_EQ(sin_deg_fx(-angle), -expected);
+    }
 }
 
 TEST(mat4_identity_multiply) {
@@ -342,13 +355,24 @@ TEST(vec3_cross_scaled_matches_wide_reference) {
     check({INT32_MIN,0,0},{0,INT32_MIN,0});
 }
 
+static void whole_degree_tables_match_the_approximation() {
+    for (int32_t degrees = -1080; degrees <= 1080; ++degrees) {
+        assert(sat_sin_deg_whole(degrees) == sat_sin_deg(degrees * SAT_FX16_ONE));
+        assert(sat_cos_deg_whole(degrees) == sat_cos_deg(degrees * SAT_FX16_ONE));
+    }
+    assert(sat_sin_deg_whole(INT32_MAX) == sat_sin_deg((INT32_MAX % 360) * SAT_FX16_ONE));
+    assert(sat_sin_deg_whole(INT32_MIN) == sat_sin_deg((INT32_MIN % 360) * SAT_FX16_ONE));
+}
+
 int main() {
+    whole_degree_tables_match_the_approximation();
     vec3_cross_scaled_matches_wide_reference();
     fx_mul_and_div_roundtrip();
     fx_sqrt_exact();
     fx_sqrt_is_floor_root();
     sin_cos_cardinal_values();
     sin_45_degrees();
+    sin_matches_full_width_division();
     mat4_identity_multiply();
     mat4_products_match_reference_with_aliasing();
     mat4_translate_transform();
@@ -367,6 +391,6 @@ int main() {
     fx16_abs_negates_only_negative_values();
     core_helpers_isqrt_triangle_fx16_fourcc();
 
-    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 23);
+    printf("PASS: test_math3d_logic.cpp (%d tests)\n", 24);
     return 0;
 }
