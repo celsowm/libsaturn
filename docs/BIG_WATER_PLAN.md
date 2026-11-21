@@ -1,7 +1,7 @@
 # Big Water — implementation plan
 
-Status: M0–M6 and most of M7 are implemented and measured in Ymir (the host
-tool for M3 is not written); physical-hardware acceptance is pending. Where a
+Status: M0–M7 are implemented; the rendering is measured in Ymir and
+physical-hardware acceptance is pending. Where a
 measurement contradicted this plan's first assumptions, the text says so.
 Target: SDK support for levels with large bodies of water, such as castle
 moats, bays, lakes and flooded rooms in a 3D platformer. The game supplies
@@ -187,12 +187,14 @@ The plan does not attempt exact ordering for several planes in one frame.
   PAL match), with pinned captures and telemetry. Compare with M0 in a
   table in `docs/WATER_BENCHMARKS.md`.
 
-- [~] **M7 — Docs and packaging.** Done: the sources are in
+- [x] **M7 — Docs and packaging.** Done: the sources are in
   `cmake/LibSaturnSources.cmake` and the Makefile, the package consumer source
   includes the new headers (compiled for the SH-2 against the repo headers; the
   full install-prefix gate was not run, to respect the disk budget),
-  `docs/WATER_RENDERING.md` and the README link the example. Not done: the host
-  Python tool that repeats M3's classification at converter time.
+  `docs/WATER_RENDERING.md` and the README link the example. M3's host tool is
+  `tools/water_prepare.py`, with `tests/tools/test_water_prepare_parity.py`
+  comparing it bit for bit against the C implementation on seeded random
+  levels.
 
 ## Measured results
 
