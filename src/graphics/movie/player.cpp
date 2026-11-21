@@ -50,14 +50,25 @@ bool parse_header(const uint8_t* p, Header* h) {
     return h->frame_us != 0u && h->frames != 0u;
 }
 
-void poll_ring(sat_movie_player_t* m) {
+void note_error(sat_movie_player_t* m, sat_result_t status) {
+    m->stats.last_error_frame = m->stats.packets_checked;
+    m->stats.last_error_code = static_cast<int32_t>(status);
+}
+
+sat_result_t poll_ring(sat_movie_player_t* m) {
     const uint32_t held = m->sectors_taken - m->used / kSector;
     if (m->remaining != 0u && held < m->stats.ring_low_sectors) m->stats.ring_low_sectors = held;
-    if (m->remaining == 0u || held >= SAT_MOVIE_RING_SECTORS) return;
+    if (m->remaining == 0u || held >= SAT_MOVIE_RING_SECTORS) return SAT_OK;
     uint32_t left = 0u;
-    if (sat_cd_stream_poll(m->block, SAT_MOVIE_RING_SECTORS - held, &left) != SAT_OK) return;   /* seen as starvation */
+    const sat_result_t status = sat_cd_stream_poll(m->block, SAT_MOVIE_RING_SECTORS - held, &left);
+    if (status != SAT_OK) {
+        ++m->stats.cd_errors;
+        note_error(m, status);
+        return status;
+    }
     m->sectors_taken += m->remaining - left;
     m->remaining = left;
+    return SAT_OK;
 }
 
 uint32_t available(const sat_movie_player_t* m) { return m->sectors_taken * kSector - m->used; }
@@ -78,31 +89,71 @@ void ring_copy(const sat_movie_player_t* m, uint8_t* to, uint32_t from, uint32_t
     }
 }
 
-/* Decodes the next packet: its sound into the SCSP streams, its frame into the picture. false when the packet
- * has not landed or the sound has no room yet (nothing is used then). */
-bool decode_next(sat_movie_player_t* m, bool has_sound) {
+/* Success with *decoded=false means temporary lack of disc data or SCSP space.
+ * A malformed/truncated packet, codec failure or stream write error is fatal, never a silent stall.
+ * The rolling signature includes every accepted packet's big-endian words, including its padding.
+ * The companion host checker in tekken3-saturn computes the same signature on the original .MOV. */
+sat_result_t decode_next(sat_movie_player_t* m, bool has_sound, bool* decoded, bool* waiting_data) {
+    *decoded = false;
+    *waiting_data = false;
     uint8_t head[8] __attribute__((aligned(4)));
-    if (available(m) < 8u) return false;
+    if (available(m) < 8u) {
+        *waiting_data = true;
+        return SAT_OK;
+    }
     ring_copy(m, head, m->used, 8u);
     const uint32_t video_bytes = be32(head), audio_bytes = be32(head + 4);
-    const uint32_t packet = 8u + audio_bytes + video_bytes + ((4u - (video_bytes & 3u)) & 3u);
-    if (packet > SAT_MOVIE_MAX_PACKET_BYTES || (audio_bytes % kBlockBytes) != 0u) return false;
+    const uint32_t pad = (4u - (video_bytes & 3u)) & 3u;
+    if (video_bytes < 10u || audio_bytes > SAT_MOVIE_MAX_PACKET_BYTES - 8u ||
+        video_bytes > SAT_MOVIE_MAX_PACKET_BYTES - 8u - audio_bytes - pad ||
+        (audio_bytes % kBlockBytes) != 0u || (!has_sound && audio_bytes != 0u)) {
+        ++m->stats.packet_errors;
+        note_error(m, SAT_ERR_IO);
+        return SAT_ERR_IO;
+    }
+    const uint32_t packet = 8u + audio_bytes + video_bytes + pad;
     const uint32_t blocks = audio_bytes / kBlockBytes;
-    if (available(m) < packet) return false;
-    if (has_sound && sat_audio_stream_available(m->voice[0]) < blocks * kBlockFrames) return false;
+    if (available(m) < packet) {
+        *waiting_data = true;
+        return SAT_OK;
+    }
+    if (has_sound && (sat_audio_stream_available(m->voice[0]) < blocks * kBlockFrames ||
+                      sat_audio_stream_available(m->voice[1]) < blocks * kBlockFrames)) return SAT_OK;
     ring_copy(m, m->packet, m->used, packet);
     for (uint32_t b = 0u; has_sound && b < blocks; ++b) {
-        if (sat_audio_ima_decode_block(m->packet + 8u + b * kBlockBytes, 2u, m->pcm) != SAT_OK) return false;
-        for (unsigned c = 0u; c < 2u; ++c) {
-            (void)sat_audio_stream_write(m->voice[c], m->pcm + c * 2u * kBlockFrames, kBlockFrames);
+        const sat_result_t status = sat_audio_ima_decode_block(m->packet + 8u + b * kBlockBytes, 2u, m->pcm);
+        if (status != SAT_OK) {
+            ++m->stats.audio_errors;
+            note_error(m, status);
+            return status;
+        }
+        for (unsigned channel = 0u; channel < 2u; ++channel) {
+            const sat_result_t write = sat_audio_stream_write(m->voice[channel],
+                                                             m->pcm + channel * 2u * kBlockFrames, kBlockFrames);
+            if (write != SAT_OK) {
+                ++m->stats.audio_errors;
+                note_error(m, write);
+                return write;
+            }
         }
     }
-    if (sat_movie_decode_frame(&m->decoder, m->packet + 8u + audio_bytes, video_bytes, m->origin,
-                               SAT_MOVIE_PICTURE_STRIDE) != SAT_OK) {
-        return false;
+    const sat_result_t video = sat_movie_decode_frame(&m->decoder, m->packet + 8u + audio_bytes,
+                                                      video_bytes, m->origin, SAT_MOVIE_PICTURE_STRIDE);
+    if (video != SAT_OK) {
+        ++m->stats.video_errors;
+        note_error(m, video);
+        return video;
     }
+    uint32_t hash = m->stats.packet_hash;
+    for (uint32_t pos = 0u; pos < packet; pos += 4u) {
+        hash = ((hash << 5u) | (hash >> 27u)) ^ be32(m->packet + pos);
+        hash += 0x9E3779B9u;
+    }
+    m->stats.packet_hash = hash;
+    ++m->stats.packets_checked;
     m->used += packet;
-    return true;
+    *decoded = true;
+    return SAT_OK;
 }
 
 void fade(int level) {
@@ -135,6 +186,7 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
     m->sectors_taken = m->used = 0u;
     m->stats = {};
     m->stats.ring_low_sectors = SAT_MOVIE_RING_SECTORS;
+    m->stats.packet_hash = 0x811C9DC5u;
 
     if (h.has_sound) {
         SAT_TRY(sat_audio_is_initialized() != 0u ? SAT_OK : sat_audio_init());
@@ -170,12 +222,19 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
      * the SCSP rings, and with it in the streams can start. */
     while (m->sectors_taken < kPrerollSectors && m->remaining != 0u) {
         SAT_TRY(sat_wait_vblank());
-        poll_ring(m);
+        SAT_TRY(poll_ring(m));
     }
-    while (!decode_next(m, h.has_sound)) {
+    for (;;) {
+        bool decoded = false, waiting_data = false;
+        SAT_TRY(decode_next(m, h.has_sound, &decoded, &waiting_data));
+        if (decoded) break;
+        if (waiting_data && m->remaining == 0u) {
+            ++m->stats.packet_errors;
+            note_error(m, SAT_ERR_IO);
+            return SAT_ERR_IO;
+        }
         SAT_TRY(sat_wait_vblank());
-        poll_ring(m);
-        if (m->remaining == 0u && available(m) < 8u) return SAT_ERR_IO;
+        SAT_TRY(poll_ring(m));
     }
     SAT_TRY(sat_dma_copy(reinterpret_cast<void*>(kVramBase + y0 * SAT_MOVIE_PICTURE_STRIDE * 2u),
                          m->picture + y0 * SAT_MOVIE_PICTURE_STRIDE, h.height * SAT_MOVIE_PICTURE_STRIDE * 2u));
@@ -197,7 +256,7 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
                 break;
             }
         }
-        poll_ring(m);
+        SAT_TRY(poll_ring(m));
         if (faded_in <= opt.fade_in_fields) {
             fade(opt.fade_in_fields == 0u ? 0 : -static_cast<int>(255u - faded_in * 255u / opt.fade_in_fields));
             ++faded_in;
@@ -206,10 +265,27 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
         const int32_t elapsed = static_cast<int32_t>(sat_field_count() - t0);
         const uint32_t due = elapsed <= 0 ? 0u
             : static_cast<uint32_t>(static_cast<uint64_t>(elapsed) * 1000000u / hz / h.frame_us);
-        if (due >= h.frames) break;
+        if (due >= h.frames) {
+            if (next != h.frames) {
+                ++m->stats.packet_errors;
+                note_error(m, SAT_ERR_IO);
+                return SAT_ERR_IO;
+            }
+            break;
+        }
         const uint64_t work_start = sat_time_ticks();
         uint32_t decoded = 0u;
-        while (next <= due && decode_next(m, h.has_sound)) {
+        while (next <= due) {
+            bool accepted = false, waiting_data = false;
+            SAT_TRY(decode_next(m, h.has_sound, &accepted, &waiting_data));
+            if (!accepted) {
+                if (waiting_data && m->remaining == 0u) {
+                    ++m->stats.packet_errors;
+                    note_error(m, SAT_ERR_IO);
+                    return SAT_ERR_IO;
+                }
+                break;
+            }
             ++next;
             ++decoded;
         }
@@ -251,6 +327,9 @@ extern "C" sat_result_t sat_movie_play(sat_movie_player_t* player, sat_cdfs_volu
     const sat_movie_play_options_t defaults = {};
     const sat_movie_play_options_t& opt = options != nullptr ? *options : defaults;
     player->block = block;
+    /* Also reset evidence for early header/mount failures, before run() parses the file. */
+    player->stats = {};
+    player->stats.packet_hash = 0x811C9DC5u;
 
     /* The sprite layer holds whatever the last program left in the VDP1 buffers: send one empty frame, and keep
      * the picture black until the first frame is in. */
