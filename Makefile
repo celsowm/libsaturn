@@ -742,6 +742,7 @@ HOST_TEST_EXTRA_test_view_cache := src/graphics/3d/scene/view_cache.cpp src/grap
 HOST_TEST_EXTRA_test_view_cache_isolation := src/graphics/3d/scene/view_cache.cpp
 HOST_TEST_EXTRA_test_surface3d := src/graphics/3d/rendering/surface.cpp
 HOST_TEST_EXTRA_test_water := src/graphics/3d/rendering/water.cpp src/physics/3d/water_volume.cpp
+HOST_TEST_EXTRA_test_water_sim := src/physics/3d/water_sim.cpp src/physics/3d/water_volume.cpp
 HOST_TEST_EXTRA_test_vdp2_environment := src/graphics/vdp2/environment.cpp
 HOST_TEST_EXTRA_test_vdp2_floor := src/graphics/vdp2/floor.cpp src/core/math3d/api.cpp
 HOST_TEST_EXTRA_test_ram_cart_api := src/storage/cartridge/api.cpp src/core/memory/api.cpp

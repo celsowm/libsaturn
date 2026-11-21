@@ -9,6 +9,7 @@
 #include <saturn/fx_compositor.h>
 #include <saturn/profile.h>
 #include <saturn/water.h>
+#include <saturn/water_sim.h>
 #include <saturn/water_volume.h>
 
 #if !defined(SATURN_VERSION_STRING) || !defined(SATURN_VERSION_AT_LEAST)
@@ -42,6 +43,17 @@ int main(void) {
     if (sat_water_split_quad(&face, water.surface, pieces, &count) != SAT_OK ||
         count != 2 || sat_water_volume_sample(&water, face.v, SAT_FX16_ONE, &sample) != SAT_OK ||
         sample.fraction != SAT_FX16_ONE / 2) {
+        for (;;) {}
+    }
+    static sat_fx16_t sim_height[9], sim_velocity[9];
+    sat_water_sim_t sim;
+    const uint16_t colors[4] = {0, 0x7FFF, 0x7FFF, 0};
+    sat_water_shaded_piece_t shaded[SAT_WATER_SPLIT_PIECES_MAX];
+    if (sat_water_sim_init(&sim, 3, 256, sim_height, sim_velocity) != SAT_OK ||
+        sat_water_sim_bump(&sim, SAT_FX16_ONE, SAT_FX16_ONE, 2 * SAT_FX16_ONE, SAT_FX16_ONE) != SAT_OK ||
+        (sat_water_sim_step(&sim), sat_water_sim_volume(&sim)) != SAT_FX16_ONE ||
+        sat_water_split_quad_shaded(&face, colors, water.surface, shaded, &count) != SAT_OK ||
+        count != 2) {
         for (;;) {}
     }
     static sat_fx_compositor_t fx;

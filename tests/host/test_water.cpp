@@ -35,6 +35,37 @@ static void split() {
     assert(sat_water_split_quad(nullptr, 1, pieces, &count) == SAT_ERR_INVALID_ARG && count == 1);
 }
 
+static void shaded_split() {
+    constexpr uint16_t black = 0, white = 0x7FFF;
+    const uint16_t colors[4] = {black, white, white, black};
+    const sat_quad3_t face = {{{0,-8,0}, {0,8,0}, {4,8,0}, {4,-8,0}}};
+    const sat_quad3_t reversed = {{face.v[1], face.v[0], face.v[3], face.v[2]}};
+    const uint16_t reversed_colors[4] = {colors[1], colors[0], colors[3], colors[2]};
+    sat_water_shaded_piece_t pieces[4], back[4];
+    uint8_t count = 0, reverse_count = 0;
+    assert(sat_water_split_quad_shaded(&face, colors, 0, pieces, &count) == SAT_OK && count == 2);
+    assert(sat_water_split_quad_shaded(&reversed, reversed_colors, 0, back, &reverse_count) == SAT_OK &&
+           reverse_count == count);
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned cut = 0;
+        for (unsigned v = 0; v < 4; ++v) {
+            if (pieces[i].piece.quad.v[v].y != 0) continue;
+            assert(pieces[i].color[v] == 0x3DEFu);  // mid-grey: 15 of 31 per channel
+            ++cut;
+        }
+        assert(cut == 2);
+    }
+    for (unsigned i = 0; i < reverse_count; ++i) {
+        for (unsigned v = 0; v < 4; ++v) {
+            if (back[i].piece.quad.v[v].y == 0) assert(back[i].color[v] == 0x3DEFu);
+        }
+    }
+    // A face wholly on one side keeps its corner colors untouched.
+    assert(sat_water_split_quad_shaded(&face, colors, 100, pieces, &count) == SAT_OK && count == 1);
+    for (unsigned v = 0; v < 4; ++v) assert(pieces[0].color[v] == colors[v]);
+    assert(sat_water_split_quad_shaded(&face, nullptr, 0, pieces, &count) == SAT_ERR_INVALID_ARG);
+}
+
 static void water_and_near_plane() {
     constexpr sat_fx16_t one = SAT_FX16_ONE;
     const sat_quad3_t face = {{{0,-one,0}, {0,one,0}, {0,one,3*one}, {0,-one,3*one}}};
@@ -99,6 +130,7 @@ static void volume() {
 
 int main() {
     split();
+    shaded_split();
     water_and_near_plane();
     volume();
 }

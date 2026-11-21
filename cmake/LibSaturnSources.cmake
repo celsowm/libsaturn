@@ -183,6 +183,7 @@ set(LIBSATURN_PHYSICS_SOURCES
     src/physics/3d/sweep_full.cpp
     src/physics/3d/transform.cpp
     src/physics/3d/world.cpp
+    src/physics/3d/water_sim.cpp
     src/physics/3d/water_volume.cpp
     src/physics/spatial/2d.cpp
     src/physics/spatial/entity_stream2.cpp
