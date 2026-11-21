@@ -243,10 +243,17 @@ The first consumer is `~/dev/sm64sd-saturn`. Once M2–M5 land there:
 - **Jolly Roger Bay.** Add a region for the bay, prepare the bay floor and
   cave, use the underwater view while swimming and the regions for
   buoyancy. The ship and eel go through the waterline path.
-- **Data.** Where SM64DS keeps its water boxes and heights (level overlay,
-  KCL collision attributes or actor data) is not yet known. Find out before
-  M3 integration there. The converter can then emit regions and the
-  prepared face lists.
+- **Data.** In the sm64sd-saturn tree (read, not changed) water is not a set
+  of boxes: it is floor triangles in the collision data whose CLPS attribute
+  word0 carries the water bit `0x20`. `tools/sm64ds_pipeline/level_objects.py`
+  (`extract_clps_masks`) already yields the bitmask of such attribute indices,
+  `tools/prepare_castle.py` emits it as `water_attrs`, and the runtime
+  (`runtime/sm64ds_play.h`) treats those floors as the surface Mario swims on.
+  Swimming itself is not implemented there yet (`docs/STAGE_ENGINE_PLAN.md`).
+  The converter would therefore group the water-flagged triangles into
+  rectangles, one `sat_water_regions` entry per surface height, and mark the
+  same faces for the prepared-level split. That converter step is the
+  remaining integration work.
 
 This plan does not cover that integration itself.
 
