@@ -77,6 +77,16 @@ typedef struct sat_movie_stats {
     uint32_t starved_fields;    /* fields in which a frame was due and its data had not arrived */
     uint32_t ring_low_sectors;  /* fewest sectors the ring held before a poll while the disc still had data */
     uint32_t work_max_us;       /* longest decode, sound and upload in one field */
+    /* Diagnostic evidence for real-hardware CD/SAROO playback. Appended for source compatibility;
+     * rebuild the installed LibSaturn and its consumers together when using these fields. */
+    uint32_t packets_checked;   /* successfully decoded packets, beginning with frame 0 */
+    uint32_t packet_hash;       /* word-based rolling hash of complete accepted packets (including padding) */
+    uint32_t cd_errors;         /* non-OK results from sat_cd_stream_poll */
+    uint32_t packet_errors;     /* impossible packet lengths, headers or truncated stream */
+    uint32_t video_errors;      /* failures returned by sat_movie_decode_frame */
+    uint32_t audio_errors;      /* IMA decode or SCSP stream-write failures */
+    uint32_t last_error_frame;  /* zero-based packet index at the last failure */
+    int32_t last_error_code;    /* underlying sat_result_t; zero when no failure */
 } sat_movie_stats_t;
 
 typedef struct sat_movie_play_options {
