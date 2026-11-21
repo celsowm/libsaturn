@@ -24,6 +24,7 @@ compared on one camera route. It is the evidence for
 | Z + Y | Replay the 390-tick camera route in FULL mode |
 | Z + X | Replay it in NAIVE mode |
 | Z + A / Z + B | Replay it in FULL / NAIVE mode with textured water |
+| Z + Up / Z + Down | Replay the low skim route in FULL / NAIVE mode |
 | C | Before a replay: count up the 30-tick section it pauses at (0: run to the end) |
 | Y | Pause |
 | Start | Reset |
