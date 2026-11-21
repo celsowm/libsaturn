@@ -9,7 +9,7 @@ from PIL import Image
 EVIDENCE = Path("build/water_lake_evidence")
 SECTIONS = 13
 MODES = ("naive", "full", "naive_tex", "full_tex")
-HEADER = struct.Struct(">24I3i")
+HEADER = struct.Struct(">25I3i")
 SECTION = struct.Struct(">8I")
 
 # Faces submitted, culled, clipped, fallback, skipped and world commands per 30-tick stretch of
@@ -105,7 +105,7 @@ def load(mode):
     data = (EVIDENCE / f"{mode}-telemetry.bin").read_bytes()
     fields = HEADER.unpack(data[:HEADER.size])
     keys = ("tick mode script paused underwater fade region fraction plane above below cut "
-            "frequency errors last s0 s1 s2 s3 s4 underwater_ticks max_fade textured water_off ax ay az").split()
+            "frequency errors last s0 s1 s2 s3 s4 underwater_ticks max_fade textured water_off low ax ay az").split()
     head = dict(zip(keys, fields))
     sections = [SECTION.unpack(data[HEADER.size + 32 * i:HEADER.size + 32 * (i + 1)])
                 for i in range(SECTIONS)]
@@ -133,6 +133,17 @@ class WaterLakeTest(unittest.TestCase):
             share[mode] = sum(a[2] - b[2] for a, b in zip(with_water, dry))
             self.assertEqual(sum(a[4] for a in with_water + dry), 0, mode)
         self.assertEqual(share, {"naive": 24, "full": 122})
+
+    def test_low_skim_route_clips_more_with_the_plane(self):
+        # A route that stays a quarter unit above the water, looking along it.
+        totals = {}
+        for mode in ("naive_low", "full_low"):
+            head, sections = load(mode)
+            self.assertEqual((head["low"], head["tick"], head["errors"]), (1, 390, 0), mode)
+            self.assertEqual(sum(s[4] for s in sections), 0, mode)
+            totals[mode] = sum(s[2] for s in sections)
+            self.assertEqual(sum(s[3] for s in sections), totals[mode], mode)
+        self.assertEqual(totals, {"naive_low": 606, "full_low": 769})
 
     def test_every_section_drew_and_nothing_was_skipped(self):
         for mode in MODES:

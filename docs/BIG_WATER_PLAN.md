@@ -219,7 +219,11 @@ captures.
   plane's near rings did not hold on this route. Rerunning the route with the
   water not drawn isolates the water's own share of the clipped faces: 24 for
   the naive quads and 122 for the plane (the rest of the scene clips 630 to
-  664), so the plane increases that share instead of reducing it. What the plane does give is
+  664), so the plane increases that share instead of reducing it.
+  A lower route that skims a quarter unit above the water (`low`, Z+Up and
+  Z+Down) gives 606 clipped faces for the naive quads and 769 for the plane,
+  so the grazing view does not change the verdict. A level with far more
+  water faces has not been built. What the plane does give is
   finer texture detail near the camera (not measured in pixels), a wobble and
   distance tint, and the right painter passes.
 - **Arithmetic.** A first plane of 4 rings of 8×8 cells cost 13 ms to build with

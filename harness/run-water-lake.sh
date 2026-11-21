@@ -32,6 +32,8 @@ pad_script() {
         naive_tex) chord=Z+B ;;
         full_dry) chord=Z+R ;;
         naive_dry) chord=Z+L ;;
+        full_low) chord=Z+UP ;;
+        naive_low) chord=Z+DOWN ;;
     esac
     {
         echo "# Water Lake $mode replay, paused at section $sections (generated)."
@@ -55,15 +57,15 @@ for mode in naive full naive_tex full_tex; do
     pad_script "$mode" 0 "$out/$mode-run.pad"
     ./harness/run-harness.sh water_lake --frames 2400 --out "$out/$mode.json" -- \
         --pad-script "$out/$mode-run.pad" \
-        --dump-mem "$telemetry:524:$out/$mode-telemetry.bin"
+        --dump-mem "$telemetry:528:$out/$mode-telemetry.bin"
 done
 
 # Without the water surface: what the rest of the frame clips on its own.
-for mode in naive_dry full_dry; do
+for mode in naive_dry full_dry naive_low full_low; do
     pad_script "$mode" 0 "$out/$mode-run.pad"
     ./harness/run-harness.sh water_lake --frames 2400 --out "$out/$mode.json" -- \
         --pad-script "$out/$mode-run.pad" \
-        --dump-mem "$telemetry:524:$out/$mode-telemetry.bin"
+        --dump-mem "$telemetry:528:$out/$mode-telemetry.bin"
 done
 
 # Pinned captures at fixed ticks: the approach over the shore (section 4, tick
@@ -75,7 +77,7 @@ for section in 4 8 11; do
         ./harness/run-harness.sh water_lake --frames 1800 --out "$out/$mode-s$section.json" -- \
             --pad-script "$out/$mode-s$section.pad" \
             --screenshot "1700:$out/$mode-s$section.png" \
-            --dump-mem "$telemetry:524:$out/$mode-s$section-telemetry.bin"
+            --dump-mem "$telemetry:528:$out/$mode-s$section-telemetry.bin"
     done
 done
 
@@ -84,4 +86,4 @@ pad_script full 8 "$out/full-s8-pal.pad"
 ./harness/run-harness.sh water_lake --frames 2200 --out "$out/full-s8-pal.json" -- --pal \
     --pad-script "$out/full-s8-pal.pad" \
     --screenshot "2100:$out/full-s8-pal.png" \
-    --dump-mem "$telemetry:524:$out/full-s8-pal-telemetry.bin"
+    --dump-mem "$telemetry:528:$out/full-s8-pal-telemetry.bin"

@@ -237,6 +237,12 @@ water, the waterline cuts the actor and the posts, wet geometry is tinted by
 depth, and the camera under the surface gets the colour-offset fade instead of
 an untreated view.
 
+A second route, `low` (Z+Up FULL, Z+Down NAIVE), stays a quarter unit above the
+water and looks along it, which is where the plane's near cells should matter
+most. Over its 13 sections NAIVE clips 606 faces and FULL 769, none skipped and
+every clipped face drawn as a fallback: the plane again clips more, so the
+grazing view does not rescue the criterion either.
+
 Isolating the water: the same replay with the water surface not drawn
 (`naive_dry`, `full_dry`) gives the clipped faces the rest of the scene puts
 through the clip path (630 over the 13 sections for NAIVE, 664 for FULL). The

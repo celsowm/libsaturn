@@ -64,6 +64,7 @@ volatile struct {
     uint32_t underwater_ticks, max_fade;
     uint32_t textured;      /* the water is drawn with a texture instead of a flat colour */
     uint32_t water_off;     /* the water surface is not drawn: isolates its share of the cost */
+    uint32_t low;           /* the camera follows the low skim route instead of the main one */
     int32_t actor_x, actor_y, actor_z;
     section_record_t section[SECTIONS];
 } water_lake_telemetry;
@@ -305,15 +306,25 @@ static const waypoint_t route[] = {
     {360, {6, -6, 0}, {-4, -4, -10}}, {ROUTE_TICKS, {0, 3, 6}, {0, -2, -2}}
 };
 
+/* A second route that stays a quarter of a unit above the water and looks along
+ * it: the grazing view where the plane's near cells straddle the near plane.
+ * Coordinates are in quarter units. */
+static const waypoint_t route_low[] = {
+    {0, {-120, 1, -24}, {0, 0, -24}},   {130, {100, 1, -24}, {160, 0, -24}},
+    {260, {100, 1, 24}, {-40, 0, 24}},  {ROUTE_TICKS, {-100, 1, 24}, {40, 0, 0}}
+};
+
 static sat_fx16_t lerp_int(int a, int b, int num, int den) {
     return (sat_fx16_t)((int64_t)UNIT(a) + (int64_t)UNIT(b - a) * num / den);
 }
 
-static void route_pose(uint32_t tick, sat_vec3_t* eye, sat_vec3_t* target) {
+static void route_pose(uint32_t tick, uint8_t low, sat_vec3_t* eye, sat_vec3_t* target) {
+    const waypoint_t* table = low ? route_low : route;
+    const unsigned count = low ? sizeof(route_low) / sizeof(route_low[0]) : sizeof(route) / sizeof(route[0]);
     unsigned s = 0;
-    while (s + 2 < sizeof(route) / sizeof(route[0]) && (int)tick >= route[s + 1].tick) ++s;
-    const waypoint_t* a = &route[s];
-    const waypoint_t* b = &route[s + 1];
+    while (s + 2 < count && (int)tick >= table[s + 1].tick) ++s;
+    const waypoint_t* a = &table[s];
+    const waypoint_t* b = &table[s + 1];
     const int num = (int)tick - a->tick > b->tick - a->tick ? b->tick - a->tick : (int)tick - a->tick;
     const int den = b->tick - a->tick;
     *eye = (sat_vec3_t){lerp_int(a->eye[0], b->eye[0], num, den), lerp_int(a->eye[1], b->eye[1], num, den),
@@ -321,6 +332,10 @@ static void route_pose(uint32_t tick, sat_vec3_t* eye, sat_vec3_t* target) {
     *target = (sat_vec3_t){lerp_int(a->target[0], b->target[0], num, den),
                            lerp_int(a->target[1], b->target[1], num, den),
                            lerp_int(a->target[2], b->target[2], num, den)};
+    if (low) {
+        eye->x /= 4; eye->y /= 4; eye->z /= 4;
+        target->x /= 4; target->y /= 4; target->z /= 4;
+    }
 }
 
 /* The actor walks in from the west shore, wades and floats half under. */
@@ -497,7 +512,7 @@ int main(void) {
     const sat_video_config_t video = {WIDTH, HEIGHT, SAT_VIDEO_AUTO, 0};
     sat_camera3d_t camera;
     uint32_t tick = 0, script = 0;
-    uint8_t paused = 0, mode = MODE_FULL, textured = 0, water_off = 0;
+    uint8_t paused = 0, mode = MODE_FULL, textured = 0, water_off = 0, low = 0;
     uint32_t stop_section = 0;
     int32_t orbit = 30;
     sat_vec3_t free_actor = actor_at(-UNIT(34), UNIT(4), 0);
@@ -542,7 +557,7 @@ int main(void) {
                  * and PAL. It pauses at the start of section `stop_section`, set with
                  * C beforehand, so a capture is the same tick however fast the frames run. */
                 set_mode(&mode, (pad.pressed & SAT_PAD_X) ? MODE_NAIVE : MODE_FULL);
-                textured = water_off = 0;
+                textured = water_off = low = 0;
                 tick = 0;
                 script = 1;
                 paused = 0;
@@ -551,7 +566,7 @@ int main(void) {
                 /* Z + A replays in FULL mode and Z + B in NAIVE, with textured water. */
                 set_mode(&mode, (pad.pressed & SAT_PAD_B) ? MODE_NAIVE : MODE_FULL);
                 textured = 1;
-                water_off = 0;
+                water_off = low = 0;
                 tick = 0;
                 script = 1;
                 paused = 0;
@@ -562,6 +577,16 @@ int main(void) {
                 set_mode(&mode, (pad.pressed & SAT_PAD_L) ? MODE_NAIVE : MODE_FULL);
                 textured = 0;
                 water_off = 1;
+                low = 0;
+                tick = 0;
+                script = 1;
+                paused = 0;
+                pad.held = 0;
+            } else if ((pad.pressed & (SAT_PAD_UP | SAT_PAD_DOWN)) && (pad.held & SAT_PAD_Z)) {
+                /* Z + Up replays the low skim route in FULL mode and Z + Down in NAIVE. */
+                set_mode(&mode, (pad.pressed & SAT_PAD_DOWN) ? MODE_NAIVE : MODE_FULL);
+                textured = water_off = 0;
+                low = 1;
                 tick = 0;
                 script = 1;
                 paused = 0;
@@ -585,7 +610,7 @@ int main(void) {
 
         sat_vec3_t actor = free_actor, eye, target;
         if (script) {
-            route_pose(script - 1u, &eye, &target);
+            route_pose(script - 1u, low, &eye, &target);
             actor = scripted_actor(script - 1u);
         } else {
             const sat_fx16_t yaw = UNIT(orbit);
@@ -624,6 +649,7 @@ int main(void) {
         water_lake_telemetry.mode = mode;
         water_lake_telemetry.textured = textured;
         water_lake_telemetry.water_off = water_off;
+        water_lake_telemetry.low = low;
         water_lake_telemetry.script = script;
         water_lake_telemetry.paused = paused;
         water_lake_telemetry.underwater = state.underwater;
