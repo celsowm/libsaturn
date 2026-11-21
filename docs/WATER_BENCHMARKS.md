@@ -181,4 +181,54 @@ match, omit pad entries 110, 116, 130 and 150 so the sequence stays in RGB
 half. In the 4×4 trial, insert two Z+B presses between fields 26 and 62 to
 cycle the grid from 8×8 through 16×16 to 4×4.
 
+## Water Lake
+
+`examples/water_lake` replays one 390-tick camera route over a 60×60-unit lake
+in two ways and records each 30-tick stretch (`harness/run-water-lake.sh`; run
+`python3 harness/tests/test_water_lake.py` to check it). **NAIVE** models the
+water as four large mesh quads and sorts everything by depth, as a level
+would. **FULL** draws the camera-centred water plane (4 rings of 4×4 cells),
+the level prepared against the water region in two passes, the actor cut at
+the waterline, and the underwater view. Both draw the same ~300-face level,
+bridge and a 96-face sphere, and neither skips a face.
+
+Ymir only (immediate division, no SH-2 cache emulation): not a hardware
+measurement. Preparation is the CPU time to build the frame; flush is the
+scene flush. Face counts follow the route by tick and are pinned; times are
+not.
+
+| Section (ticks) | Route | NAIVE prep / flush ms | FULL prep / flush ms | NAIVE clipped | FULL clipped |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 0 (0–29) | orbit | 13.8 / 11.6 | 26.7 / 12.6 | 16 | 16 |
+| 1 (30–59) | orbit | 13.8 / 11.4 | 26.1 / 12.5 | 17 | 17 |
+| 2 (60–89) | orbit | 13.8 / 8.6 | 31.1 / 11.2 | 6 | 6 |
+| 3 (90–119) | approach | 13.6 / 12.4 | 31.2 / 15.0 | 32 | 34 |
+| 4 (120–149) | approach | 10.8 / 10.8 | 26.4 / 13.7 | 40 | 48 |
+| 5 (150–179) | skim over water | 7.7 / 8.4 | 20.6 / 11.4 | 40 | 49 |
+| 6 (180–209) | to the bridge | 10.4 / 9.7 | 25.6 / 14.4 | 32 | 43 |
+| 7 (210–239) | on the bridge | 12.5 / 20.3 | 29.4 / 27.2 | 103 | 122 |
+| 8 (240–269) | on the bridge | 7.3 / 9.1 | 20.2 / 11.4 | 38 | 46 |
+| 9 (270–299) | to the water | 11.3 / 21.5 | 28.5 / 18.9 | 53 | 63 |
+| 10 (300–329) | dive | 9.7 / 18.7 | 24.0 / 22.1 | 96 | 114 |
+| 11 (330–359) | under water | 11.7 / 25.8 | 29.1 / 35.6 | 131 | 168 |
+| 12 (360–389) | surfacing | 11.2 / 21.6 | 28.4 / 17.1 | 50 | 60 |
+
+| Stage (last frame) | NAIVE ms | FULL ms |
+| --- | ---: | ---: |
+| Level submit | 8.1 | 13.2 |
+| Water (build for FULL) | 0.2 | 1.8 |
+| Water submit | 0.0 | 1.7 |
+| Actor split | 0.0 | 1.1 |
+| Actor submit | 2.9 | 2.8 |
+
+FULL costs about 12–15 ms more preparation per frame than NAIVE (the level is
+submitted as two instances that each project the whole vertex array, the plane
+is 52 faces, and the actor is cut). The numbers do **not** show the plane
+reducing clipped or fallback faces: for a flat RGB mesh, four large quads
+cost four faces, and the near-plane clip path handles them. What FULL buys is
+correctness, shown by the matched captures at ticks 120, 240 and 330 that the
+harness pins: the bed no longer paints over the water, the waterline cuts the
+actor and the posts, wet geometry is tinted by depth, and the camera under the
+surface gets the colour-offset fade instead of an untreated view.
+
 [Water Lab](../examples/water_lab/README.md) · [Compositor probe](FX_COMPOSITOR.md) · [Implementation plan](WATER_LAB_PLAN.md)

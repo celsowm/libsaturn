@@ -59,4 +59,32 @@ all of it. It draws the surface as mesh, because a distorted half-transparent
 quad plots some pixels twice and a wave mesh then shows a double-blended
 hatch, and it bends the floor against the surface slope for refraction.
 
+## Big water
+
+For levels with large bodies of water the SDK has five small pieces; the
+[Water Lake](../examples/water_lake/README.md) example uses them together and the
+[plan](BIG_WATER_PLAN.md) records the design and the measurements.
+
+- `saturn/water_regions.h`: several water boxes with their own surface height,
+  and queries for the region over a point, a sampled segment and the camera.
+- `saturn/water_plane.h`: a horizontal surface as camera-centred rings of
+  quads, finer near the camera, with an optional wobble that fades to flat at
+  the finest ring's edge. Positions are 32-bit, so the world and the rings
+  must stay within 8192 units.
+- `saturn/water_prepare.h`: classifies a static mesh against the regions at
+  load, cuts faces that cross the surface when their material is plain RGB,
+  tints submerged vertices by depth, and lists the above faces before the
+  below ones so a game draws them as two instances in two passes. A textured
+  face cannot be cut and joins the side holding its middle.
+- `saturn/water_actor.h`: the same split per frame for a moving mesh. Only the
+  faces that cross the surface are cut.
+- `saturn/water_view.h`: the camera's region with hysteresis, a fade of a VDP2
+  colour offset over a fixed number of frames, and the painter-pass order,
+  which mirrors under water.
+
+Draw order is exact for one plane at a time: submerged geometry, then the
+water, then everything above. With the camera under the surface the order
+mirrors. A frame with two bodies of water at different heights sorts the
+second by depth only.
+
 [Water Lab](../examples/water_lab/README.md) · [Transparency and alpha](TRANSPARENCY_ALPHA.md) · [Water geometry](../include/saturn/water.h) · [Water volume](../include/saturn/water_volume.h)

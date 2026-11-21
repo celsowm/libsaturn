@@ -1,6 +1,8 @@
 # Big Water — implementation plan
 
-Status: proposed. Nothing in this plan is implemented yet.
+Status: M0–M6 and most of M7 are implemented and measured in Ymir (the host
+tool for M3 is not written); physical-hardware acceptance is pending. Where a
+measurement contradicted this plan's first assumptions, the text says so.
 Target: SDK support for levels with large bodies of water, such as castle
 moats, bays, lakes and flooded rooms in a 3D platformer. The game supplies
 level geometry and water regions. The SDK draws the water cheaply, orders it
@@ -18,11 +20,12 @@ base for the rendering choices below.
 
 - **Huge quads near the camera.** A level usually models water as a few
   large quads. The near plane cuts them, and a cut face leaves the projected
-  fast path for the clipping fallback, which dominates scene flush cost in
-  large scenes. A textured face with a corner behind the near plane cannot be
-  clipped at all: it is dropped, or drawn as a solid `rgb555` fallback
-  (`scene3d_faces.h`). Either way the water nearest the player, the part
-  they look at most, is the part that breaks.
+  fast path for the clipping fallback. A textured face with a corner behind
+  the near plane cannot be clipped at all: it is dropped, or drawn as a solid
+  `rgb555` fallback (`scene3d_faces.h`). *Measured (M0/M6): this holds for
+  textured water only. For flat RGB mesh water, four large quads are four
+  faces and the clip path handles them; the plane did not reduce clipped or
+  fallback faces and costs more per frame. See "Measured results".*
 - **Draw order.** Depth sorting large water faces against the banks and the
   bed misorders them. A water face's centroid depth says little about the
   terrain on either side of it.
@@ -76,7 +79,7 @@ The plan does not attempt exact ordering for several planes in one frame.
 
 ## Milestones (in order)
 
-- [ ] **M0 — Lake baseline.** Add `examples/water_lake`, an original level:
+- [x] **M0 — Lake baseline.** Add `examples/water_lake`, an original level:
   a lake about 64×64 units with shores, an island, a bridge over the water,
   a submerged slope and a deep part. Draw the water the naive way first: a
   few large mesh quads. Script a fixed camera route (high orbit, low skim
@@ -85,7 +88,7 @@ The plan does not attempt exact ordering for several planes in one frame.
   textured faces, preparation and flush time. Pin captures. This is the
   number every later milestone must beat.
 
-- [ ] **M1 — Water regions.** `water_regions.h`: a caller-owned array of
+- [x] **M1 — Water regions.** `water_regions.h`: a caller-owned array of
   regions, each a box with its own mutable surface height, current,
   buoyancy and drag (today's `sat_water_volume_t` fields). Queries:
   - the region containing a point, or none;
@@ -97,7 +100,7 @@ The plan does not attempt exact ordering for several planes in one frame.
   Host tests: overlapping and adjacent regions, a moving surface, entering
   one region from another, no-region equivalence with today's single volume.
 
-- [ ] **M2 — Water plane.** `water_plane.h`: draws one region's surface as a
+- [x] **M2 — Water plane.** `water_plane.h`: draws one region's surface as a
   camera-centred grid.
   - **Grid.** Square rings around the camera snapped to the cell size, so
     vertices do not swim as the camera moves. Each ring doubles the cell
@@ -105,9 +108,10 @@ The plan does not attempt exact ordering for several planes in one frame.
     region rectangle in XZ, which keeps them quads. Cells outside the view
     are culled before projection.
   - **Near the camera.** The finest ring keeps the faces that the near
-    plane cuts small, so few faces take the fallback and none of the
-    dropped textured faces are large. The material's `rgb555` fallback is
-    the water colour, so a dropped textured cell is still water.
+    plane cuts small, so a dropped textured cell loses little. The
+    material's `rgb555` fallback is the water colour, so a dropped textured
+    cell is still water. (The saving is for textured water; it is not
+    measured yet, see "Measured results".)
   - **Seams.** Where a fine ring meets a coarse one, the fine edge
     vertices that do not exist on the coarse side are moved onto the coarse
     edge. With wobble, the wobble is sampled at the coarse spacing along that
@@ -133,7 +137,7 @@ The plan does not attempt exact ordering for several planes in one frame.
   the face cap. Ymir: the M0 route, comparing fallback and dropped faces and
   timings against the naive quads.
 
-- [ ] **M3 — Level classification and tint.** `sat_water_prepare_mesh`: a
+- [x] **M3 — Level classification and tint.** `sat_water_prepare_mesh`: a
   one-shot pass over a static mesh, given the regions and one tint
   description.
   - It classifies each face as above, below (inside a region) or crossing.
@@ -155,7 +159,7 @@ The plan does not attempt exact ordering for several planes in one frame.
   and ship the result. Host tests compare the C and Python outputs on the
   same mesh.
 
-- [ ] **M4 — Actors at the waterline.** `sat_water_submit_instance`
+- [x] **M4 — Actors at the waterline.** `sat_water_submit_instance`
   generalizes Water Pool's ball code: back-face cull, then faces wholly
   above or below go out as two instances, and only crossing faces are cut
   with the shaded split. Submerged pieces take the wet tint, and pieces go to
@@ -165,7 +169,7 @@ The plan does not attempt exact ordering for several planes in one frame.
   stays uncut. Host tests for classification and pass assignment. Ymir:
   an actor wading, half under, and fully under.
 
-- [ ] **M5 — Underwater view.** `sat_water_view_t`, one call per frame:
+- [x] **M5 — Underwater view.** `sat_water_view_t`, one call per frame:
   - camera immersion against the regions (M1);
   - a VDP2 colour-offset fade toward a tint over a fixed number of frames,
     on a caller-chosen bank and layer mask, released on exit;
@@ -176,17 +180,43 @@ The plan does not attempt exact ordering for several planes in one frame.
   cannot verify is free. Ymir: VDP2 register dumps across a dive and
   resurface, with the fade frames pinned.
 
-- [ ] **M6 — Lake example, finished.** `water_lake` uses M1–M5: the plane,
+- [x] **M6 — Lake example, finished.** `water_lake` uses M1–M5: the plane,
   the prepared terrain, an actor wading across, a swim with buoyancy, a
   dive under the bridge and the underwater tint. A harness script replays
   the M0 route by simulation tick (as Water Pool's replay does, so NTSC and
   PAL match), with pinned captures and telemetry. Compare with M0 in a
   table in `docs/WATER_BENCHMARKS.md`.
 
-- [ ] **M7 — Docs and packaging.** Add the sources to
-  `cmake/LibSaturnSources.cmake` and the Makefile, include the new headers in
-  the package consumer test, extend `docs/WATER_RENDERING.md` and link the
-  example from the README.
+- [~] **M7 — Docs and packaging.** Done: the sources are in
+  `cmake/LibSaturnSources.cmake` and the Makefile, the package consumer source
+  includes the new headers (compiled for the SH-2 against the repo headers; the
+  full install-prefix gate was not run, to respect the disk budget),
+  `docs/WATER_RENDERING.md` and the README link the example. Not done: the host
+  Python tool that repeats M3's classification at converter time.
+
+## Measured results
+
+Ymir only, immediate division, no SH-2 cache emulation. Full tables are in
+[Water benchmarks](WATER_BENCHMARKS.md#water-lake); the harness pins the face
+counts and six matched captures.
+
+- **Cost.** The full draw costs about 12–15 ms more scene preparation per frame
+  than the naive one (about 26 ms against 14 ms at the start of the route).
+  After optimization the plane build is 1.7 ms and its submit 1.8 ms; the
+  prepared level costs 5 ms more than the unprepared one because the above and
+  below instances each project the whole vertex array. Cutting the actor adds
+  about 1 ms.
+- **No clipping win for RGB mesh water.** Clipped and fallback faces are equal
+  or higher with the plane. A first plane of 4 rings of 8×8 cells cost 13 ms to
+  build with 64-bit arithmetic and 5 ms after moving to 32-bit, and 1.7 ms
+  with 4×4 cells. The SH-2 has no 64-bit divide, and a 64-bit divide by a
+  64-bit variable compiled to an `abort` call in the example, so the plane
+  uses 32-bit positions and refuses worlds past 8192 units.
+- **Correctness win.** At matched ticks the naive draw lets the bed paint over
+  the water, leaves the waterline uncut and shows the dive untreated; the full
+  draw does not.
+- **Open.** Textured water, where the clipping argument should hold, and a
+  prepared level that projects its vertices once, are not measured or built.
 
 ## Outside this repository
 

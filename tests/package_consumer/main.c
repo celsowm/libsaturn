@@ -9,7 +9,12 @@
 #include <saturn/fx_compositor.h>
 #include <saturn/profile.h>
 #include <saturn/water.h>
+#include <saturn/water_actor.h>
+#include <saturn/water_plane.h>
+#include <saturn/water_prepare.h>
+#include <saturn/water_regions.h>
 #include <saturn/water_sim.h>
+#include <saturn/water_view.h>
 #include <saturn/water_volume.h>
 
 #if !defined(SATURN_VERSION_STRING) || !defined(SATURN_VERSION_AT_LEAST)
@@ -54,6 +59,30 @@ int main(void) {
         (sat_water_sim_step(&sim), sat_water_sim_volume(&sim)) != SAT_FX16_ONE ||
         sat_water_split_quad_shaded(&face, colors, water.surface, shaded, &count) != SAT_OK ||
         count != 2) {
+        for (;;) {}
+    }
+    /* Big water: regions, the camera-centred plane, level preparation, the
+     * actor split and the underwater view, through the installed headers. */
+    static sat_water_volume_t region_volume[1];
+    static sat_water_regions_t regions;
+    region_volume[0] = (sat_water_volume_t){.min_x = -SAT_FX16_ONE, .max_x = SAT_FX16_ONE,
+        .min_z = -SAT_FX16_ONE, .max_z = SAT_FX16_ONE, .bottom = -SAT_FX16_ONE, .surface = 0};
+    static sat_water_plane_t plane;
+    const sat_water_plane_config_t plane_config = {.min_x = -SAT_FX16_ONE, .max_x = SAT_FX16_ONE,
+        .min_z = -SAT_FX16_ONE, .max_z = SAT_FX16_ONE, .cell = SAT_FX16_ONE / 4, .cells = 4,
+        .rings = 2, .near_color = 0x4210u, .far_color = 0x4210u};
+    uint16_t plane_faces;
+    static sat_water_view_t water_view;
+    const sat_water_view_config_t view_config = {.regions = &regions, .layers = SAT_VDP2_LAYER_SPRITE,
+        .tint = {-64, -32, 0}, .fade_frames = 4};
+    sat_water_view_state_t view_state;
+    const sat_vec3_t eye = {0, -SAT_FX16_ONE / 2, 0};
+    if (sat_water_regions_init(&regions, region_volume, 1) != SAT_OK ||
+        sat_water_plane_build(&plane, &plane_config, 0, 0) != SAT_OK ||
+        sat_water_plane_face_count(&plane, &plane_faces) != SAT_OK || plane_faces == 0 ||
+        sat_water_view_init(&water_view, &view_config) != SAT_OK ||
+        sat_water_view_update(&water_view, &eye, &view_state) != SAT_OK || !view_state.underwater ||
+        sat_water_view_passes(1).above >= sat_water_view_passes(1).below) {
         for (;;) {}
     }
     static sat_fx_compositor_t fx;

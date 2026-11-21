@@ -77,6 +77,11 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/3d/rendering/indexed.cpp
     src/graphics/3d/rendering/surface.cpp
     src/graphics/3d/rendering/water.cpp
+    src/graphics/3d/rendering/water_plane.cpp
+    src/graphics/3d/rendering/water_plane_submit.cpp
+    src/graphics/3d/rendering/water_prepare.cpp
+    src/graphics/3d/rendering/water_actor.cpp
+    src/graphics/3d/rendering/water_actor_submit.cpp
     src/graphics/3d/scene/api.cpp
     src/graphics/3d/scene/faces.cpp
     src/graphics/3d/scene/program_run_sh2.s
@@ -98,6 +103,8 @@ set(LIBSATURN_GRAPHICS_SOURCES
     src/graphics/vdp2/bitmap.cpp
     src/graphics/vdp2/color_calc.cpp
     src/graphics/vdp2/color_offset.cpp
+    src/graphics/vdp2/water_view.cpp
+    src/graphics/vdp2/water_view_apply.cpp
     src/graphics/vdp2/compose.cpp
     src/graphics/vdp2/environment.cpp
     src/graphics/vdp2/floor.cpp
@@ -184,6 +191,7 @@ set(LIBSATURN_PHYSICS_SOURCES
     src/physics/3d/transform.cpp
     src/physics/3d/world.cpp
     src/physics/3d/water_sim.cpp
+    src/physics/3d/water_regions.cpp
     src/physics/3d/water_volume.cpp
     src/physics/spatial/2d.cpp
     src/physics/spatial/entity_stream2.cpp

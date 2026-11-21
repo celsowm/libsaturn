@@ -117,6 +117,8 @@ The build produces a Saturn ELF, executable image, and disc artifacts (including
 [Water Pool](examples/water_pool/README.md) simulates ripples in a tiled pool
 with a floating ball. [Water Lab](examples/water_lab/README.md) demonstrates native VDP1 water,
 underwater geometry effects and water-volume physics in an original temple.
+[Water Lake](examples/water_lake/README.md) compares a naive and a prepared draw of a large lake
+with a bridge, an island and an underwater view.
 
 ### POSIX shell
 
