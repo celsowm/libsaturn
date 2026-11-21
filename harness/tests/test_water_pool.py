@@ -16,10 +16,10 @@ ONE = 1 << 16
 # and grid captures are taken at fixed fields and so depend on frame pacing;
 # the drop-early capture is only checked for a visible ball.
 PINNED = {
-    "replay": "a4f86d4b574527570cfadf569848e83ca626426019ef157dc9a6f0e74c18f5a6",
-    "rest": "0e2e1fb3ec3f7969ae55ceab15bc7b9ff0438519205c160bee7b6907a00f41e3",
-    "grid13": "d78fc038485c3fe873d8c99b12f5a4b47e882e137314c9451b6bc23d57a5fd41",
-    "grid17": "4fe8602b9ce941894eccb237dd3f0a45af1efe13e9839dc5924d4e4f66ec0b72",
+    "replay": "7a3e76a85100de128af0e2fe0ba4e55c770e6fd546c1025fd5b99cb01fa0c846",
+    "rest": "4e4a43d5718b650b3eea52d691caaaf904484198126ce525a0b7ef02941f9721",
+    "grid13": "712d1199fe937990287c9b1cbbb41b215fe7e7205059c959eb1faaa611b63b9e",
+    "grid17": "47757f01964c505a77393b1cd30a2d38fa3988b1944ae77075a7534d6d3c322b",
 }
 
 

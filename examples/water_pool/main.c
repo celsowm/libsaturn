@@ -17,17 +17,26 @@
 
 #define UNIT(n) ((n) * SAT_FX16_ONE)
 
+/* Painter passes: what lies under the water, the translucent surface over
+ * it, and the dry part of the ball over the surface. */
+enum { PASS_UNDER = 0, PASS_SURFACE = 1, PASS_ABOVE = 2 };
+
 enum {
     WIDTH = 320, HEIGHT = 224,
     FACE_CAPACITY = 1024, OVERLAY_COMMANDS = 64,
     MAX_NODES = 17, MAX_VERTICES = MAX_NODES * MAX_NODES,
-    SCRIPT_TICKS = 70, TILE = 8, SPHERE_SEGMENTS = 12, SPHERE_RINGS = 8,
+    SCRIPT_TICKS = 70, TILE = 16, SPHERE_SEGMENTS = 12, SPHERE_RINGS = 8,
     SPHERE_VERTICES = (SPHERE_RINGS + 1) * SPHERE_SEGMENTS,
     SPHERE_FACES = SPHERE_RINGS * SPHERE_SEGMENTS
 };
 
 static const sat_fx16_t HALF = UNIT(6), RIM = 0, REST = -UNIT(3) / 2, FLOOR = -UNIT(5);
 static const sat_fx16_t RADIUS = SAT_FX16_ONE * 3 / 2;
+/* World shift of the floor per unit of surface slope: about a quarter of the
+ * water depth for real water, doubled so the bend reads at 320x224. */
+#define WATER_COLOR SAT_RGB555(9, 23, 28)
+#define BALL_COLOR SAT_RGB555(31, 21, 8)
+static const sat_fx16_t REFRACTION = SAT_FX16_ONE * 7 / 4;
 
 typedef struct ball {
     sat_vec3_t position;
@@ -56,13 +65,14 @@ static uint16_t order[FACE_CAPACITY];
 
 static sat_fx16_t heights[MAX_VERTICES], velocities[MAX_VERTICES];
 static sat_water_sim_t sim;
-static sat_vec3_t vertices[4 * MAX_NODES];
+static sat_vec3_t vertices[5 * MAX_NODES];
 static sat_vec3_t grid[MAX_VERTICES];
 static sat_projected_vertex_t projected[MAX_VERTICES];
 static uint16_t indices[4 * (MAX_NODES - 1) * (MAX_NODES - 1)];
 static uint16_t face_materials[(MAX_NODES - 1) * (MAX_NODES - 1)];
 static uint16_t surface_light[MAX_VERTICES], floor_light[MAX_VERTICES], caustic_light[MAX_VERTICES];
-static uint16_t wall_light[4 * MAX_NODES];
+static uint16_t wall_light[5 * MAX_NODES], side_light[2 * MAX_NODES];
+static sat_vec3_t side_vertices[2 * MAX_NODES];
 static unsigned grid_nodes;
 
 static sat_vdp1_texture_t tile;
@@ -70,7 +80,9 @@ static sat_mesh_t sphere;
 static sat_vec3_t sphere_vertices[SPHERE_VERTICES];
 static uint16_t sphere_indices[4 * SPHERE_FACES];
 static sat_vec3_t sphere_normals[SPHERE_VERTICES];
-static uint16_t sphere_light[SPHERE_VERTICES];
+static uint16_t sphere_light[SPHERE_VERTICES], sphere_wet_light[SPHERE_VERTICES];
+static sat_vec3_t ball_world[SPHERE_VERTICES];
+static uint16_t ball_dry[4 * SPHERE_FACES], ball_wet[4 * SPHERE_FACES];
 
 static sat_fx16_t spacing(void) { return 2 * HALF / (int)(sim.size - 1); }
 static sat_fx16_t node_coord(sat_fx16_t world) {
@@ -85,18 +97,27 @@ static uint16_t tint(uint16_t entry, int dr, int dg, int db) {
     return sat_gouraud_rgb(r, g, b);
 }
 
+/* The ball under water, shifted toward the water's colour. */
+static uint16_t wet_tint(uint16_t entry) { return tint(entry, -5, -1, 2); }
+
 static void make_tile(void) {
     uint8_t pixels[TILE * TILE], packed[TILE * TILE / 2];
     uint16_t colors[16] = {0};
+    /* A glazed square tile: grout on two edges, so repeats form a grid, a
+     * lit bevel on the other side of the grout and a shaded one before it. */
     for (unsigned y = 0; y < TILE; ++y) {
         for (unsigned x = 0; x < TILE; ++x) {
-            const unsigned dx = x < 4 ? x : 7 - x, dy = y < 4 ? y : 7 - y;
-            pixels[y * TILE + x] = dx + dy == 3 ? 1 : 2 + ((x ^ y) & 1u);
+            unsigned index = 2;
+            if (x == 1 || y == 1) index = 3;
+            if (x == TILE - 1 || y == TILE - 1) index = 4;
+            if (x == 0 || y == 0) index = 1;
+            pixels[y * TILE + x] = (uint8_t)index;
         }
     }
-    colors[1] = SAT_RGB555(12, 17, 20);
-    colors[2] = SAT_RGB555(26, 29, 30);
-    colors[3] = SAT_RGB555(23, 27, 29);
+    colors[1] = SAT_RGB555(15, 19, 21);
+    colors[2] = SAT_RGB555(27, 29, 30);
+    colors[3] = SAT_RGB555(31, 31, 31);
+    colors[4] = SAT_RGB555(22, 25, 27);
     for (unsigned i = 0; i < sizeof(packed); ++i) {
         packed[i] = (uint8_t)((pixels[2 * i] << 4) | pixels[2 * i + 1]);
     }
@@ -114,6 +135,7 @@ static void make_ball(void) {
     const sat_vec3_t light = {26214, 45875, 26214};
     sat_example_must(sat_gouraud_lambert(sphere_normals, sphere.vertex_count, &light,
                                          SAT_FX16_ONE / 3, sphere_light));
+    for (unsigned v = 0; v < SPHERE_VERTICES; ++v) sphere_wet_light[v] = wet_tint(sphere_light[v]);
 }
 
 static void prepare_indices(unsigned n) {
@@ -132,7 +154,8 @@ static void prepare_indices(unsigned n) {
     grid_nodes = n;
 }
 
-static void submit_grid(const sat_scene3d_material_t* material, unsigned vertex_count) {
+static void submit_grid(const sat_scene3d_material_t* material, unsigned vertex_count,
+                        uint16_t pass) {
     const unsigned n = sim.size;
     const sat_mesh_t mesh = {
         .vertices = grid, .indices = indices,
@@ -141,25 +164,62 @@ static void submit_grid(const sat_scene3d_material_t* material, unsigned vertex_
     };
     const sat_scene3d_instance_t instance = {
         .mesh = &mesh, .materials = material, .material_count = 1,
-        .face_materials = face_materials
+        .face_materials = face_materials, .pass = pass
     };
     sat_example_must(sat_scene_submit_instance(
         &scene, &instance, SAT_SCENE3D_SLOT_INHERIT, projected, 0));
 }
 
+/* Adds the caustics to half the surface light, keeping the darkening
+ * shallow: light bands read as caustics, deep shade as dirt. */
+static uint16_t combine(uint16_t caustic, uint16_t surface) {
+    int level[3];
+    for (unsigned c = 0; c < 3; ++c) {
+        level[c] = ((caustic >> (5 * c)) & 31) - 16 + ((((surface >> (5 * c)) & 31) - 16) >> 1);
+        if (level[c] < -4) level[c] = -4;
+    }
+    return sat_gouraud_rgb(level[0], level[1], level[2]);
+}
+
+/* The surface light and the caustics, once per frame for the floor, the
+ * walls and the surface. */
+static void prepare_light(void) {
+    const sat_water_sim_shading_t shading = {
+        .spacing = spacing(), .light_x = SAT_FX16_ONE / 2, .light_z = SAT_FX16_ONE / 2,
+        .light_gain = {60 * SAT_FX16_ONE, 64 * SAT_FX16_ONE, 64 * SAT_FX16_ONE},
+        .sky_gain = {20 * SAT_FX16_ONE, 24 * SAT_FX16_ONE, 28 * SAT_FX16_ONE}
+    };
+    sat_example_must(sat_water_sim_shade(&sim, &shading, surface_light));
+    sat_example_must(sat_water_sim_caustics(&sim, 60 * SAT_FX16_ONE, caustic_light));
+}
+
+/* The floor seen through the water. Each node moves against the surface
+ * slope above it, as refraction would shift it, and takes the surface's
+ * light and the caustics, so the tiles carry the waves. Edge nodes move only
+ * along their wall to keep the seams closed. */
 static void draw_floor(void) {
     const unsigned n = sim.size;
-    for (unsigned z = 0; z < n; ++z)
-        for (unsigned x = 0; x < n; ++x)
-            grid[z * n + x] = (sat_vec3_t){world_coord(x), FLOOR, world_coord(z)};
-    sat_example_must(sat_water_sim_caustics(&sim, 60 * SAT_FX16_ONE, caustic_light));
-    for (unsigned i = 0; i < n * n; ++i) floor_light[i] = tint(caustic_light[i], -9, -4, -1);
+    const sat_fx16_t step = spacing();
+    const sat_fx16_t bend = sat_fx16_div(REFRACTION, step);
+    for (unsigned z = 0; z < n; ++z) {
+        const sat_fx16_t* row = heights + z * n;
+        const sat_fx16_t wz = -HALF + (sat_fx16_t)z * step;
+        for (unsigned x = 0; x < n; ++x) {
+            // Central differences across two nodes, as sat_water_sim_slope.
+            const sat_fx16_t sx = x == 0 || x == n - 1 ? 0 : row[x + 1] - row[x - 1];
+            const sat_fx16_t sz = z == 0 || z == n - 1 ? 0 : row[x + n] - row[x - n];
+            grid[z * n + x] = (sat_vec3_t){-HALF + (sat_fx16_t)x * step - sat_fx16_mul(sx, bend),
+                                           FLOOR, wz - sat_fx16_mul(sz, bend)};
+            floor_light[z * n + x] =
+                tint(combine(caustic_light[z * n + x], surface_light[z * n + x]), -12, -4, 0);
+        }
+    }
     const sat_scene3d_material_t material = {
         .kind = SAT_SCENE3D_INDEXED_TEXTURED, .rgb555 = SAT_RGB555(8, 14, 18),
         .texture = &tile, .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE,
         .vertex_gouraud = floor_light
     };
-    submit_grid(&material, n * n);
+    submit_grid(&material, n * n, PASS_UNDER);
 }
 
 static void draw_surface(void) {
@@ -167,52 +227,20 @@ static void draw_surface(void) {
     for (unsigned z = 0; z < n; ++z)
         for (unsigned x = 0; x < n; ++x)
             grid[z * n + x] = (sat_vec3_t){world_coord(x), REST + heights[z * n + x], world_coord(z)};
-    const sat_water_sim_shading_t shading = {
-        .spacing = spacing(), .light_x = SAT_FX16_ONE / 2, .light_z = SAT_FX16_ONE / 2,
-        .light_gain = {60 * SAT_FX16_ONE, 64 * SAT_FX16_ONE, 64 * SAT_FX16_ONE},
-        .sky_gain = {20 * SAT_FX16_ONE, 24 * SAT_FX16_ONE, 28 * SAT_FX16_ONE}
-    };
-    sat_example_must(sat_water_sim_shade(&sim, &shading, surface_light));
     const sat_scene3d_material_t material = {
-        .kind = SAT_SCENE3D_RGB, .rgb555 = SAT_RGB555(3, 14, 22),
+        .kind = SAT_SCENE3D_RGB, .rgb555 = WATER_COLOR,
         .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE, .vertex_gouraud = surface_light,
-        .sprite_flags = SAT_SPRITE_FLAG_HALF_TRANSPARENT
+        .sprite_flags = SAT_SPRITE_FLAG_MESH
     };
-    submit_grid(&material, n * n);
+    submit_grid(&material, n * n, PASS_SURFACE);
 }
 
-/* Needs draw_floor's caustics for the same frame. One wall along x or z, as a strip of columns over four vertex rows: rim,
- * the waterline above the water, the waterline below it, and the floor. The
- * two waterline rows share the edge node's wave height, so the wall follows
- * the surface and dry and wet faces get separate tint. */
-static void draw_wall(unsigned side) {
-    const unsigned n = sim.size;
-    const sat_fx16_t low = -HALF, high = HALF;
-    for (unsigned i = 0; i < n; ++i) {
-        const sat_fx16_t along = world_coord(i);
-        unsigned nx = i, nz = 0;
-        sat_fx16_t x = along, z = low;
-        if (side == 1) { nx = n - 1; nz = i; x = high; z = along; }
-        if (side == 2) { nx = n - 1 - i; nz = n - 1; x = -along; z = high; }
-        if (side == 3) { nx = 0; nz = n - 1 - i; x = low; z = -along; }
-        const sat_fx16_t water = REST + heights[nz * n + nx];
-        const sat_fx16_t ys[4] = {RIM, water, water, FLOOR};
-        uint16_t caustic[3];
-        caustic[0] = 0x4210u;
-        caustic[1] = tint(caustic_light[nz * n + nx], -6, -2, -1);
-        caustic[2] = tint(caustic_light[nz * n + nx], -11, -6, -2);
-        for (unsigned row = 0; row < 4; ++row) {
-            vertices[row * n + i] = (sat_vec3_t){x, ys[row], z};
-        }
-        wall_light[0 * n + i] = caustic[0];
-        wall_light[1 * n + i] = caustic[0];
-        wall_light[2 * n + i] = caustic[1];
-        wall_light[3 * n + i] = caustic[2];
-    }
+static void submit_wall(unsigned n) {
     unsigned face = 0;
-    for (unsigned band = 0; band < 2; ++band) {
+    static const uint8_t bands[3] = {0, 2, 3};
+    for (unsigned band = 0; band < 3; ++band) {
         for (unsigned i = 0; i + 1 < n; ++i, ++face) {
-            const unsigned top = (2 * band) * n + i, bottom = (2 * band + 1) * n + i;
+            const unsigned top = bands[band] * n + i, bottom = (bands[band] + 1) * n + i;
             indices[4 * face] = top;
             indices[4 * face + 1] = top + 1;
             indices[4 * face + 2] = bottom + 1;
@@ -221,9 +249,9 @@ static void draw_wall(unsigned side) {
         }
     }
     const sat_mesh_t mesh = {
-        .vertices = vertices, .indices = indices, .vertex_cap = 4 * MAX_NODES,
-        .vertex_count = 4 * n, .face_cap = (MAX_NODES - 1) * (MAX_NODES - 1),
-        .face_count = 2 * (n - 1)
+        .vertices = vertices, .indices = indices, .vertex_cap = 5 * MAX_NODES,
+        .vertex_count = 5 * n, .face_cap = (MAX_NODES - 1) * (MAX_NODES - 1),
+        .face_count = 3 * (n - 1)
     };
     const sat_scene3d_material_t material = {
         .kind = SAT_SCENE3D_INDEXED_TEXTURED, .rgb555 = SAT_RGB555(12, 16, 18),
@@ -232,45 +260,170 @@ static void draw_wall(unsigned side) {
     };
     const sat_scene3d_instance_t instance = {
         .mesh = &mesh, .materials = &material, .material_count = 1,
-        .face_materials = face_materials, .cull_backfaces = 1
+        .face_materials = face_materials, .pass = PASS_UNDER, .cull_backfaces = 1
     };
     sat_example_must(sat_scene_submit_instance(
         &scene, &instance, SAT_SCENE3D_SLOT_INHERIT, projected, 0));
-    grid_nodes = 0;
 }
 
-static void draw_ball(const ball_t* ball) {
+/* The water's own side, from the wave height down to the floor and wound
+ * the other way, seen through the culled near wall. */
+static void submit_water_side(unsigned n) {
+    for (unsigned i = 0; i + 1 < n; ++i) {
+        indices[4 * i] = i;
+        indices[4 * i + 1] = n + i;
+        indices[4 * i + 2] = n + i + 1;
+        indices[4 * i + 3] = i + 1;
+        face_materials[i] = 0;
+    }
+    const sat_mesh_t side_mesh = {
+        .vertices = side_vertices, .indices = indices, .vertex_cap = 2 * MAX_NODES,
+        .vertex_count = 2 * n, .face_cap = n - 1, .face_count = n - 1
+    };
+    const sat_scene3d_material_t water = {
+        .kind = SAT_SCENE3D_RGB, .rgb555 = WATER_COLOR,
+        .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE, .vertex_gouraud = side_light,
+        .sprite_flags = SAT_SPRITE_FLAG_MESH
+    };
+    const sat_scene3d_instance_t side_instance = {
+        .mesh = &side_mesh, .materials = &water, .material_count = 1,
+        .face_materials = face_materials, .pass = PASS_SURFACE, .cull_backfaces = 1
+    };
+    sat_example_must(sat_scene_submit_instance(
+        &scene, &side_instance, SAT_SCENE3D_SLOT_INHERIT, projected, 0));
+}
+
+/* Needs prepare_light for the same frame. One wall along x or z, as a strip
+ * of columns over five fixed vertex rows: rim, the rest level twice (dry and
+ * wet tint), halfway down and the floor. The rows never follow the waves, so
+ * the tiles keep their shape; the water's surface and side carry the moving
+ * waterline, and only the wet tint takes the caustics. */
+static void draw_wall(unsigned side, const sat_vec3_t* eye) {
+    const unsigned n = sim.size;
+    /* From inside the pool the wall shows; from outside, the water's side. */
+    static const int8_t normal_x[4] = {0, -1, 0, 1}, normal_z[4] = {1, 0, -1, 0};
+    const int64_t facing = (int64_t)normal_x[side] * eye->x + (int64_t)normal_z[side] * eye->z;
+    const uint8_t inside = facing > -(int64_t)HALF;
+    const sat_fx16_t low = -HALF, high = HALF;
+    // Each side takes a fixed shade so the pool's corners read.
+    static const int8_t side_shade[4] = {0, -3, -1, -4};
+    const int shade = side_shade[side];
+    for (unsigned i = 0; i < n; ++i) {
+        const sat_fx16_t along = world_coord(i);
+        unsigned nx = i, nz = 0;
+        sat_fx16_t x = along, z = low;
+        if (side == 1) { nx = n - 1; nz = i; x = high; z = along; }
+        if (side == 2) { nx = n - 1 - i; nz = n - 1; x = -along; z = high; }
+        if (side == 3) { nx = 0; nz = n - 1 - i; x = low; z = -along; }
+        const sat_fx16_t ys[5] = {RIM, REST, REST, (REST + FLOOR) / 2, FLOOR};
+        const uint16_t caustic = caustic_light[nz * n + nx];
+        const uint16_t light[5] = {
+            tint(0x4210u, shade, shade, shade), tint(0x4210u, shade - 1, shade - 1, shade - 1),
+            tint(caustic, shade - 9, shade - 3, shade), tint(caustic, shade - 11, shade - 5, shade - 1),
+            tint(caustic, shade - 13, shade - 6, shade - 2)
+        };
+        for (unsigned row = 0; row < 5; ++row) {
+            vertices[row * n + i] = (sat_vec3_t){x, ys[row], z};
+            wall_light[row * n + i] = light[row];
+        }
+        side_vertices[i] = (sat_vec3_t){x, REST + heights[nz * n + nx], z};
+        side_vertices[n + i] = (sat_vec3_t){x, FLOOR, z};
+        side_light[i] = 0x4210u;
+        side_light[n + i] = tint(0x4210u, -4, -4, -2);
+    }
+    if (inside) {
+        submit_wall(n);
+    } else {
+        submit_water_side(n);
+    }
+    grid_nodes = 0;
+}
+static void submit_ball_part(uint16_t* part, uint16_t count,
+                             const uint16_t* light, uint16_t pass) {
+    const sat_mesh_t mesh = {
+        .vertices = ball_world, .indices = part, .vertex_cap = SPHERE_VERTICES,
+        .vertex_count = SPHERE_VERTICES, .face_cap = SPHERE_FACES, .face_count = count
+    };
+    const sat_scene3d_material_t material = {
+        .kind = SAT_SCENE3D_RGB, .rgb555 = BALL_COLOR,
+        .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE, .vertex_gouraud = light
+    };
+    const sat_scene3d_instance_t instance = {
+        .mesh = &mesh, .materials = &material, .material_count = 1,
+        .face_materials = face_materials, .pass = pass
+    };
+    if (count) {
+        sat_example_must(sat_scene_submit_instance(
+            &scene, &instance, SAT_SCENE3D_SLOT_INHERIT, projected, 0));
+    }
+}
+
+/* Back faces are dropped; faces wholly above or below the water go out as
+ * two instances, and only those crossing it are cut by the shaded split. */
+static void draw_ball(const ball_t* ball, const sat_vec3_t* eye) {
     sat_fx16_t wave = 0;
     sat_example_must(sat_water_sim_sample(
         &sim, node_coord(ball->position.x), node_coord(ball->position.z), &wave));
     const sat_fx16_t surface = REST + wave;
+    const sat_vec3_t view = {eye->x - ball->position.x, eye->y - ball->position.y,
+                             eye->z - ball->position.z};
+    for (unsigned v = 0; v < SPHERE_VERTICES; ++v) {
+        ball_world[v] = (sat_vec3_t){sphere_vertices[v].x + ball->position.x,
+                                     sphere_vertices[v].y + ball->position.y,
+                                     sphere_vertices[v].z + ball->position.z};
+    }
     const sat_scene3d_material_t material = {
-        .kind = SAT_SCENE3D_RGB, .rgb555 = SAT_RGB555(31, 21, 8),
+        .kind = SAT_SCENE3D_RGB, .rgb555 = BALL_COLOR,
         .color_calc_slot = SAT_INDEXED_SOLID_OPAQUE
     };
+    uint16_t dry = 0, wet = 0;
     for (uint16_t f = 0; f < sphere.face_count; ++f) {
+        const uint16_t* corner = sphere.indices + 4 * f;
+        sat_vec3_t centre = {0, 0, 0};
+        sat_fx16_t top = ball_world[corner[0]].y, bottom = top;
+        for (unsigned c = 0; c < 4; ++c) {
+            const sat_vec3_t* local = &sphere_vertices[corner[c]];
+            centre.x += local->x / 4; centre.y += local->y / 4; centre.z += local->z / 4;
+            const sat_fx16_t y = ball_world[corner[c]].y;
+            if (y > top) top = y;
+            if (y < bottom) bottom = y;
+        }
+        // On a sphere the face centre is its outward normal.
+        const int64_t facing = (int64_t)centre.x * (view.x - centre.x) +
+            (int64_t)centre.y * (view.y - centre.y) + (int64_t)centre.z * (view.z - centre.z);
+        if (facing <= 0) continue;
+        if (bottom >= surface) {
+            for (unsigned c = 0; c < 4; ++c) ball_dry[4 * dry + c] = corner[c];
+            ++dry;
+            continue;
+        }
+        if (top <= surface) {
+            for (unsigned c = 0; c < 4; ++c) ball_wet[4 * wet + c] = corner[c];
+            ++wet;
+            continue;
+        }
         sat_quad3_t quad;
         uint16_t colors[4];
-        sat_example_must(sat_mesh_face_quad(&sphere, f, &quad));
         for (unsigned c = 0; c < 4; ++c) {
-            colors[c] = sphere_light[sphere.indices[4 * f + c]];
-            quad.v[c].x += ball->position.x;
-            quad.v[c].y += ball->position.y;
-            quad.v[c].z += ball->position.z;
+            quad.v[c] = ball_world[corner[c]];
+            colors[c] = sphere_light[corner[c]];
         }
         sat_water_shaded_piece_t pieces[SAT_WATER_SPLIT_PIECES_MAX];
         uint8_t count;
         sat_example_must(sat_water_split_quad_shaded(&quad, colors, surface, pieces, &count));
         for (uint8_t i = 0; i < count; ++i) {
             sat_scene3d_material_t shaded = material;
-            if (pieces[i].piece.submerged) {
-                for (unsigned c = 0; c < 4; ++c)
-                    pieces[i].color[c] = tint(pieces[i].color[c], -6, -2, 3);
+            const uint8_t submerged = pieces[i].piece.submerged;
+            if (submerged) {
+                for (unsigned c = 0; c < 4; ++c) pieces[i].color[c] = wet_tint(pieces[i].color[c]);
             }
             shaded.vertex_gouraud = pieces[i].color;
-            sat_example_must(sat_scene_submit_quad(&scene, &pieces[i].piece.quad, &shaded, 0));
+            sat_example_must(sat_scene_submit_quad(&scene, &pieces[i].piece.quad, &shaded,
+                                                   submerged ? PASS_UNDER : PASS_ABOVE));
         }
     }
+    submit_ball_part(ball_dry, dry, sphere_light, PASS_ABOVE);
+    submit_ball_part(ball_wet, wet, sphere_wet_light, PASS_UNDER);
 }
 
 static int32_t magnitude(int32_t value) { return value < 0 ? -value : value; }
@@ -278,11 +431,11 @@ static int32_t magnitude(int32_t value) { return value < 0 ? -value : value; }
 /* Horizontal bands from a deep sky blue to a pale horizon stand in for the
  * original's sky: VDP2's backdrop is one color. */
 static void draw_sky(void) {
-    enum { BANDS = 8 };
+    enum { BANDS = 16 };
     for (unsigned band = 0; band < BANDS; ++band) {
         sat_example_must(sat_draw_rect_screen(
             0, (int16_t)(band * HEIGHT / BANDS), WIDTH, HEIGHT / BANDS + 1,
-            SAT_RGB555(7 + band, 16 + band * 2, 27)));
+            SAT_RGB555(8 + band, 17 + band * 3 / 4, 28 + band / 6)));
     }
 }
 
@@ -441,13 +594,14 @@ int main(void) {
         const uint64_t prepare = sat_time_ticks();
         sat_example_must(sat_scene_begin(&scene, &camera, SAT_FX16_ONE / 2, WIDTH, HEIGHT,
                                         OVERLAY_COMMANDS));
+        prepare_light();
         prepare_indices(sim.size);
         draw_floor();
         for (unsigned side = 0; side < 4; ++side) {
-            draw_wall(side);
+            draw_wall(side, &eye);
             prepare_indices(sim.size);
         }
-        draw_ball(&ball);
+        draw_ball(&ball, &eye);
         draw_surface();
         const uint64_t flush = sat_time_ticks();
         sat_example_must(sat_scene_flush(&scene));

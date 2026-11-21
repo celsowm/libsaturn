@@ -18,14 +18,25 @@ ball is cut at the waterline with `sat_water_split_quad_shaded`.
 | Z + Y | Replay one ripple from a fresh pool, then pause at a fixed tick |
 | Start | Reset |
 
-Reflection, refraction and caustics are per-vertex Gouraud approximations,
-not per-pixel effects: the surface shading comes from the slope of the water
-and the floor and walls from its curvature, so waves show as dips and crests
-and light patches move across the tiles. The tile and water colors are tuned
-for contrast, not for realism. With the 9×9 grid, Ymir measured
-18 ms of scene preparation and about 38 presented frames per second. The 17×17
-grid takes about 42 ms and runs near 20 frames per second. These are
-emulator figures only; physical-hardware acceptance is pending.
+The water is drawn the way Saturn games drew it: the surface and the water's
+side facing the camera are VDP1 mesh, which covers alternating pixels and
+blends on a composite display. Half-transparency would be a true 50/50 blend,
+but a distorted VDP1 quad plots some pixels twice, so a translucent wave mesh
+shows a double-blended hatch. What the original shows through the water
+comes from the floor instead. Each floor node moves against the surface slope
+above it, as refraction would shift it, so the tile grout bends with the
+waves. The floor and walls take the surface light and caustics from the
+water's curvature, so light patches move across the tiles. All of this is
+per-vertex Gouraud shading, not per-pixel.
+
+Painter passes keep the layering exact. The floor, the walls and the
+submerged part of the ball are drawn first, then the water, then the dry part
+of the ball. Only the ball faces that cross the water are cut; the dry and wet
+faces go out as two instances, and back faces are skipped.
+
+With the 9×9 grid, Ymir measured about 21 ms of scene preparation; the 17×17
+grid takes about 50 ms. These are emulator figures only, and physical-hardware
+acceptance is pending.
 
 ```sh
 ./build-example.sh water_pool

@@ -55,6 +55,8 @@ into VDP1 Gouraud entries at each node. `sat_water_sim_sample_volume` is
 tracks them. Reflection, refraction and caustics are therefore per-vertex
 approximations: VDP1 half-transparency is a fixed 50/50 blend and Fresnel can
 only shift color. The [Water Pool](../examples/water_pool/README.md) example uses
-all of it.
+all of it. It draws the surface as mesh, because a distorted half-transparent
+quad plots some pixels twice and a wave mesh then shows a double-blended
+hatch, and it bends the floor against the surface slope for refraction.
 
 [Water Lab](../examples/water_lab/README.md) · [Transparency and alpha](TRANSPARENCY_ALPHA.md) · [Water geometry](../include/saturn/water.h) · [Water volume](../include/saturn/water_volume.h)
