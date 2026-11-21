@@ -53,12 +53,17 @@ int main() {
     const uint16_t vertex_cap = 60000, face_cap = 20000;
     std::vector<sat_vec3_t> out_vertices(vertex_cap);
     std::vector<uint16_t> out_light(vertex_cap), out_indices(4u * face_cap), out_materials(face_cap);
+    std::vector<sat_vec3_t> scratch_vertices(vertex_cap);
+    std::vector<uint16_t> scratch_light(vertex_cap), scratch_remap(vertex_cap);
     sat_water_prepared_t io{};
+    io.scratch_vertices = scratch_vertices.data(); io.scratch_gouraud = scratch_light.data();
+    io.scratch_remap = scratch_remap.data();
     io.vertices = out_vertices.data(); io.gouraud = out_light.data(); io.indices = out_indices.data();
     io.face_materials = out_materials.data(); io.vertex_cap = vertex_cap; io.face_cap = face_cap;
     if (sat_water_prepare_mesh(&mesh, face_materials.data(), materials.data(),
                                static_cast<uint16_t>(materials_n), light.data(), &config, &io) != SAT_OK) return 4;
-    std::printf("C %u %u %u %u\n", io.above_faces, io.below_faces, io.cut_faces, io.uncut_faces);
+    std::printf("C %u %u %u %u %u %u\n", io.above_faces, io.below_faces, io.cut_faces, io.uncut_faces,
+                io.above_vertices, io.below_vertices);
     std::printf("V %u\n", io.vertex_count);
     for (unsigned v = 0; v < io.vertex_count; ++v)
         std::printf("%d %d %d %u\n", out_vertices[v].x, out_vertices[v].y, out_vertices[v].z, out_light[v]);

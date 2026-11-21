@@ -111,8 +111,11 @@ def _surface_over(regions, x, y, z):
 def prepare_mesh(vertices, indices, face_materials, rgb_materials, base_gouraud,
                  regions, tint, full_depth):
     """Returns a dict: vertices, gouraud, faces (index lists), face_materials,
-    above_faces, below_faces, cut_faces, uncut_faces. The above faces come
-    first, then the below ones, as sat_water_prepare_mesh lists them."""
+    above_faces, below_faces, above_vertices, below_first, below_vertices,
+    cut_faces, uncut_faces. The above faces come first, then the below ones, as
+    sat_water_prepare_mesh lists them, and each side has its own block of
+    vertices in order of first use: above faces index the first block and
+    below faces index the block that starts at below_first."""
     if full_depth <= 0:
         raise ValueError("full_depth must be positive")
     out_vertices = [tuple(v) for v in vertices]
@@ -152,10 +155,26 @@ def prepare_mesh(vertices, indices, face_materials, rgb_materials, base_gouraud,
     # The C version writes the below faces from the end of its buffer, so they
     # come out in reverse emission order.
     below.reverse()
-    faces = above + below
+
+    def block(side):
+        remap, vertices_out, gouraud_out, faces_out = {}, [], [], []
+        for idx, _ in side:
+            new = []
+            for i in idx:
+                if i not in remap:
+                    remap[i] = len(vertices_out)
+                    vertices_out.append(out_vertices[i])
+                    gouraud_out.append(gouraud[i])
+                new.append(remap[i])
+            faces_out.append(new)
+        return vertices_out, gouraud_out, faces_out
+
+    above_v, above_g, above_f = block(above)
+    below_v, below_g, below_f = block(below)
     return {
-        "vertices": out_vertices, "gouraud": gouraud,
-        "faces": [list(f[0]) for f in faces], "face_materials": [f[1] for f in faces],
+        "vertices": above_v + below_v, "gouraud": above_g + below_g,
+        "faces": above_f + below_f, "face_materials": [f[1] for f in above + below],
         "above_faces": len(above), "below_faces": len(below),
+        "above_vertices": len(above_v), "below_first": len(above_v), "below_vertices": len(below_v),
         "cut_faces": cut_faces, "uncut_faces": uncut_faces,
     }

@@ -32,6 +32,42 @@ bool surface_over(const sat_water_regions_t* regions, const sat_vec3_t& p, sat_f
     return true;
 }
 
+
+/* Gives each side its own block of vertices, in order of first use. Above
+ * faces get indices into the first block; below faces get indices from the
+ * start of the second. */
+sat_result_t split_vertices(sat_water_prepared_t& io) {
+    const uint16_t count = io.vertex_count;
+    uint16_t next = 0;
+    for (unsigned side = 0; side < 2; ++side) {
+        for (uint16_t v = 0; v < count; ++v) io.scratch_remap[v] = 0xFFFFu;
+        const uint16_t first = side ? io.above_faces : 0;
+        const uint16_t faces = side ? io.below_faces : io.above_faces;
+        const uint16_t base = next;
+        for (uint16_t f = first; f < first + faces; ++f) {
+            for (unsigned c = 0; c < 4; ++c) {
+                uint16_t& index = io.indices[4u * f + c];
+                if (io.scratch_remap[index] == 0xFFFFu) {
+                    if (next >= io.vertex_cap) return SAT_ERR_CAPACITY;
+                    io.scratch_remap[index] = static_cast<uint16_t>(next - base);
+                    io.scratch_vertices[next] = io.vertices[index];
+                    io.scratch_gouraud[next++] = io.gouraud[index];
+                }
+                index = io.scratch_remap[index];
+            }
+        }
+        if (side == 0) io.above_vertices = next;
+    }
+    io.below_first = io.above_vertices;
+    io.below_vertices = static_cast<uint16_t>(next - io.above_vertices);
+    for (uint16_t v = 0; v < next; ++v) {
+        io.vertices[v] = io.scratch_vertices[v];
+        io.gouraud[v] = io.scratch_gouraud[v];
+    }
+    io.vertex_count = next;
+    return SAT_OK;
+}
+
 }
 
 extern "C" sat_result_t sat_water_prepare_mesh(const sat_mesh_t* mesh,
@@ -40,7 +76,8 @@ extern "C" sat_result_t sat_water_prepare_mesh(const sat_mesh_t* mesh,
     const sat_water_prepare_config_t* config, sat_water_prepared_t* io) {
     if (!mesh || !mesh->vertices || !mesh->indices || !materials || material_count == 0 ||
         !config || !config->regions || config->full_depth <= 0 || !io ||
-        !io->vertices || !io->gouraud || !io->indices || !io->face_materials)
+        !io->vertices || !io->gouraud || !io->indices || !io->face_materials ||
+        !io->scratch_vertices || !io->scratch_gouraud || !io->scratch_remap)
         return SAT_ERR_INVALID_ARG;
     if (mesh->vertex_count > io->vertex_cap || mesh->face_count > io->face_cap)
         return SAT_ERR_CAPACITY;
@@ -130,5 +167,5 @@ extern "C" sat_result_t sat_water_prepare_mesh(const sat_mesh_t* mesh,
         for (unsigned c = 0; c < 4; ++c) io->indices[4u * to + c] = io->indices[4u * from + c];
         io->face_materials[to] = io->face_materials[from];
     }
-    return SAT_OK;
+    return split_vertices(*io);
 }

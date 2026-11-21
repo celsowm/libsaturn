@@ -189,8 +189,9 @@ The plan does not attempt exact ordering for several planes in one frame.
 
 - [x] **M7 — Docs and packaging.** Done: the sources are in
   `cmake/LibSaturnSources.cmake` and the Makefile, the package consumer source
-  includes the new headers (compiled for the SH-2 against the repo headers; the
-  full install-prefix gate was not run, to respect the disk budget),
+  includes the new headers (`ctest --preset package-consumer`, which builds and
+  installs to a temporary prefix and links the consumer against it, passes 5/5;
+  the scratch build was removed afterwards),
   `docs/WATER_RENDERING.md` and the README link the example. M3's host tool is
   `tools/water_prepare.py`, with `tests/tools/test_water_prepare_parity.py`
   comparing it bit for bit against the C implementation on seeded random
@@ -200,25 +201,34 @@ The plan does not attempt exact ordering for several planes in one frame.
 
 Ymir only, immediate division, no SH-2 cache emulation. Full tables are in
 [Water benchmarks](WATER_BENCHMARKS.md#water-lake); the harness pins the face
-counts and six matched captures.
+counts for four runs (flat and textured water, naive and full) and 12 matched
+captures.
 
-- **Cost.** The full draw costs about 12–15 ms more scene preparation per frame
-  than the naive one (about 26 ms against 14 ms at the start of the route).
-  After optimization the plane build is 1.7 ms and its submit 1.8 ms; the
-  prepared level costs 5 ms more than the unprepared one because the above and
-  below instances each project the whole vertex array. Cutting the actor adds
-  about 1 ms.
-- **No clipping win for RGB mesh water.** Clipped and fallback faces are equal
-  or higher with the plane. A first plane of 4 rings of 8×8 cells cost 13 ms to
-  build with 64-bit arithmetic and 5 ms after moving to 32-bit, and 1.7 ms
-  with 4×4 cells. The SH-2 has no 64-bit divide, and a 64-bit divide by a
-  64-bit variable compiled to an `abort` call in the example, so the plane
-  uses 32-bit positions and refuses worlds past 8192 units.
+- **Cost.** The full draw costs about 6–12 ms more scene preparation per frame
+  than the naive one (about 20–26 ms against 14 ms at the start of the route).
+  The plane build is 1.7 ms and its submit 1.8 ms; cutting the actor adds about
+  1 ms. The prepared level first cost 13.2 ms against 8.1 for the unprepared
+  one, because both instances projected every vertex; giving each side its own
+  vertex block brought it to 9.5 ms.
+- **No clipping win, flat or textured.** Clipped and fallback faces are equal or
+  slightly higher with the plane, and no run skips a face: four big quads (or a
+  6×6 grid of textured tiles) are handled by the clip path, and a textured face
+  behind the near plane is drawn as the flat fallback colour rather than
+  dropped. The plan's acceptance criterion of "fewer fallback and dropped faces
+  near the camera" is therefore **not met**, and the argument that motivated the
+  plane's near rings did not hold on this route. What the plane does give is
+  finer texture detail near the camera (not measured in pixels), a wobble and
+  distance tint, and the right painter passes.
+- **Arithmetic.** A first plane of 4 rings of 8×8 cells cost 13 ms to build with
+  64-bit arithmetic, 5 ms after moving to 32-bit, and 1.7 ms with 4×4 cells.
+  The SH-2 has no 64-bit divide, and a 64-bit divide by a 64-bit variable
+  compiled to an `abort` call in the example, so the plane uses 32-bit
+  positions and refuses worlds past 8192 units.
 - **Correctness win.** At matched ticks the naive draw lets the bed paint over
   the water, leaves the waterline uncut and shows the dive untreated; the full
-  draw does not.
-- **Open.** Textured water, where the clipping argument should hold, and a
-  prepared level that projects its vertices once, are not measured or built.
+  draw does not. This is what the full draw is for.
+- **Open.** A level with far more water faces (where fewer, coarser far rings
+  could win), a camera that skims much lower, and physical-hardware timing.
 
 ## Outside this repository
 
@@ -260,9 +270,11 @@ This plan does not cover that integration itself.
 
 - Host: `gmake test` passes with the new tests.
 - Ymir: the lake harness passes with pinned captures, and the replay is
-  identical in NTSC and PAL. Compared with M0 on the same route: fewer
-  fallback and dropped faces near the camera, no misordered water against the
-  banks and the bridge, and preparation time reported for each stage.
+  identical in NTSC and PAL. Compared with M0 on the same route: no
+  misordered water against the banks and the bridge, and preparation time
+  reported for each stage. The first draft also required fewer fallback and
+  dropped faces near the camera; the measurements did not show that (see
+  "Measured results"), so it is recorded as not met rather than claimed.
 - Mednafen boots the example and shows the same scene.
 - Existing examples, Water Lab 9/9 and Water Pool 8/8 harnesses, and the
   package consumer still pass.

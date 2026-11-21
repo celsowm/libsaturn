@@ -28,12 +28,22 @@ struct Level {
 };
 
 struct Output {
-    sat_vec3_t vertices[64];
-    uint16_t gouraud[64], indices[4 * 32], face_materials[32];
+    sat_vec3_t vertices[64], scratch_vertices[64];
+    uint16_t gouraud[64], scratch_gouraud[64], scratch_remap[64], indices[4 * 32], face_materials[32];
     sat_water_prepared_t io{};
     Output() {
         io.vertices = vertices; io.gouraud = gouraud; io.indices = indices;
         io.face_materials = face_materials; io.vertex_cap = 64; io.face_cap = 32;
+        io.scratch_vertices = scratch_vertices; io.scratch_gouraud = scratch_gouraud;
+        io.scratch_remap = scratch_remap;
+    }
+    /* Corner c of output face f: above faces index the first block, below faces
+     * the block at below_first. */
+    const sat_vec3_t& corner(unsigned f, unsigned c) const {
+        return vertices[(f < io.above_faces ? 0u : io.below_first) + indices[4 * f + c]];
+    }
+    uint16_t light(unsigned f, unsigned c) const {
+        return gouraud[(f < io.above_faces ? 0u : io.below_first) + indices[4 * f + c]];
     }
 };
 
@@ -70,19 +80,36 @@ void classify_and_cut() {
     assert(out.io.cut_faces == 1 && out.io.uncut_faces == 0);
     // Wall cut into one above and one below piece: 1 above (ledge) + 1, 1 below + 1.
     assert(out.io.above_faces == 2 && out.io.below_faces == 2);
-    assert(out.io.vertex_count == 12 + 8);
+    // Each side has its own block: the ledge and the dry piece above, the floor
+    // and the wet piece below, four vertices each.
+    assert(out.io.above_vertices == 8 && out.io.below_first == 8 &&
+           out.io.below_vertices == 8 && out.io.vertex_count == 16);
     // Above faces first: every one lies at or over the surface (y >= 0).
     for (unsigned f = 0; f < out.io.above_faces; ++f)
-        for (unsigned k = 0; k < 4; ++k) assert(out.vertices[out.indices[4 * f + k]].y >= 0);
+        for (unsigned k = 0; k < 4; ++k) assert(out.corner(f, k).y >= 0);
     for (unsigned f = out.io.above_faces; f < out.io.above_faces + out.io.below_faces; ++f)
-        for (unsigned k = 0; k < 4; ++k) assert(out.vertices[out.indices[4 * f + k]].y <= 0);
-    // The cut vertices are shared exactly: both pieces carry y == 0 edge points.
+        for (unsigned k = 0; k < 4; ++k) assert(out.corner(f, k).y <= 0);
+    // The cut is exact on both sides: both pieces carry the same two edge points.
+    sat_vec3_t above_edge[2], below_edge[2];
     unsigned on_surface_above = 0, on_surface_below = 0;
     for (unsigned f = 0; f < out.io.above_faces + out.io.below_faces; ++f)
         for (unsigned k = 0; k < 4; ++k)
-            if (out.vertices[out.indices[4 * f + k]].y == 0 && out.indices[4 * f + k] >= 12)
-                (f < out.io.above_faces ? on_surface_above : on_surface_below)++;
+            if (out.corner(f, k).y == 0) {
+                if (f < out.io.above_faces) above_edge[on_surface_above++ % 2] = out.corner(f, k);
+                else below_edge[on_surface_below++ % 2] = out.corner(f, k);
+            }
     assert(on_surface_above == 2 && on_surface_below == 2);
+    for (unsigned a = 0; a < 2; ++a) {
+        bool found = false;
+        for (unsigned b = 0; b < 2; ++b)
+            found |= above_edge[a].x == below_edge[b].x && above_edge[a].z == below_edge[b].z;
+        assert(found);
+    }
+    // No index reaches past its own block.
+    for (unsigned f = 0; f < out.io.above_faces; ++f)
+        for (unsigned k = 0; k < 4; ++k) assert(out.indices[4 * f + k] < out.io.above_vertices);
+    for (unsigned f = out.io.above_faces; f < out.io.above_faces + out.io.below_faces; ++f)
+        for (unsigned k = 0; k < 4; ++k) assert(out.indices[4 * f + k] < out.io.below_vertices);
     for (unsigned f = 0; f < 4; ++f) assert(out.face_materials[f] == 0);
 }
 
@@ -100,12 +127,15 @@ void tint_grows_with_depth() {
     assert(sat_water_prepare_mesh(&mesh, nullptr, materials, 1, nullptr, &c, &out.io) == SAT_OK);
     // A face touching the surface from below is under it.
     assert(out.io.vertex_count == 8 && out.io.above_faces == 0 && out.io.below_faces == 2);
-    assert(out.gouraud[0] == neutral && out.gouraud[1] == neutral);  // on the surface: no tint
+    // The below faces come out in reverse order: the deep quad (input vertices
+    // 4..7) first, then the shallow one (0..3).
+    const auto at = [&](unsigned input) { return out.gouraud[input < 4 ? input + 4 : input - 4]; };
+    assert(at(0) == neutral && at(1) == neutral);  // on the surface: no tint
     // 2 of 4 units deep: half the tint (red -4, green -1.5 -> -1, blue +1).
-    assert(red(out.gouraud[2]) == 16 - 4 && green(out.gouraud[2]) == 16 - 1 && blue(out.gouraud[2]) == 16 + 1);
+    assert(red(at(2)) == 16 - 4 && green(at(2)) == 16 - 1 && blue(at(2)) == 16 + 1);
     // Past full depth: the whole tint, and no more.
-    assert(red(out.gouraud[4]) == 16 - 8 && green(out.gouraud[4]) == 16 - 3 && blue(out.gouraud[4]) == 16 + 2);
-    assert(red(out.gouraud[6]) == 16 - 8);
+    assert(red(at(4)) == 16 - 8 && green(at(4)) == 16 - 3 && blue(at(4)) == 16 + 2);
+    assert(red(at(6)) == 16 - 8);
 }
 
 void base_light_is_kept_and_clamped() {
@@ -136,6 +166,7 @@ void textured_crossing_is_not_cut() {
     const auto c = config(level);
     assert(sat_water_prepare_mesh(&mesh, face_materials, materials, 1, nullptr, &c, &out.io) == SAT_OK);
     assert(out.io.cut_faces == 0 && out.io.uncut_faces == 2 && out.io.vertex_count == 8);
+    assert(out.io.above_vertices == 8 && out.io.below_vertices == 0);
     // Face 0 straddles evenly (centroid at 0, not under): above. Face 1's
     // middle is at y = 1, above the water too.
     assert(out.io.above_faces == 2 && out.io.below_faces == 0);
@@ -159,6 +190,30 @@ void regions_choose_their_own_surface() {
     assert(sat_water_prepare_mesh(&mesh, nullptr, materials, 1, nullptr, &c, &out.io) == SAT_OK);
     // The first wall crosses y = 0; the second lies wholly under its surface at y = 2.
     assert(out.io.cut_faces == 1 && out.io.below_faces == 2 && out.io.above_faces == 1);
+}
+
+/* Two walls stacked on the surface share their edge vertices; each side keeps
+ * its own copy so an instance projects only what it draws, and vertices a side
+ * shares between its own faces are stored once. */
+void waterline_vertices_live_in_both_blocks() {
+    Level level;
+    sat_vec3_t v[6] = {
+        {0, 2 * one, 0}, {one, 2 * one, 0}, {one, 0, 0}, {0, 0, 0},      // above
+        {one, -2 * one, 0}, {0, -2 * one, 0},                              // below, sharing 2 and 3
+    };
+    uint16_t idx[8] = {0, 1, 2, 3, 3, 2, 4, 5};
+    sat_mesh_t mesh{v, idx, 6, 6, 2, 2};
+    const sat_scene3d_material_t materials[1] = {rgb()};
+    Output out;
+    const auto c = config(level);
+    assert(sat_water_prepare_mesh(&mesh, nullptr, materials, 1, nullptr, &c, &out.io) == SAT_OK);
+    assert(out.io.above_faces == 1 && out.io.below_faces == 1);
+    assert(out.io.above_vertices == 4 && out.io.below_vertices == 4 && out.io.vertex_count == 8);
+    assert(out.corner(0, 2).y == 0 && out.corner(1, 0).y == 0);
+    // Each block holds the waterline points exactly once.
+    unsigned waterline = 0;
+    for (unsigned k = 0; k < out.io.vertex_count; ++k) waterline += out.vertices[k].y == 0;
+    assert(waterline == 4);
 }
 
 void no_region_changes_nothing() {
@@ -204,6 +259,7 @@ int main() {
     base_light_is_kept_and_clamped();
     textured_crossing_is_not_cut();
     regions_choose_their_own_surface();
+    waterline_vertices_live_in_both_blocks();
     no_region_changes_nothing();
     capacity_and_validation();
 }

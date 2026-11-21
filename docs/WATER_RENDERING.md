@@ -74,7 +74,8 @@ For levels with large bodies of water the SDK has five small pieces; the
 - `saturn/water_prepare.h`: classifies a static mesh against the regions at
   load, cuts faces that cross the surface when their material is plain RGB,
   tints submerged vertices by depth, and lists the above faces before the
-  below ones so a game draws them as two instances in two passes. A textured
+  below ones, each with its own block of vertices, so a game draws them as two
+  instances in two passes and each projects only what it uses. A textured
   face cannot be cut and joins the side holding its middle. `tools/water_prepare.py`
   repeats it offline, bit for bit, for a converter.
 - `saturn/water_actor.h`: the same split per frame for a moving mesh. Only the

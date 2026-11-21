@@ -23,6 +23,7 @@ compared on one camera route. It is the evidence for
 | X | Switch between FULL and NAIVE |
 | Z + Y | Replay the 390-tick camera route in FULL mode |
 | Z + X | Replay it in NAIVE mode |
+| Z + A / Z + B | Replay it in FULL / NAIVE mode with textured water |
 | C | Before a replay: count up the 30-tick section it pauses at (0: run to the end) |
 | Y | Pause |
 | Start | Reset |
@@ -44,14 +45,14 @@ python3 harness/tests/test_water_lake.py
 ## What the measurements say
 
 The results are in [Water benchmarks](../../docs/WATER_BENCHMARKS.md#water-lake)
-and are Ymir figures, not hardware. For flat RGB mesh water, FULL costs about
-12–15 ms more preparation per frame than NAIVE, and it does not reduce the
-clipped or fallback faces: four large quads are four faces and the clip path
-handles them. The case for FULL is correctness, shown by the pinned captures at
-ticks 120, 240 and 330: the bed no longer paints over the water, the waterline
-cuts the sphere and the posts, wet geometry is tinted by depth, and the camera
-under the surface gets the underwater fade. A textured water surface, where a
-large quad would be dropped near the camera, is not measured here.
+and are Ymir figures, not hardware. FULL costs about 6–12 ms more preparation
+per frame than NAIVE and does not reduce clipped or fallback faces, for flat or
+for textured water: four large quads, or a grid of textured tiles, are handled
+by the clip path, and a textured face behind the near plane is drawn in the
+water colour instead of being dropped. The case for FULL is correctness, shown
+by the pinned captures at ticks 120, 240 and 330: the bed no longer paints over
+the water, the waterline cuts the sphere and the posts, wet geometry is tinted
+by depth, and the camera under the surface gets the underwater fade.
 
 The level, the sphere and the textures are original and covered by the
 repository's MIT license. The default local disc embeds a boot payload whose

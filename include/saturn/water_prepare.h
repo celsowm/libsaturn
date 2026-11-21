@@ -23,9 +23,15 @@ extern "C" {
  *            maps the whole texture onto a quad), so it joins below when its
  *            centroid is under the surface and above otherwise, and is
  *            counted in uncut_faces.
- * The output lists the above faces first and the below faces after them, over
- * one vertex array, so a game submits two instances: the below faces in a
- * pass before the water and the above faces in a pass after it.
+ * The output lists the above faces first and the below faces after them, so a
+ * game submits two instances: the below faces in a pass before the water and
+ * the above faces in a pass after it. Each side has its own block of vertices,
+ * so a scene instance projects only the vertices it uses: the above block is
+ * vertices[0 .. above_vertices) and the below block follows at below_first.
+ * Above faces index their block directly; below faces index theirs from its
+ * first vertex, so an instance takes `vertices + below_first`,
+ * `gouraud + below_first` and `indices + 4 * above_faces`. A vertex used on
+ * both sides (along a waterline) is stored in both blocks.
  *
  * Each vertex also gets a Gouraud entry: the input's own entry (or neutral)
  * shifted by `tint` in proportion to its depth under its region's surface,
@@ -43,8 +49,13 @@ typedef struct sat_water_prepared {
     uint16_t* gouraud;          /* vertex_cap entries */
     uint16_t* indices;          /* 4 * face_cap entries */
     uint16_t* face_materials;   /* face_cap entries */
+    /* Working storage, vertex_cap entries each: the blocks are built here. */
+    sat_vec3_t* scratch_vertices;
+    uint16_t* scratch_gouraud;
+    uint16_t* scratch_remap;
     uint16_t vertex_cap, face_cap;
-    uint16_t vertex_count;
+    uint16_t vertex_count;      /* above_vertices + below_vertices */
+    uint16_t above_vertices, below_first, below_vertices;
     uint16_t above_faces, below_faces;
     uint16_t cut_faces;         /* faces that were split at a surface */
     uint16_t uncut_faces;       /* crossing faces left whole (not cuttable) */

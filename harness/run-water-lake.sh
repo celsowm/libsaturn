@@ -1,5 +1,6 @@
 #!/bin/sh
-# Replay the Water Lake camera route in Ymir twice, NAIVE and FULL, and write
+# Replay the Water Lake camera route in Ymir four times, NAIVE and FULL with flat
+# and with textured water, and write
 # telemetry and screenshots to build/water_lake_evidence/. Each replay runs 390
 # simulation ticks, so the results do not depend on frame pacing. Pressing C
 # beforehand sets the section a replay pauses at (30 ticks each), which gives
@@ -24,8 +25,12 @@ telemetry=0x$("$nm" build/water_lake.elf | awk '$NF == "_water_lake_telemetry" {
 # replay with the chord for the mode (each press held 10 fields).
 pad_script() {
     mode=$1 sections=$2 file=$3
-    chord=Z+Y
-    [ "$mode" = naive ] && chord=Z+X
+    case $mode in
+        full) chord=Z+Y ;;
+        naive) chord=Z+X ;;
+        full_tex) chord=Z+A ;;
+        naive_tex) chord=Z+B ;;
+    esac
     {
         echo "# Water Lake $mode replay, paused at section $sections (generated)."
         echo "0 NONE"
@@ -44,7 +49,7 @@ pad_script() {
 }
 
 # Full replays: the telemetry of every section.
-for mode in naive full; do
+for mode in naive full naive_tex full_tex; do
     pad_script "$mode" 0 "$out/$mode-run.pad"
     ./harness/run-harness.sh water_lake --frames 2400 --out "$out/$mode.json" -- \
         --pad-script "$out/$mode-run.pad" \
@@ -55,7 +60,7 @@ done
 # 120), the bridge (8, tick 240) and under the water (11, tick 330), in each mode. The replay is paused at the
 # start of the section, so the screenshot is taken well after it.
 for section in 4 8 11; do
-    for mode in naive full; do
+    for mode in naive full naive_tex full_tex; do
         pad_script "$mode" "$section" "$out/$mode-s$section.pad"
         ./harness/run-harness.sh water_lake --frames 1800 --out "$out/$mode-s$section.json" -- \
             --pad-script "$out/$mode-s$section.pad" \

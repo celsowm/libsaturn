@@ -43,7 +43,7 @@ def format_input(regions, tint, full_depth, kinds, vertices, light, indices, fac
 
 def parse(text):
     rows = text.split("\n")
-    above, below, cut, uncut = (int(x) for x in rows[0].split()[1:])
+    above, below, cut, uncut, above_v, below_v = (int(x) for x in rows[0].split()[1:])
     n = int(rows[1].split()[1])
     vertices, gouraud = [], []
     for row in rows[2:2 + n]:
@@ -57,7 +57,8 @@ def parse(text):
         faces.append(values[:4])
         materials.append(values[4])
     return dict(vertices=vertices, gouraud=gouraud, faces=faces, face_materials=materials,
-                above_faces=above, below_faces=below, cut_faces=cut, uncut_faces=uncut)
+                above_faces=above, below_faces=below, above_vertices=above_v, below_first=above_v,
+                below_vertices=below_v, cut_faces=cut, uncut_faces=uncut)
 
 
 @unittest.skipUnless(compiler(), "no C++ compiler")
@@ -119,8 +120,12 @@ class WaterPrepareParityTest(unittest.TestCase):
         indices = [0, 1, 2, 3, 1, 4, 5, 2]
         region = [dict(min_x=-ONE, max_x=9 * ONE, min_z=-ONE, max_z=9 * ONE, bottom=-9 * ONE, surface=0)]
         want = self.run_case(region, [-8, -3, 2], 4 * ONE, [0], vertices, [0x4210] * 6, indices, [0, 0])
-        # Untouched vertices stay shared; the below faces are listed in reverse emission order.
-        self.assertEqual((want["vertices"], want["faces"]), (vertices, [[1, 4, 5, 2], [0, 1, 2, 3]]))
+        # Both faces are under water, so one block holds the six vertices once, in order of
+        # first use; the below faces are listed in reverse emission order.
+        self.assertEqual(want["above_vertices"], 0)
+        self.assertEqual(want["below_vertices"], 6)
+        self.assertEqual(want["faces"], [[0, 1, 2, 3], [4, 0, 3, 5]])
+        self.assertEqual(want["vertices"], [vertices[i] for i in (1, 4, 5, 2, 0, 3)])
 
 
 if __name__ == "__main__":
