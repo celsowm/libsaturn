@@ -1,0 +1,4 @@
+# Replay the scripted ripple at a fixed simulation tick, then hold it.
+0 NONE
+20 Z+Y
+24 NONE

@@ -114,7 +114,8 @@ make EXAMPLE=hello_world
 
 The build produces a Saturn ELF, executable image, and disc artifacts (including BIN/CUE) under `build/`. Open the matching `.cue` in your emulator or use the repository's launcher. The `.iso` is an intermediate image; **the distributed disc track is the `.bin` plus `.cue` pair**.
 
-[Water Lab](examples/water_lab/README.md) demonstrates native VDP1 water,
+[Water Pool](examples/water_pool/README.md) simulates ripples in a tiled pool
+with a floating ball. [Water Lab](examples/water_lab/README.md) demonstrates native VDP1 water,
 underwater geometry effects and water-volume physics in an original temple.
 
 ### POSIX shell
