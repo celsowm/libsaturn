@@ -5,6 +5,10 @@
 
 #define OK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %s:%d\n", __FILE__, __LINE__); std::exit(1); } } while (0)
 
+/* The library's default table sizes (src/graphics/2d/textures/texture_memory.cpp). */
+constexpr uint16_t kTextureCapacity = 64u;
+constexpr uint16_t kTextureRegionCapacity = 64u;
+
 int main() {
     using namespace saturn::core;
 
