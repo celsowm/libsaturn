@@ -6,6 +6,14 @@
 #include "saturn/mesh3d_draw.h"
 #include "saturn/vdp1_color_calc.h"
 #include "src/graphics/3d/scene/capture.hpp"
+#include "src/core/runtime/state.hpp"
+#include "src/graphics/3d/rendering/logic.hpp"
+
+/* indexed.cpp reads the configured screen to decide whether it may project
+ * from the side clipper's own transforms; uninitialized, it never does. */
+saturn::core::RuntimeState saturn::core::g_state{};
+static sat_quad2_t g_screen_in[16];
+static int g_screen_in_count;
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#x); exit(1); } } while (0)
 #define EQ(a,b) CHECK((a)==(b))
@@ -18,6 +26,7 @@ static uint8_t g_last_slot;
 static uint16_t g_last_sprite_flags;
 static uint16_t g_srca[64];
 static uint16_t g_x[64];
+static int16_t g_sprite_x[64][4],g_sprite_y[64][4];
 static sat_result_t g_submit_status=SAT_OK;
 static sat_vdp1_texture_t g_texture[2]={{10,8,8,4,1,0},{20,8,8,4,1,0}};
 static sat_mat4_t g_matrix={};
@@ -64,6 +73,7 @@ extern "C" sat_result_t sat_clip_quad_screen(
     const sat_quad2_t* q,uint16_t,uint16_t,
     sat_quad2_t out[6],uint8_t* count) {
     ++g_screen_calls;
+    if(g_screen_in_count<16) g_screen_in[g_screen_in_count++]=*q;
     *count=(g_screen_mode==1)?0u:(g_screen_mode==2)?2u:1u;
     for(uint8_t i=0;i<*count;++i) out[i]=*q;
     return SAT_OK;
@@ -90,6 +100,7 @@ extern "C" sat_result_t sat_draw_sprite_distorted(
     g_last_sprite_flags=cmd->flags;
     g_srca[g_opaque+g_faded]=cmd->texture->srca;
     g_x[g_opaque+g_faded]=(uint16_t)cmd->x[0];
+    for(int i=0;i<4;++i){g_sprite_x[g_opaque+g_faded][i]=cmd->x[i];g_sprite_y[g_opaque+g_faded][i]=cmd->y[i];}
     ++g_opaque;
     return g_submit_status;
 }
@@ -151,6 +162,7 @@ static void reset() {
     g_polygon_status=SAT_OK;
     g_near_calls=g_project_calls=g_screen_calls=g_opaque=g_faded=0;
     g_max_projected_x=0;
+    g_screen_in_count=0;
     g_clip_mode=g_screen_mode=0;
     g_last_slot=255u;
     g_submit_status=SAT_OK;
@@ -663,6 +675,42 @@ static void grid_texture_keeps_every_uncut_cell_and_fills_the_cut_one() {
     EQ(g_faded,15);
     EQ(g_polygons,0);
 }
+static void grid_texture_projects_shared_corners_once() {
+    sat_mat4_t perspective={};
+    perspective.m[0]=SAT_FX16_ONE;perspective.m[5]=SAT_FX16_ONE;perspective.m[14]=SAT_FX16_ONE;
+    sat_indexed_solid_render3d_t p=render();
+    p.view_proj=&perspective;
+    sat_indexed_tiled_quad3_t regions=grid_regions();
+    regions.cell_rgb555=g_grid_colours;
+    saturn::core::g_state.initialized=true;
+    saturn::core::g_state.config.width=320u;saturn::core::g_state.config.height=224u;
+    reset();
+    sat_quad3_t q=quad(3,12);
+    q.v[0].z=FX(7);q.v[0].x=FX(-3);q.v[2].y=-FX(1);
+    uint8_t submitted=0u;
+    EQ(sat_draw_indexed_tiled_quad3(&q,&p,&regions,&submitted),SAT_OK);
+    /* Whole-face try projects once; no cell needs the projector. */
+    EQ(g_project_calls,0);
+    EQ(submitted,15u);EQ(g_opaque,15);EQ(g_polygons,1);EQ(g_polygon_color,0x8000u);
+    /* Each sprite has the projection of its own bilinear cell corners. */
+    auto point=[&](int col,int row,int axis) {
+        auto c=[&](int k){return (int64_t)(axis==0?q.v[k].x:axis==1?q.v[k].y:q.v[k].z);};
+        const int64_t top=c(0)*(4-col)+c(1)*col,bottom=c(3)*(4-col)+c(2)*col;
+        return (sat_fx16_t)((top*(4-row)+bottom*row)/16);
+    };
+    for(int cell=1,drawn=0;cell<16;++cell,++drawn) {
+        const int row=cell/4,col=cell%4;
+        const int cc[4][2]={{col,row},{col+1,row},{col+1,row+1},{col,row+1}};
+        sat_quad3_t corners={};
+        for(int k=0;k<4;++k)
+            corners.v[k]=(sat_vec3_t){point(cc[k][0],cc[k][1],0),point(cc[k][0],cc[k][1],1),point(cc[k][0],cc[k][1],2)};
+        sat_quad2_t expected={};
+        CHECK(saturn::core::render3d::project_quad(perspective.m,&corners,320,224,&expected));
+        EQ(g_srca[drawn],(uint16_t)(300u+cell));
+        for(int k=0;k<4;++k){EQ(g_sprite_x[drawn][k],expected.x[k]);EQ(g_sprite_y[drawn][k],expected.y[k]);}
+    }
+    saturn::core::g_state=saturn::core::RuntimeState{};
+}
 static void tiled_quadrants_fill_a_cut_quadrant_with_its_colour() {
     reset();
     sat_quad3_t q=quad(3,12);
@@ -921,8 +969,42 @@ static void wide_face_is_cut_to_a_box_before_projection() {
     EQ(sat_draw_polygon_quad3(&small,&p,0x8421u),SAT_OK);
     EQ(g_project_calls,1);
 }
+static void configured_screen_reuses_side_clip_transforms() {
+    sat_mat4_t perspective={};
+    perspective.m[0]=SAT_FX16_ONE;perspective.m[5]=SAT_FX16_ONE;perspective.m[14]=SAT_FX16_ONE;
+    sat_indexed_solid_render3d_t p=render();
+    p.view_proj=&perspective;
+    saturn::core::g_state.initialized=true;
+    saturn::core::g_state.config.width=320u;saturn::core::g_state.config.height=224u;
+    /* A face inside the box projects exactly as the full projector would. */
+    reset();
+    const sat_quad3_t small=quad(-1,10);
+    EQ(sat_draw_polygon_quad3(&small,&p,0x8421u),SAT_OK);
+    EQ(g_project_calls,0);EQ(g_screen_in_count,1);
+    sat_quad2_t expected={};
+    CHECK(saturn::core::render3d::project_quad(perspective.m,&small,320,224,&expected));
+    for(int i=0;i<4;++i){EQ(g_screen_in[0].x[i],expected.x[i]);EQ(g_screen_in[0].y[i],expected.y[i]);}
+    /* A cut face's pieces stay inside the unclamped range. */
+    reset();
+    sat_quad3_t wall={};
+    wall.v[0]=(sat_vec3_t){FX(-1),FX(1),FX(10)};
+    wall.v[1]=(sat_vec3_t){FX(5000),FX(1),FX(10)};
+    wall.v[2]=(sat_vec3_t){FX(5000),FX(-1),FX(10)};
+    wall.v[3]=(sat_vec3_t){FX(-1),FX(-1),FX(10)};
+    EQ(sat_draw_polygon_quad3(&wall,&p,0x8421u),SAT_OK);
+    EQ(g_project_calls,0);CHECK(g_screen_in_count>=1);
+    for(int n=0;n<g_screen_in_count;++n)
+        for(int i=0;i<4;++i) CHECK(g_screen_in[n].x[i]<=1025 && g_screen_in[n].x[i]>=-1025);
+    /* Another screen size keeps the projector. */
+    reset();
+    p.width=352u;
+    EQ(sat_draw_polygon_quad3(&small,&p,0x8421u),SAT_OK);
+    EQ(g_project_calls,1);
+    saturn::core::g_state=saturn::core::RuntimeState{};
+}
 int main() {
     wide_face_is_cut_to_a_box_before_projection();
+    configured_screen_reuses_side_clip_transforms();
     rgb_clut_gouraud_preserves_texture_and_corners();
     quad_validates_and_draws_opaque();
     faded_quad_and_multiple_screen_triangles();
@@ -941,6 +1023,7 @@ int main() {
     tiled_texture_propagates_capacity_without_faking_success();
     grid_upload_splits_cells_and_averages_colour();
     grid_texture_keeps_every_uncut_cell_and_fills_the_cut_one();
+    grid_texture_projects_shared_corners_once();
     tiled_quadrants_fill_a_cut_quadrant_with_its_colour();
     grid_texture_rejects_bad_descriptors();
     direct_draws_queue_into_an_open_capture();
@@ -950,7 +1033,7 @@ int main() {
     indexed_box_owns_visibility_winding_and_material_selection();
     indexed_box_rejects_bad_geometry_before_emitting();
     indexed_box_propagates_capacity_without_attempting_other_faces();
-    puts("test_render3d_indexed: 26 tests passed");
+    puts("test_render3d_indexed: 28 tests passed");
     return 0;
 }
 

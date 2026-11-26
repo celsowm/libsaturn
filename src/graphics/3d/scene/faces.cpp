@@ -837,6 +837,14 @@ extern "C" sat_result_t sat_scene3d_faces_get(
     return SAT_OK;
 }
 
+extern "C" const sat_scene3d_face_t* sat_scene3d_faces_full(
+    const sat_scene3d_faces_t* scene,uint16_t index) {
+    if(!scene || index>=scene->count)return nullptr;
+    if(!scene->projected_entries)return &scene->entries[index];
+    const auto& hot=projected_at(scene,index);
+    return hot.kind==SAT_SCENE3D_PROJECTED_COLD ? hot.cold : nullptr;
+}
+
 extern "C" sat_result_t sat_scene3d_faces_bind_native_commands(
     sat_scene3d_faces_t* scene,sat_vdp1_command_batch_t* batch) {
 #if SAT_NATIVE_SCENE_COMMANDS

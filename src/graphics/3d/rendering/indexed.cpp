@@ -4,6 +4,7 @@
 #include "src/core/runtime/refusal.hpp"
 #include "src/graphics/3d/rendering/logic.hpp"
 #include "src/graphics/3d/scene/capture.hpp"
+#include "src/core/runtime/state.hpp"
 
 namespace {
 
@@ -45,9 +46,11 @@ bool valid_render(const sat_indexed_solid_render3d_t* p) {
  * piece wholly inside the box is returned unchanged. */
 constexpr int64_t kSideBound=1024;
 
+/* Clip coordinates stay 32-bit 16.16 values (what the transform returns), so
+ * every distance below is one 32x32->64 multiply instead of a 64x64 call. */
 struct SideVertex {
     sat_vec3_t p;
-    int64_t x,y,w;
+    int32_t x,y,w;
 };
 
 SideVertex side_vertex(const sat_indexed_solid_render3d_t* p,const sat_vec3_t& v) {
@@ -57,35 +60,83 @@ SideVertex side_vertex(const sat_indexed_solid_render3d_t* p,const sat_vec3_t& v
 }
 
 /* Signed distance of a vertex inside plane `k` (>= 0 inside), in w units. */
+inline __attribute__((always_inline))
 int64_t side_distance(const sat_indexed_solid_render3d_t* p,const SideVertex& v,uint8_t k) {
-    const int64_t limit=2*kSideBound*v.w;
+    const int64_t limit=static_cast<int64_t>(v.w)*(2*kSideBound);
     switch(k) {
-        case 0: return limit-v.x*p->width;
-        case 1: return limit+v.x*p->width;
-        case 2: return limit-v.y*p->height;
-        default: return limit+v.y*p->height;
+        case 0: return limit-static_cast<int64_t>(v.x)*static_cast<int32_t>(p->width);
+        case 1: return limit+static_cast<int64_t>(v.x)*static_cast<int32_t>(p->width);
+        case 2: return limit-static_cast<int64_t>(v.y)*static_cast<int32_t>(p->height);
+        default: return limit+static_cast<int64_t>(v.y)*static_cast<int32_t>(p->height);
     }
 }
 
 /* Clips one near-clipped piece (a quad or a triangle with D==C) to the box and
  * fans what is left into triangles. Returns the count, or 0 when nothing is
  * visible. */
+/* prev_d/(prev_d-d) in 16.16 for distances of opposite sign, so in [0,1].
+ * Both magnitudes are halved until the divisor fits the SH-2 divider; that
+ * keeps at least 30 significant bits, far more than the 16-bit result. */
+int64_t side_fraction(int64_t prev_d,int64_t d) {
+    uint64_t num=prev_d<0?0u-static_cast<uint64_t>(prev_d):static_cast<uint64_t>(prev_d);
+    uint64_t den=prev_d<0?static_cast<uint64_t>(d-prev_d):static_cast<uint64_t>(prev_d-d);
+    while(den>0x3fffffffu) { num>>=1; den>>=1; }
+    if(den==0u) return 0;
+    return saturn::core::math3d::div_s64_s32(
+        static_cast<int64_t>(num<<16),static_cast<int32_t>(den));
+}
+
+/* Screen corner of a clipped vertex: project_native's math on the clip
+ * coordinates already formed here, so the result is bit-identical to
+ * projecting the piece again. */
+void side_screen(const SideVertex& v,int16_t w,int16_t h,int16_t* x,int16_t* y) {
+    using saturn::core::render3d::project_axis;
+    *x=project_axis(v.x,w,v.w);
+    *y=project_axis(v.y,-static_cast<int32_t>(h),v.w);
+}
+
+/* When `screen` is non-null and every output corner is in front of the
+ * camera, also writes each piece's projection for a (w x h) screen and sets
+ * *projected, sparing the caller a second transform of the same corners. */
 uint8_t side_clip_piece(const sat_indexed_solid_render3d_t* p,const sat_quad3_t& piece,
-                        sat_quad3_t out[8]) {
+                        sat_quad3_t out[8],sat_quad2_t* screen=nullptr,
+                        int16_t screen_w=0,int16_t screen_h=0,bool* projected=nullptr) {
     SideVertex poly[12];
     uint8_t n=0u;
     bool outside=false;
+    /* Bit k: some corner lies outside plane k. A plane every corner is inside
+     * also holds every later cut point (they stay in the corners' convex
+     * hull), so only these planes ever need a pass. */
+    uint8_t cut_planes=0u;
+    if(projected) *projected=false;
     for(uint8_t i=0u;i<4u;++i) {
         const sat_vec3_t& v=piece.v[i];
         if(i==3u && v.x==piece.v[2].x && v.y==piece.v[2].y && v.z==piece.v[2].z) break;
         poly[n]=side_vertex(p,v);
         if(poly[n].w<=0) { out[0]=piece; return 1u; }
-        for(uint8_t k=0u;k<4u;++k)
-            if(side_distance(p,poly[n],k)<0) outside=true;
+        /* side_distance(k) < 0 for some k, as one bound per axis. */
+        const int64_t limit=static_cast<int64_t>(poly[n].w)*(2*kSideBound);
+        const int64_t sx=static_cast<int64_t>(poly[n].x)*static_cast<int32_t>(p->width);
+        const int64_t sy=static_cast<int64_t>(poly[n].y)*static_cast<int32_t>(p->height);
+        if(sx>limit) cut_planes|=1u;
+        if(-sx>limit) cut_planes|=2u;
+        if(sy>limit) cut_planes|=4u;
+        if(-sy>limit) cut_planes|=8u;
         ++n;
     }
-    if(!outside) { out[0]=piece; return 1u; }
+    outside=cut_planes!=0u;
+    if(!outside) {
+        out[0]=piece;
+        if(screen) {
+            for(uint8_t i=0u;i<n;++i)
+                side_screen(poly[i],screen_w,screen_h,&screen[0].x[i],&screen[0].y[i]);
+            if(n==3u) { screen[0].x[3]=screen[0].x[2]; screen[0].y[3]=screen[0].y[2]; }
+            *projected=true;
+        }
+        return 1u;
+    }
     for(uint8_t k=0u;k<4u && n>=3u;++k) {
+        if(!(cut_planes&(1u<<k))) continue;
         SideVertex next[12];
         uint8_t m=0u;
         SideVertex prev=poly[n-1u];
@@ -96,7 +147,7 @@ uint8_t side_clip_piece(const sat_indexed_solid_render3d_t* p,const sat_quad3_t&
             if((prev_d>=0)!=(d>=0)) {
                 /* 16.16 fraction: the distances are large enough that
                  * multiplying them by a coordinate span would overflow. */
-                const int64_t t=(prev_d*SAT_FX16_ONE)/(prev_d-d);
+                const int64_t t=side_fraction(prev_d,d);
                 sat_vec3_t q;
                 q.x=static_cast<sat_fx16_t>(prev.p.x+(((static_cast<int64_t>(cur.p.x)-prev.p.x)*t)>>16));
                 q.y=static_cast<sat_fx16_t>(prev.p.y+(((static_cast<int64_t>(cur.p.y)-prev.p.y)*t)>>16));
@@ -117,6 +168,22 @@ uint8_t side_clip_piece(const sat_indexed_solid_render3d_t* p,const sat_quad3_t&
         out[i].v[2]=poly[i+2u].p;
         out[i].v[3]=poly[i+2u].p;
     }
+    if(screen) {
+        const uint8_t used=static_cast<uint8_t>(count+2u);
+        bool front=true;
+        for(uint8_t i=0u;i<used;++i) if(poly[i].w<=0) front=false;
+        if(front) {
+            int16_t sx[10],sy[10];
+            for(uint8_t i=0u;i<used;++i) side_screen(poly[i],screen_w,screen_h,&sx[i],&sy[i]);
+            for(uint8_t i=0u;i<count;++i) {
+                screen[i].x[0]=sx[0];      screen[i].y[0]=sy[0];
+                screen[i].x[1]=sx[i+1u];   screen[i].y[1]=sy[i+1u];
+                screen[i].x[2]=sx[i+2u];   screen[i].y[2]=sy[i+2u];
+                screen[i].x[3]=sx[i+2u];   screen[i].y[3]=sy[i+2u];
+            }
+            *projected=true;
+        }
+    }
     return count;
 }
 
@@ -133,17 +200,29 @@ sat_result_t for_each_visible_piece(const sat_quad3_t* quad,
     sat_result_t st=sat_clip_quad_near(
         quad,&p->eye,&p->forward,p->near_depth,pieces,&piece_count);
     if(st!=SAT_OK) return st;
+    /* sat_project_quad projects for the configured screen; reuse the side
+     * clipper's transforms only when that is the screen being clipped to. */
+    const sat_video_config_t& cfg=saturn::core::g_state.config;
+    const bool reuse=saturn::core::g_state.initialized &&
+        cfg.width==p->width && cfg.height==p->height;
     for(uint8_t near_piece=0u;near_piece<piece_count;++near_piece) {
         sat_quad3_t boxed[8];
-        const uint8_t boxed_count=side_clip_piece(p,pieces[near_piece],boxed);
+        sat_quad2_t boxed_screen[8];
+        bool boxed_projected=false;
+        const uint8_t boxed_count=side_clip_piece(p,pieces[near_piece],boxed,
+            reuse?boxed_screen:nullptr,static_cast<int16_t>(cfg.width),
+            static_cast<int16_t>(cfg.height),&boxed_projected);
         for(uint8_t b=0u;b<boxed_count;++b) {
             const sat_quad3_t& piece=boxed[b];
             sat_quad2_t projected;
             sat_quad2_t visible[6];
             uint8_t visible_count=0u;
-            st=sat_project_quad(p->view_proj,&piece,&projected);
-            if(st==SAT_ERR_UNSUPPORTED) continue;
-            if(st!=SAT_OK) return st;
+            if(boxed_projected) projected=boxed_screen[b];
+            else {
+                st=sat_project_quad(p->view_proj,&piece,&projected);
+                if(st==SAT_ERR_UNSUPPORTED) continue;
+                if(st!=SAT_OK) return st;
+            }
             st=sat_clip_quad_screen(&projected,p->width,p->height,visible,
                                     &visible_count);
             if(st==SAT_ERR_UNSUPPORTED) continue;
@@ -586,12 +665,101 @@ sat_vec3_t grid_point(const sat_quad3_t& q,uint8_t n,uint8_t col,uint8_t row) {
                           static_cast<int64_t>(tr)*col;
         const int64_t bottom=static_cast<int64_t>(bl)*(n-col)+
                              static_cast<int64_t>(br)*col;
-        return static_cast<sat_fx16_t>((top*(n-row)+bottom*row)/(n*n));
+        /* n*n is 4, 16 or 64: an exact truncating shift, not a 64-bit
+         * division call. */
+        const int64_t sum=top*(n-row)+bottom*row;
+        const unsigned shift=n==2u?2u:n==4u?4u:6u;
+        return static_cast<sat_fx16_t>(sum<0?-((-sum)>>shift):(sum>>shift));
     };
     return sat_vec3_t{
         axis(q.v[0].x,q.v[1].x,q.v[2].x,q.v[3].x),
         axis(q.v[0].y,q.v[1].y,q.v[2].y,q.v[3].y),
         axis(q.v[0].z,q.v[1].z,q.v[2].z,q.v[3].z)};
+}
+
+/* A grid of n x n cells shares (n+1)^2 corners; each corner's point, near
+ * test and (on the configured screen) projection is formed once instead of
+ * once per cell that touches it. Every cell then goes exactly the way
+ * sat_draw_indexed_textured_quad3 would take it: dropped when a corner is
+ * inside the near plane, not projectable or out of drawable range, otherwise
+ * one distorted sprite; a cell that is not drawn gets its solid fill. */
+sat_result_t draw_tiled_grid(const sat_quad3_t& quad,const sat_indexed_solid_render3d_t* p,
+                             const sat_indexed_tiled_quad3_t& regions,uint8_t n,bool fill,
+                             uint8_t* out_submitted) {
+    enum : uint8_t {kUnknown=0u,kProjected=1u,kUnprojectable=2u};
+    constexpr uint8_t kMaxPoints=81u;
+    const uint8_t side=static_cast<uint8_t>(n+1u);
+    sat_vec3_t point[kMaxPoints];
+    uint8_t in_front[kMaxPoints];
+    int16_t px[kMaxPoints],py[kMaxPoints];
+    uint8_t state[kMaxPoints];
+    for(uint8_t row=0u;row<side;++row) for(uint8_t col=0u;col<side;++col) {
+        const uint8_t k=static_cast<uint8_t>(row*side+col);
+        const sat_vec3_t v=grid_point(quad,n,col,row);
+        point[k]=v;
+        const int64_t dx=static_cast<int64_t>(v.x)-p->eye.x;
+        const int64_t dy=static_cast<int64_t>(v.y)-p->eye.y;
+        const int64_t dz=static_cast<int64_t>(v.z)-p->eye.z;
+        const int64_t depth=(dx*p->forward.x+dy*p->forward.y+dz*p->forward.z)/SAT_FX16_ONE;
+        in_front[k]=depth>=p->near_depth;
+        state[k]=kUnknown;
+    }
+    const sat_video_config_t& cfg=saturn::core::g_state.config;
+    const bool shared_projection=saturn::core::g_state.initialized;
+    for(uint8_t i=0u;i<n*n;++i) {
+        const uint8_t row=static_cast<uint8_t>(i/n),col=static_cast<uint8_t>(i%n);
+        const uint8_t corner[4]={
+            static_cast<uint8_t>(row*side+col),
+            static_cast<uint8_t>(row*side+col+1u),
+            static_cast<uint8_t>((row+1u)*side+col+1u),
+            static_cast<uint8_t>((row+1u)*side+col)};
+        const sat_vdp1_texture_t* texture=tiled_cell(regions,i);
+        bool drawn=false;
+        bool visible=in_front[corner[0]] && in_front[corner[1]] &&
+                     in_front[corner[2]] && in_front[corner[3]];
+        sat_quad2_t projected;
+        if(visible && shared_projection) {
+            for(uint8_t c=0u;c<4u && visible;++c) {
+                const uint8_t k=corner[c];
+                if(state[k]==kUnknown)
+                    state[k]=saturn::core::render3d::project_native(
+                        p->view_proj->m,point[k].x,point[k].y,point[k].z,
+                        static_cast<int16_t>(cfg.width),static_cast<int16_t>(cfg.height),
+                        &px[k],&py[k]) ? kProjected : kUnprojectable;
+                if(state[k]!=kProjected) visible=false;
+                else { projected.x[c]=px[k]; projected.y[c]=py[k]; }
+            }
+        } else if(visible) {
+            const sat_quad3_t cell={{point[corner[0]],point[corner[1]],
+                                     point[corner[2]],point[corner[3]]}};
+            const sat_result_t proj=sat_project_quad(p->view_proj,&cell,&projected);
+            if(proj==SAT_ERR_UNSUPPORTED) visible=false;
+            else if(proj!=SAT_OK) return proj;
+        }
+        for(uint8_t c=0u;c<4u && visible;++c)
+            if(!saturn::core::render3d::coord_drawable(
+                   projected.x[c],projected.y[c],p->width,p->height))
+                visible=false;
+        if(visible) {
+            sat_distorted_sprite_cmd_t cmd={};
+            cmd.flags=p->sprite_flags;
+            for(uint8_t c=0u;c<4u;++c) { cmd.x[c]=projected.x[c]; cmd.y[c]=projected.y[c]; }
+            cmd.texture=texture;
+            const sat_result_t st=p->color_calc_slot==SAT_INDEXED_SOLID_OPAQUE
+                ? sat_draw_sprite_distorted(&cmd)
+                : sat_draw_sprite_distorted_color_calc(&cmd,p->color_calc_slot);
+            if(st!=SAT_OK) return st;
+            drawn=true;
+            if(out_submitted!=nullptr) *out_submitted=static_cast<uint8_t>(*out_submitted+1u);
+        }
+        if(!drawn && fill && regions.cell_rgb555[i]!=0u) {
+            const sat_quad3_t cell={{point[corner[0]],point[corner[1]],
+                                     point[corner[2]],point[corner[3]]}};
+            const sat_result_t st=sat_draw_polygon_quad3(&cell,p,regions.cell_rgb555[i]);
+            if(st!=SAT_OK) return st;
+        }
+    }
+    return SAT_OK;
 }
 }
 
@@ -664,6 +832,9 @@ extern "C" sat_result_t sat_draw_indexed_tiled_quad3(
         {{da,center,cd,quad->v[3]}}, /* BL */
         {{center,bc,quad->v[2],cd}}  /* BR */
     };
+    if(regions->grid!=0u && params->width>=2u && params->height>=2u &&
+       params->width<=2048u && params->height<=2048u)
+        return draw_tiled_grid(*quad,params,*regions,n,fill,out_submitted);
     for(uint8_t i=0u;i<n*n;++i) {
         const uint8_t row=static_cast<uint8_t>(i/n),col=static_cast<uint8_t>(i%n);
         sat_quad3_t cell;

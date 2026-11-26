@@ -9,6 +9,14 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- `sat_scene3d_faces_full(scene, index)` returns a queued face stored as a full record (every face without projected
+  storage, a cold fallback with it) in place, or NULL for a hot projected entry, which is always projected-safe. A
+  caller looking for clipped fallback faces no longer copies every face through `sat_scene3d_faces_get`.
+- Near-clipped fallback faces cost less at flush: the side clip keeps 32-bit clip coordinates (one 32x32 multiply per
+  distance), runs only the planes a corner is outside of, takes its edge fractions on the SH-2 divider, and on the
+  configured screen projects its pieces from the transforms it already made (bit-identical to `sat_project_quad`).
+  A grid-tiled face forms each shared cell corner, its near test and its projection once instead of once per cell,
+  and `grid_point` divides by n*n with a shift. Mednafen, castle routes: flush 31.6 ms a draw, now 25.2.
 - `sat_sound_ram_borrow_stream_rings(rings)` lends the lowest `rings` streaming rings (16 KB each, up to 4) to the
   resident sample area, for a program that opens fewer streams: sounds, reservations and the effect ring may use them,
   `sound_ram_capacity` grows to match (512,000 bytes with all four), and `sat_audio_stream_open` skips them. It is

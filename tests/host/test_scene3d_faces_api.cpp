@@ -658,6 +658,15 @@ static void projected_hot_queue_matches_general_and_owns_fallbacks() {
         else assert(same_face(a,b));
         assert(keys[0][i]==keys[1][i]);
     }
+    // In-place access: full records only, hot entries report NULL.
+    for(unsigned i=0;i<19;++i) {
+        const sat_scene3d_face_t* full0=sat_scene3d_faces_full(&scenes[0],i);
+        assert(full0==&scenes[0].entries[i]);
+        const sat_scene3d_face_t* full1=sat_scene3d_faces_full(&scenes[1],i);
+        assert((full1!=nullptr)==(hot[i].kind==SAT_SCENE3D_PROJECTED_COLD));
+        if(full1)assert(full1==hot[i].cold && same_face(*full0,*full1));
+    }
+    assert(sat_scene3d_faces_full(&scenes[1],19)==nullptr && sat_scene3d_faces_full(nullptr,0)==nullptr);
     emitted_count=0;
     assert(sat_scene3d_faces_flush(&scenes[0])==SAT_OK);
     const unsigned count=emitted_count;

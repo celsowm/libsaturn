@@ -221,6 +221,12 @@ sat_result_t sat_scene3d_faces_use_projected_indices(
  * when projected storage is bound. Unused world/Gouraud fields are unspecified. */
 sat_result_t sat_scene3d_faces_get(
     const sat_scene3d_faces_t* scene,uint16_t index,sat_scene3d_face_t* out);
+/* The queued record when it is stored as a full face (every face without
+ * projected storage; a cold fallback with it), read in place without the
+ * copy sat_scene3d_faces_get makes. NULL for a hot projected entry, which
+ * is always projected-safe, or an index past the queue. */
+const sat_scene3d_face_t* sat_scene3d_faces_full(
+    const sat_scene3d_faces_t* scene,uint16_t index);
 
 /* Configure the optional owner verifier only while no frame is active.
  * `spans` (caller-owned, `span_capacity` entries) holds one record per

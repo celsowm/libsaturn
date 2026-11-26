@@ -1,4 +1,5 @@
 #include "saturn/water_plane.h"
+#include "src/core/math3d/logic.hpp"
 
 namespace {
 
@@ -86,8 +87,10 @@ extern "C" sat_result_t sat_water_plane_build(sat_water_plane_t* plane,
             // Whole degrees of phase per grid line: position * 360 / period.
             for (int i = 0; i <= n; ++i) {
                 const int32_t x = centre_x + (i - half) * size, z = centre_z + (i - half) * size;
-                sine_x[i] = sat_sin_deg_whole(static_cast<int32_t>(static_cast<int64_t>(x) * 360 / cfg.period) + phase);
-                sine_z[i] = sat_sin_deg_whole(static_cast<int32_t>(static_cast<int64_t>(z) * 360 / cfg.period) + phase / 2);
+                // Exactly the C quotient, on the SH-2 divider rather than __divdi3.
+                using saturn::core::math3d::div_s64_fast;
+                sine_x[i] = sat_sin_deg_whole(static_cast<int32_t>(div_s64_fast(static_cast<int64_t>(x) * 360, cfg.period)) + phase);
+                sine_z[i] = sat_sin_deg_whole(static_cast<int32_t>(div_s64_fast(static_cast<int64_t>(z) * 360, cfg.period)) + phase / 2);
             }
         }
 
