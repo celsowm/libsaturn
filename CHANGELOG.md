@@ -9,6 +9,9 @@ The version is defined once, in the `VERSION` file.
 
 ## [Unreleased]
 
+- `sat_movie_play_options_t.cpu_copy` (taken from a reserved byte, so a zeroed options struct behaves as before): 1
+  writes each picture into VDP2 VRAM with 32-bit CPU stores instead of the SCU DMA, for a program that keeps the
+  DMA busy or needs it off. Slower; 0 keeps the DMA.
 - `sat_scene3d_faces_full(scene, index)` returns a queued face stored as a full record (every face without projected
   storage, a cold fallback with it) in place, or NULL for a hot projected entry, which is always projected-safe. A
   caller looking for clipped fallback faces no longer copies every face through `sat_scene3d_faces_get`.

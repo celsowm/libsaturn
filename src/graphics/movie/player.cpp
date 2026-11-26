@@ -162,10 +162,19 @@ void fade(int level) {
     (void)sat_vdp2_color_offset_set(SAT_VDP2_COLOR_OFFSET_A, &offset);
 }
 
-sat_result_t clear_both_bitmaps(sat_movie_player_t* m) {
+/* One picture (or its rows) into VDP2 VRAM: the SCU DMA, or plain 32-bit CPU stores when the caller asked for them. */
+sat_result_t put_picture(bool cpu, uintptr_t vram, const void* from, uint32_t bytes) {
+    if (!cpu) return sat_dma_copy(reinterpret_cast<void*>(vram), from, bytes);
+    volatile uint32_t* out = reinterpret_cast<volatile uint32_t*>(vram);
+    const uint32_t* in = static_cast<const uint32_t*>(from);
+    for (uint32_t i = 0u; i < bytes / 4u; ++i) out[i] = in[i];
+    return SAT_OK;
+}
+
+sat_result_t clear_both_bitmaps(sat_movie_player_t* m, bool cpu) {
     for (uint32_t i = 0u; i < sizeof m->picture / 4u; ++i) reinterpret_cast<uint32_t*>(m->picture)[i] = 0u;
-    SAT_TRY(sat_dma_copy(reinterpret_cast<void*>(kVramBase), m->picture, sizeof m->picture));
-    return sat_dma_copy(reinterpret_cast<void*>(kVramBase + kBankBytes), m->picture, sizeof m->picture);
+    SAT_TRY(put_picture(cpu, kVramBase, m->picture, sizeof m->picture));
+    return put_picture(cpu, kVramBase + kBankBytes, m->picture, sizeof m->picture);
 }
 
 /* The play itself. `opened` tells the caller's cleanup what to undo. */
@@ -203,7 +212,8 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
     SAT_TRY(sat_cdfs_file_sectors(&file, kHeaderBytes, 0u, &first_lba, &sectors));
     m->remaining = (h.packet_bytes + kSector - 1u) / kSector;
     if (m->remaining > sectors) return SAT_ERR_IO;
-    SAT_TRY(clear_both_bitmaps(m));
+    const bool cpu = opt.cpu_copy != 0u;
+    SAT_TRY(clear_both_bitmaps(m, cpu));
     sat_vdp2_layer_config_t layer;
     sat_vdp2_layer_config_default(SAT_VDP2_NBG0, &layer);
     layer.bitmap = 1u;
@@ -236,8 +246,8 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
         SAT_TRY(sat_wait_vblank());
         SAT_TRY(poll_ring(m));
     }
-    SAT_TRY(sat_dma_copy(reinterpret_cast<void*>(kVramBase + y0 * SAT_MOVIE_PICTURE_STRIDE * 2u),
-                         m->picture + y0 * SAT_MOVIE_PICTURE_STRIDE, h.height * SAT_MOVIE_PICTURE_STRIDE * 2u));
+    SAT_TRY(put_picture(cpu, kVramBase + y0 * SAT_MOVIE_PICTURE_STRIDE * 2u,
+                        m->picture + y0 * SAT_MOVIE_PICTURE_STRIDE, h.height * SAT_MOVIE_PICTURE_STRIDE * 2u));
     for (unsigned c = 0u; h.has_sound && c < 2u; ++c) SAT_TRY(sat_audio_stream_resume(m->voice[c]));
 
     const uint32_t hz = sat_video_refresh_hz();
@@ -294,8 +304,8 @@ sat_result_t run(sat_movie_player_t* m, sat_cdfs_volume_t* volume, const char* p
         m->stats.frames_shown += decoded;
         m->stats.frames_skipped += decoded - 1u;
         const uint32_t hidden = shown_base != 0u ? 0u : kBankBytes;
-        SAT_TRY(sat_dma_copy(reinterpret_cast<void*>(kVramBase + hidden + y0 * SAT_MOVIE_PICTURE_STRIDE * 2u),
-                             m->picture + y0 * SAT_MOVIE_PICTURE_STRIDE, h.height * SAT_MOVIE_PICTURE_STRIDE * 2u));
+        SAT_TRY(put_picture(cpu, kVramBase + hidden + y0 * SAT_MOVIE_PICTURE_STRIDE * 2u,
+                            m->picture + y0 * SAT_MOVIE_PICTURE_STRIDE, h.height * SAT_MOVIE_PICTURE_STRIDE * 2u));
         SAT_TRY(sat_vdp2_layer_set_pattern_name_base(SAT_VDP2_NBG0, hidden));
         shown_base = hidden;
         const uint64_t hz_ticks = sat_time_frequency_hz();

@@ -113,7 +113,7 @@ int main(void) {
         uint32_t shown_base = 0u, bar = 0u;
         uint8_t picture_on = 1u;
         if (page == PAGE_MOVIE) {
-            const sat_movie_play_options_t options = {SAT_PAD_START, 10u, 20u, 0u, {0u, 0u, 0u}};
+            const sat_movie_play_options_t options = {SAT_PAD_START, 10u, 20u, 0u, 0u, {0u, 0u}};
             status = sat_movie_play(&g_player, &g_volume, &g_block, "LSINTRO.MOV", &options, &skipped, &stats);
         } else if (page == PAGE_INFO) {
             status = sat_vdp2_layer_set_enabled(SAT_VDP2_NBG0, 0u);

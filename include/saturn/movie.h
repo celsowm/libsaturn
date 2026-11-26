@@ -94,7 +94,8 @@ typedef struct sat_movie_play_options {
     uint8_t fade_in_fields;       /* 0: the picture starts at once */
     uint8_t fade_out_fields;      /* the picture and the sound fade out at the end; 0: they stop at once */
     uint8_t audio_latency_fields; /* the clock starts this many fields after the sound; 0: 8 */
-    uint8_t reserved[3];
+    uint8_t cpu_copy;             /* 0: the SCU DMA writes each picture into VDP2 VRAM; 1: the CPU does (slower, no DMA) */
+    uint8_t reserved[2];
 } sat_movie_play_options_t;
 
 /* All the memory a play needs, about 490 KiB. Static, and in Work RAM High: the SCU reads the picture from it.
