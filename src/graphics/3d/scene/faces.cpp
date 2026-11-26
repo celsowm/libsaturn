@@ -1685,10 +1685,13 @@ extern "C" sat_result_t sat_scene3d_prepare_batch_execute(
             item.instance->mesh->face_count;
         batch->metrics.source_faces = source > 0xFFFFu
             ? 0xFFFFu : static_cast<uint16_t>(source);
+        const uint16_t before = prepared.count;
         const sat_result_t st = sat_scene3d_faces_submit_instance(
             &prepared, item.instance, item.color_calc_slot,
             item.screen_scratch, item.world_scratch);
         if (st != SAT_OK) return st;
+        if (batch->item_faces != nullptr)
+            batch->item_faces[i] = static_cast<uint16_t>(prepared.count - before);
     }
     batch->metrics.prepared_faces = prepared.count;
     batch->instance_profile=prepared.instance_profile;

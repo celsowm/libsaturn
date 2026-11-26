@@ -106,11 +106,23 @@ bool invalidate_range(uint32_t cached_address, uint32_t size) {
     /* One range check, then one associative-purge write per line. */
     const uint32_t end = cached_address + size;
     const uint32_t first = cached_address & ~(kLineBytes - 1u);
+    const uint32_t line_count = (end - first + kLineBytes - 1u) / kLineBytes;
+    /* A span longer than the whole 4 KiB cache costs one purge write per
+     * line, while one CCR purge drops every line at once. The cache is
+     * write-through, so dropping lines outside the span loses no data. The
+     * 2 KiB cache + RAM mode keeps the per-line path, so its on-chip RAM is
+     * never involved. */
+    constexpr uint32_t kCacheLines = 4096u / kLineBytes;
+    if (line_count > kCacheLines &&
+        (ccr() & kCcrModeBits) == static_cast<uint8_t>(Mode::Cache4KiB)) {
+        purge_through_alias(Mode::Cache4KiB);
+        return true;
+    }
     /* The purge address is formed once and stepped a line at a time: the
      * work RAM range never carries into the purge bit. */
     volatile uint16_t* purge = reinterpret_cast<volatile uint16_t*>(
         first | saturn::core::startup::kCachePurgeBit);
-    for (uint32_t lines = (end - first + kLineBytes - 1u) / kLineBytes; lines; --lines) {
+    for (uint32_t lines = line_count; lines; --lines) {
         *purge = 0u;
         purge += kLineBytes / sizeof(*purge);
     }

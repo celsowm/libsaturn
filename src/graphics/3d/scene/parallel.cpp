@@ -31,11 +31,32 @@ sat_result_t sync_range(const void* pointer, uint32_t size) {
     return sat_parallel_cache_sync_range(pointer, size);
 }
 
-sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance) {
+/* The material table one batch item synced. Chunks of one level share a
+ * table of thousands of materials; once a table without per-vertex Gouraud
+ * data (whose synced size depends on each mesh) has been synced in this
+ * batch, a later item naming the same table only needs its own per-face
+ * ranges. */
+struct SyncedTable {
+    const sat_scene3d_material_t* materials = nullptr;
+    uint16_t material_count = 0u;
+    const sat_scene3d_material_programs_t* programs = nullptr;
+    bool reusable = false;
+};
+
+sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance,
+                                   SyncedTable* synced) {
     const sat_mesh_t* const mesh = instance->mesh;
     SAT_TRY(sync_range(mesh->indices, static_cast<uint32_t>(mesh->face_count)*4u*sizeof(*mesh->indices)));
-    SAT_TRY(sync_range(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));
     SAT_TRY(sync_range(instance->face_materials, static_cast<uint32_t>(mesh->face_count)*sizeof(*instance->face_materials)));
+    const auto* binding=instance->validated_binding;
+    const sat_scene3d_material_programs_t* const table_programs =
+        binding ? binding->programs : nullptr;
+    if (synced->reusable && synced->materials == instance->materials &&
+        synced->material_count == instance->material_count &&
+        synced->programs == table_programs)
+        return SAT_OK;
+    SAT_TRY(sync_range(instance->materials, static_cast<uint32_t>(instance->material_count)*sizeof(*instance->materials)));
+    bool has_gouraud = false;
     /* Materials usually point at consecutive entries of one texture
      * table and share one Gouraud table. Sync each contiguous texture
      * run and each distinct table once: a model with a baked texture
@@ -64,6 +85,7 @@ sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance) {
                     sizeof(*material.tiled->tiles[tile])));
             }
         }
+        if (material.vertex_gouraud != nullptr) has_gouraud = true;
         if (material.vertex_gouraud != last_gouraud) {
             SAT_TRY(sync_range(material.vertex_gouraud, static_cast<uint32_t>(
                 mesh->vertex_count) * sizeof(*material.vertex_gouraud)));
@@ -71,12 +93,14 @@ sat_result_t sync_material_sources(const sat_scene3d_instance_t* instance) {
         }
     }
     SAT_TRY(sync_range(run, run_count * sizeof(*run)));
-    const auto* binding=instance->validated_binding;
-    if (binding && binding->programs) {
-        const auto* programs=binding->programs;
-        SAT_TRY(sync_range(programs,sizeof(*programs)));
-        SAT_TRY(sync_range(programs->entries,static_cast<uint32_t>(programs->count)*sizeof(*programs->entries)));
+    if (table_programs) {
+        SAT_TRY(sync_range(table_programs,sizeof(*table_programs)));
+        SAT_TRY(sync_range(table_programs->entries,static_cast<uint32_t>(table_programs->count)*sizeof(*table_programs->entries)));
     }
+    synced->materials = instance->materials;
+    synced->material_count = instance->material_count;
+    synced->programs = table_programs;
+    synced->reusable = !has_gouraud;
     return SAT_OK;
 }
 
@@ -96,6 +120,7 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool r
     SAT_TRY(sync_range(batch->native_commands,
         static_cast<uint32_t>(batch->capacity)*sizeof(sat_vdp1_native_command_t)));
     SAT_TRY(sync_range(batch->items, static_cast<uint32_t>(batch->item_count)*sizeof(*batch->items)));
+    SyncedTable synced;
     for (uint16_t i=0u; i<batch->item_count; ++i) {
         const auto& item = batch->items[i];
         const auto* instance = item.instance;
@@ -123,7 +148,7 @@ sat_result_t sync_batch_sources(const sat_scene3d_prepare_batch_t* batch, bool r
             for (uint16_t r=receiving ? 0u : plan->static_count; r<plan->range_count; ++r)
                 SAT_TRY(sync_range(plan->ranges[r].address, plan->ranges[r].bytes));
         } else {
-            SAT_TRY(sync_material_sources(instance));
+            SAT_TRY(sync_material_sources(instance, &synced));
         }
     }
     return SAT_OK;
@@ -183,6 +208,7 @@ sat_result_t prepare_batch_task(
     } else worker.faces = static_cast<sat_scene3d_face_t*>(output);
     worker.native_commands=static_cast<sat_vdp1_native_command_t*>(shared_uncached(shared->native_commands));
     worker.keys = static_cast<uint32_t*>(shared_uncached(shared->keys));
+    worker.item_faces = static_cast<uint16_t*>(shared_uncached(shared->item_faces));
     const sat_result_t result = sat_scene3d_prepare_batch_execute(&worker);
 #if SAT_PROFILE_METRICS
     const uint16_t geometry_end = saturn::hal::sh2::frt::counter();
@@ -366,6 +392,11 @@ extern "C" sat_result_t sat_scene_merge_prepared_batch(
     const sat_result_t commands_synced=sync_range(batch->native_commands,
         static_cast<uint32_t>(batch->metrics.prepared_faces)*sizeof(sat_vdp1_native_command_t));
     if(commands_synced!=SAT_OK)return record_frame_result(scene,commands_synced);
+    /* Like the keys, the per-item counts were written through an uncached
+     * alias; drop any line an earlier read left in this CPU's cache. */
+    const sat_result_t counts_synced=sync_range(batch->item_faces,
+        static_cast<uint32_t>(batch->item_count)*sizeof(*batch->item_faces));
+    if(counts_synced!=SAT_OK)return record_frame_result(scene,counts_synced);
     const uint16_t before = scene->faces.count;
     const sat_result_t merged = sat_scene3d_faces_merge_prepared(&scene->faces, batch);
     if (merged == SAT_OK) {

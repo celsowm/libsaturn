@@ -526,6 +526,11 @@ typedef struct sat_scene3d_prepare_batch {
     uint16_t cold_capacity;
     sat_vdp1_native_command_t* native_commands;
     sat_scene3d_profile_t instance_profile;
+    /* Optional caller-owned output, item_count entries (NULL: none). Each
+     * entry receives the faces that item added; items fill the span in index
+     * sequence, so after a merge item i occupies a known contiguous run.
+     * Valid after a successful execute, or after merge for an async batch. */
+    uint16_t* item_faces;
 } sat_scene3d_prepare_batch_t;
 
 sat_result_t sat_scene3d_prepare_batch_init(

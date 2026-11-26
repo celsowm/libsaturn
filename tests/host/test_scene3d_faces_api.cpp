@@ -821,8 +821,10 @@ static void direct_spans_preserve_order_and_cold_lifetimes() {
     for(auto* queue : std::array<sat_scene3d_faces_t*,2>{&scene,&reference})assert(sat_scene3d_faces_submit_quad(queue,&first,&master,0)==SAT_OK);
     batch.view_proj=vp;batch.eye=eye;batch.forward=forward;batch.near_depth=SAT_FX16_ONE;
     batch.width=320;batch.height=224;
+    uint16_t item_faces[3]={9,9,9};batch.item_faces=item_faces;
     assert(sat_scene3d_prepare_batch_execute(&batch)==SAT_OK);
     assert(batch.metrics.prepared_faces==2 && batch.metrics.culled_faces==1);
+    assert(item_faces[0]==1 && item_faces[1]==1 && item_faces[2]==0);
     assert(batch.projected_faces==hot+1 && batch.projected_faces[1].cold==cold);
     const auto saved0=hot[1],saved1=hot[2];
     assert(sat_scene3d_faces_merge_prepared(&scene,&batch)==SAT_OK);

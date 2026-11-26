@@ -19,18 +19,23 @@ int32_t snap(int32_t v, int32_t step) {
     return q * step;
 }
 
-int channel(uint16_t entry, unsigned shift) { return (entry >> shift) & 31; }
+/* A Gouraud entry split into its three 5-bit channels once per build: the
+ * SH-2 has no barrel shifter, so a per-vertex variable shift is a call. */
+struct Channels { int c[3]; };
+
+Channels channels(uint16_t entry) {
+    return {{entry & 31, (entry >> 5) & 31, (entry >> 10) & 31}};
+}
+
+int clamp_channel(int v) { return v < 0 ? 0 : (v > 31 ? 31 : v); }
 
 /* t is 16.16 in [0, 1]. A channel difference is at most 31, so the product
  * fits 32 bits. */
-uint16_t blend(uint16_t a, uint16_t b, int32_t t, int glint) {
-    int out[3];
-    for (unsigned c = 0; c < 3; ++c) {
-        const int from = channel(a, 5 * c), to = channel(b, 5 * c);
-        const int v = from + (((to - from) * t) >> 16) + glint;
-        out[c] = v < 0 ? 0 : (v > 31 ? 31 : v);
-    }
-    return static_cast<uint16_t>((out[2] << 10) | (out[1] << 5) | out[0]);
+uint16_t blend(const Channels& a, const Channels& b, int32_t t, int glint) {
+    const int r = clamp_channel(a.c[0] + (((b.c[0] - a.c[0]) * t) >> 16) + glint);
+    const int g = clamp_channel(a.c[1] + (((b.c[1] - a.c[1]) * t) >> 16) + glint);
+    const int bl = clamp_channel(a.c[2] + (((b.c[2] - a.c[2]) * t) >> 16) + glint);
+    return static_cast<uint16_t>((bl << 10) | (g << 5) | r);
 }
 
 bool in_range(int32_t v) { return v > -kRange && v < kRange; }
@@ -58,6 +63,7 @@ extern "C" sat_result_t sat_water_plane_build(sat_water_plane_t* plane,
     const uint32_t inv_outer = static_cast<uint32_t>((static_cast<int64_t>(1) << 32) / outer);
     int32_t inner_min_x = 0, inner_max_x = 0, inner_min_z = 0, inner_max_z = 0;
     const bool cull = cfg.forward_x != 0 || cfg.forward_z != 0;
+    const Channels near_c = channels(cfg.near_color), far_c = channels(cfg.far_color);
     plane->ring_count = cfg.rings;
 
     // The finest ring's wobble: a sine in x and one in z, each computed once per
@@ -103,7 +109,7 @@ extern "C" sat_result_t sat_water_plane_build(sat_water_plane_t* plane,
                 const int32_t t = away >= outer ? SAT_FX16_ONE
                     : static_cast<int32_t>(static_cast<uint64_t>(static_cast<uint32_t>(away)) * inv_outer >> 16);
                 ring.vertices[j * stride + i] = {clamp_to(x, cfg.min_x, cfg.max_x), y, cz};
-                ring.light[j * stride + i] = blend(cfg.near_color, cfg.far_color, t, glint);
+                ring.light[j * stride + i] = blend(near_c, far_c, t, glint);
             }
         }
 
