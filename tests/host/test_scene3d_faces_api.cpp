@@ -1274,6 +1274,56 @@ int main() {
     assert(emitted_slot[0]==SAT_INDEXED_SOLID_OPAQUE &&
            emitted_slot[1]==SAT_INDEXED_SOLID_OPAQUE);
 
+    // A horizontal split sends only faces wholly below split_y to split_pass
+    // (an actor's submerged faces, drawn before the water surface).
+    {
+        // The key stores PASS_MAX-pass above 24 bits of depth.
+        const auto key_pass=[](uint32_t key){return SAT_SCENE3D_PASS_MAX-(key>>24);};
+        sat_vec3_t split_local[8];
+        for(unsigned v=0;v<8u;++v) split_local[v]=local[v];
+        // Face 1 lies at y in [-3,-2]; face 0 keeps y in [-1,1].
+        for(unsigned v=4;v<8u;++v) split_local[v].y-=2*SAT_FX16_ONE;
+        sat_mesh_t split_mesh={split_local,indices,8u,8u,2u,2u};
+        auto split_instance=instance;
+        split_instance.mesh=&split_mesh;
+        split_instance.pass=3u;
+        split_instance.split_pass=1u;
+        split_instance.split_y=-SAT_FX16_ONE/2;
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&scene,&split_instance,
+            SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
+        assert(scene.count==2u);
+        assert(key_pass(scene.keys[0])==3u);   // crosses the plane: stays in pass
+        assert(key_pass(scene.keys[1])==1u);   // wholly below: split_pass
+        // A plane above everything moves both; split_pass 0 disables it.
+        split_instance.split_y=8*SAT_FX16_ONE;
+        emitted_count=0;
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&scene,&split_instance,
+            SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
+        assert(key_pass(scene.keys[0])==1u && key_pass(scene.keys[1])==1u);
+        split_instance.split_pass=0u;
+        emitted_count=0;
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+        assert(sat_scene3d_faces_begin(&scene,&vp,&eye,&forward,
+            SAT_FX16_ONE,320u,224u)==SAT_OK);
+        assert(sat_scene3d_faces_submit_instance(&scene,&split_instance,
+            SAT_SCENE3D_SLOT_INHERIT,screen,world)==SAT_OK);
+        assert(key_pass(scene.keys[0])==3u && key_pass(scene.keys[1])==3u);
+        // Pre-projected corners carry no world position to split on.
+        split_instance.split_pass=1u;
+        split_instance.world=nullptr;
+        split_instance.pre_projected=1u;
+        assert(sat_scene3d_faces_submit_instance(&scene,&split_instance,
+            SAT_SCENE3D_SLOT_INHERIT,screen,nullptr)==SAT_ERR_INVALID_ARG);
+        emitted_count=0;
+        assert(sat_scene3d_faces_flush(&scene)==SAT_OK);
+        emitted_count=0;
+    }
+
     // Fractional, negative and non-affine matrices retain the public transform's
     // XYZ semantics: each product rounds before summation, output w is unused.
     constexpr unsigned kCardinalCases=48,kTransformCases=kCardinalCases+64;

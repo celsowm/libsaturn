@@ -437,6 +437,16 @@ typedef struct sat_scene3d_instance {
      * (one 8-byte table per face, contiguous in VDP1 VRAM), so no per-face
      * word is read. 0 for none. */
     uint16_t face_gouraud_first;
+    /* Optional horizontal split for an actor crossing a water surface (or any
+     * level plane drawn in its own pass). When split_pass is nonzero, a face
+     * whose four WORLD corners all lie below split_y (y < split_y) is queued
+     * in split_pass instead of pass, so a painter-ordered surface drawn
+     * between the two passes hides it. Faces touching or crossing the plane
+     * keep pass. Not available with pre_projected (no world corners).
+     * split_pass sits in the padding after face_gouraud_first, so the pair
+     * adds only split_y's four bytes to every instance. */
+    uint16_t split_pass;
+    sat_fx16_t split_y;
 } sat_scene3d_instance_t;
 
 /* Compiled publication plan for immutable topology/material resources.

@@ -1271,6 +1271,8 @@ static sat_result_t submit_instance(
     const uint16_t* face_materials=instance ? instance->face_materials : nullptr;
     if (!scene || !scene->active || !instance ||
         instance->pass>SAT_SCENE3D_PASS_MAX ||
+        instance->split_pass>SAT_SCENE3D_PASS_MAX ||
+        (instance->split_pass && instance->pre_projected) ||
         !mesh || !mesh->vertices || !mesh->indices ||
         !mesh->vertex_count || !mesh->face_count ||
         mesh->vertex_count>mesh->vertex_cap ||
@@ -1392,6 +1394,17 @@ static sat_result_t submit_instance(
         }
     }
     const auto* programs=use_programs && binding && binding->programs ? binding->programs->entries : nullptr;
+    /* Per-face pass: the instance pass, or split_pass for a face wholly
+     * below split_y. `world` holds world corners whenever split_pass is set
+     * (pre_projected is rejected above). */
+    const uint16_t split_pass=instance->split_pass;
+    const sat_fx16_t split_y=instance->split_y;
+    const auto face_pass=[&](const uint16_t* idx)->uint16_t {
+        if (!split_pass) return instance->pass;
+        return (world[idx[0]].y<split_y && world[idx[1]].y<split_y &&
+                world[idx[2]].y<split_y && world[idx[3]].y<split_y)
+            ? split_pass : instance->pass;
+    };
     const bool compiled_instance=programs && !override_slot && all_safe_indexed &&
         binding->programs->all_compiled;
     const bool fast=compiled_instance && all_positive && mesh->face_count<=0x7FFFu;
@@ -1409,9 +1422,10 @@ static sat_result_t submit_instance(
             const uint16_t pass=instance->pass;
             uint16_t culled=0u;
 #if SAT_NATIVE_SCENE_COMMANDS
-            const bool own_loop=scene->projected_entries && !scene->native_commands;
+            const bool own_loop=scene->projected_entries && !scene->native_commands &&
+                !split_pass;
 #else
-            const bool own_loop=scene->projected_entries!=nullptr;
+            const bool own_loop=scene->projected_entries!=nullptr && !split_pass;
 #endif
             if(own_loop && instance->pre_projected && instance->projected_offsets &&
                !face_gouraud && double_sided && mesh->vertex_count<=4096u &&
@@ -1445,8 +1459,8 @@ static sat_result_t submit_instance(
                         continue;
                     }
                 }
-                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass,
-                    face_gouraud?face_gouraud[f]:0u);
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],
+                    split_pass?face_pass(idx):pass,face_gouraud?face_gouraud[f]:0u);
             }
             scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
 #if SAT_PROFILE_METRICS
@@ -1508,8 +1522,8 @@ static sat_result_t submit_instance(
                         continue;
                     }
                 }
-                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],pass,
-                    face_gouraud?face_gouraud[f]:0u);
+                append_program_body(scene,screen_scratch,idx,&programs[face_materials[f]],
+                    split_pass?face_pass(idx):pass,face_gouraud?face_gouraud[f]:0u);
             }
             scene->culled_faces=static_cast<uint16_t>(scene->culled_faces+culled);
         }
@@ -1547,7 +1561,7 @@ static sat_result_t submit_instance(
             if(!visible){++scene->culled_faces;continue;}
         }
         if (compiled_instance) {
-            append_program(scene,screen_scratch,idx,&programs[face_materials[f]],instance->pass,
+            append_program(scene,screen_scratch,idx,&programs[face_materials[f]],face_pass(idx),
                 face_gouraud?face_gouraud[f]:0u);
             continue;
         }
@@ -1560,22 +1574,23 @@ static sat_result_t submit_instance(
             const auto* program=&programs[face_materials[f]];
             if (program->texture &&
                 (known_safe || safe_projection(*scene,screen_scratch,idx,false))) {
-                append_program(scene,screen_scratch,idx,program,instance->pass,
+                append_program(scene,screen_scratch,idx,program,face_pass(idx),
                     face_gouraud?face_gouraud[f]:0u);
                 continue;
             }
         }
         sat_result_t st;
+        const uint16_t pass=face_pass(idx);
         if (override_slot) {
             sat_scene3d_material_t overridden=base;
             overridden.color_calc_slot=color_calc_slot;
             st=known_safe
-                ? append<true>(scene,nullptr,screen_scratch,idx,overridden,instance->pass)
-                : append(scene,corners,screen_scratch,idx,overridden,instance->pass);
+                ? append<true>(scene,nullptr,screen_scratch,idx,overridden,pass)
+                : append(scene,corners,screen_scratch,idx,overridden,pass);
         } else {
             st=known_safe
-                ? append<true>(scene,nullptr,screen_scratch,idx,base,instance->pass)
-                : append(scene,corners,screen_scratch,idx,base,instance->pass);
+                ? append<true>(scene,nullptr,screen_scratch,idx,base,pass)
+                : append(scene,corners,screen_scratch,idx,base,pass);
         }
         if (st!=SAT_OK) {
             scene->count=previous_count;
