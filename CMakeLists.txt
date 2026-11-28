@@ -139,6 +139,7 @@ if(LIBSATURN_BUILD_RUNTIME)
     set_source_files_properties(
         src/audio/music/open.cpp src/audio/music/player.cpp src/audio/music/disc_feed.cpp
         src/storage/cd/disc_stream.cpp src/audio/streaming/api.cpp
+        src/graphics/3d/animation/character_asset.cpp src/graphics/vdp2/layers.cpp
         PROPERTIES COMPILE_OPTIONS "-Os")
     # The compiler runtime (software division, 64-bit shifts, ...) must follow
     # libsaturn.a on every link line, so it is part of the Core link interface.
