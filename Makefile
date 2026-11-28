@@ -176,7 +176,8 @@ LIB_CXXFLAGS := $(LIB_CFLAGS) -std=c++20 -fno-exceptions -fno-rtti \
 # Make example runtime and CMake package. Codec hot loops remain at -O2.
 LIB_SIZE_CXX_SRCS := src/audio/music/open.cpp src/audio/music/player.cpp \
                      src/audio/music/disc_feed.cpp src/storage/cd/disc_stream.cpp \
-                     src/audio/streaming/api.cpp
+                     src/audio/streaming/api.cpp src/graphics/3d/animation/character_asset.cpp \
+                     src/graphics/vdp2/layers.cpp
 LIB_PROFILE_KEY := $(shell $(PYTHON) tools/build_variant_key.py \
     "$(LIB_CFLAGS)" "$(LIB_CXXFLAGS)" "$(ASFLAGS)" \
     "scene_faces=-O3;size_sources=$(LIB_SIZE_CXX_SRCS)=-Os")
